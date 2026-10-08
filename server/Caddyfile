@@ -1,0 +1,9 @@
+{
+    admin off
+}
+
+{$CCGC_HOST} {
+    reverse_proxy gateway:8080 {
+        flush_interval -1
+    }
+}

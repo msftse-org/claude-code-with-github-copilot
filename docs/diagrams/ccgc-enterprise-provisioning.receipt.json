@@ -1,0 +1,47 @@
+{
+  "schemaVersion": 1,
+  "provider": "Azure OpenAI",
+  "model": "gpt-image-2",
+  "modelVersion": "2026-04-21",
+  "operation": "images/edits",
+  "apiVersion": "2025-04-01-preview",
+  "authentication": "Existing Azure CLI Entra identity",
+  "startedAt": "2026-10-07T19:19:07.023072+00:00",
+  "completedAt": "2026-10-07T19:20:45.716172+00:00",
+  "serviceCreated": 1791400844,
+  "statusCode": 200,
+  "requestId": "ebae5c9a-9456-41c7-bd36-fbc3e0c2b623",
+  "quality": "high",
+  "reference": {
+    "file": "ccgc-enterprise-provisioning.visual-check.2048x1320.light.png",
+    "sha256": "d27840667d2ae88584e77cd91f56240449800d334075444d84745ece6336ab9d",
+    "bytes": 176336
+  },
+  "prompt": {
+    "file": "ccgc-enterprise-provisioning.prompt.txt",
+    "sha256": "a537a0a86a9908f13c126f9739343cd0f1ad0dda7634ae684ab8572946c7e82a",
+    "bytes": 3771
+  },
+  "image": {
+    "file": "ccgc-enterprise-provisioning.png",
+    "sha256": "19933c87f496d17dd36c386ce4acab734e893e1e03f8cc3c6cd204a9bb7c0328",
+    "bytes": 2360849,
+    "width": 2560,
+    "height": 1600
+  },
+  "usage": {
+    "input_tokens": 2318,
+    "input_tokens_details": {
+      "image_tokens": 1488,
+      "text_tokens": 830
+    },
+    "output_tokens": 8779,
+    "output_tokens_details": {
+      "image_tokens": 8779,
+      "text_tokens": 0
+    },
+    "total_tokens": 11097
+  },
+  "visualReview": "pending",
+  "infrastructureChanged": false
+}

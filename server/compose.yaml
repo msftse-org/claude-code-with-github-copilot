@@ -1,0 +1,72 @@
+name: ccgc
+
+x-runtime: &runtime
+  image: ccgc-runtime:0.2.0-alpha.1
+  build:
+    context: ..
+    dockerfile: server/Dockerfile
+  init: true
+  restart: "no"
+  read_only: true
+  tmpfs:
+    - /tmp:mode=1777,size=128m
+  volumes:
+    - state:/state
+  cap_drop: [ALL]
+  security_opt: [no-new-privileges:true]
+
+services:
+  setup:
+    <<: *runtime
+    profiles: [operator]
+    command: [--help]
+    logging:
+      driver: none
+
+  litellm:
+    <<: *runtime
+    command: [serve]
+    networks: [backend, egress]
+    healthcheck:
+      test: [CMD, /opt/venv/bin/python, -c, "import urllib.request; urllib.request.urlopen('http://127.0.0.1:4000/health/liveliness', timeout=3).close()"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 30s
+
+  gateway:
+    <<: *runtime
+    entrypoint: [node, /app/src/serve.ts]
+    environment:
+      CCGC_BIND_HOST: 0.0.0.0
+      CCGC_LITELLM_URL: http://litellm:4000
+    depends_on:
+      litellm:
+        condition: service_healthy
+    networks: [frontend, backend, egress]
+
+  ingress:
+    image: caddy:2.11.2-alpine
+    restart: "no"
+    environment:
+      CCGC_HOST: ${CCGC_HOST:?Set the public DNS hostname for TLS}
+    ports: ["443:443", "80:80"]
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - tls-data:/data
+      - tls-config:/config
+    depends_on: [gateway]
+    networks: [frontend, egress]
+    security_opt: [no-new-privileges:true]
+
+networks:
+  frontend:
+    internal: true
+  backend:
+    internal: true
+  egress: {}
+
+volumes:
+  state: {}
+  tls-data: {}
+  tls-config: {}

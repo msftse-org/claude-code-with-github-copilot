@@ -1,0 +1,30 @@
+{
+  "schemaVersion": 1,
+  "ok": true,
+  "command": "deliver",
+  "type": "architecture",
+  "input": "/Users/shironbabi/Desktop/OneDrive - Microsoft/Desktop/microsoft/claude-code-with-github-copilot/docs/architecture.archify.json",
+  "output": "/Users/shironbabi/Desktop/OneDrive - Microsoft/Desktop/microsoft/claude-code-with-github-copilot/docs/architecture.html",
+  "specification": {
+    "sha256": "b36f63cb431b4979887c1f58edad32ada709ba130ad5a108ee9abe819ca78c86",
+    "bytes": 5279
+  },
+  "artifact": {
+    "sha256": "2aee96139caa5d2294aef11a2bbb5dc799f027edd01629d2c865efae60671fa3",
+    "bytes": 722723
+  },
+  "validation": {
+    "checksPassed": 9,
+    "checkCount": 9,
+    "compositionProfile": "showcase",
+    "compositionStatus": "pass",
+    "errors": 0,
+    "warnings": 0
+  },
+  "open": {
+    "requested": true,
+    "status": "opened",
+    "target": "/Users/shironbabi/Desktop/OneDrive - Microsoft/Desktop/microsoft/claude-code-with-github-copilot/docs/architecture.html",
+    "method": "open"
+  }
+}

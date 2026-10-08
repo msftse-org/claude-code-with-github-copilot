@@ -1,0 +1,154 @@
+{
+  "schemaVersion": 1,
+  "reviewedOn": "2026-10-07",
+  "reviewMethod": "Direct inspection of rendered HTML screenshots and generated PNGs by Copilot",
+  "scope": {
+    "designStatus": "Proposed enterprise target; not implemented or deployed",
+    "runtimeAndProvisioningSeparated": true,
+    "newInfrastructureDeployed": false,
+    "liveGatewayModified": false,
+    "clientSettingsModified": false,
+    "copilotInferencePerformed": false,
+    "imageGenerationInvocations": 3
+  },
+  "interactiveDiagrams": [
+    {
+      "diagram_type": "architecture",
+      "file": "ccgc-enterprise-runtime.html",
+      "sha256": "2ce3b932715444332fe9acb758f22d9e15a2186f9bb5657b2fcae56eb33eba7c",
+      "bytes": 716586,
+      "specification": {
+        "file": "ccgc-enterprise-runtime.architecture.json",
+        "sha256": "f7f0d536b85c7c5395597010a17b37ddaf6d3f450bc81e5b087d4a97dace512b",
+        "bytes": 4086
+      },
+      "deliveryReceipt": "ccgc-enterprise-runtime.delivery.json",
+      "visualEvidence": "ccgc-enterprise-runtime.visual-check.json",
+      "visual_review": "passed",
+      "correction_rounds": 0,
+      "showcaseChecksPassed": 9,
+      "compositionErrors": 0,
+      "compositionWarnings": 0,
+      "containmentPassed": ["1440x900", "1600x1000", "1920x1080", "2048x1320"],
+      "inspectedScreenshots": [
+        "ccgc-enterprise-runtime.visual-check.1440x900.light.png",
+        "ccgc-enterprise-runtime.visual-check.1440x900.dark.png",
+        "ccgc-enterprise-runtime.visual-check.2048x1320.light.png",
+        "ccgc-enterprise-runtime.visual-check.2048x1320.dark.png"
+      ],
+      "observations": [
+        "The five-component inference rail is separate from identity, secret, control-state and telemetry dependencies.",
+        "Local tools and the upstream Copilot service remain outside the private workload boundary.",
+        "Entra, broker-only secret access and per-user worker caches are distinct; no shared Copilot seat is shown.",
+        "The two control-state writes have separate arrowheads; JWT trust text does not mask the boundary title.",
+        "No provisioning pipeline, IaC stage or deployment flow appears.",
+        "Both themes remain contained, with readable labels and conclusion cards at the largest desktop size."
+      ]
+    },
+    {
+      "diagram_type": "workflow",
+      "file": "ccgc-enterprise-provisioning.html",
+      "sha256": "c92a5e9af4cf743cea1c7284f3d60c25aa36ad47a7c76286f6e0e5d06fb1842e",
+      "bytes": 717693,
+      "specification": {
+        "file": "ccgc-enterprise-provisioning.workflow.json",
+        "sha256": "382587975a23b80f206f6acae371ee7156fe663466155b59460b135db5a15507",
+        "bytes": 4084
+      },
+      "deliveryReceipt": "ccgc-enterprise-provisioning.delivery.json",
+      "visualEvidence": "ccgc-enterprise-provisioning.visual-check.json",
+      "visual_review": "passed",
+      "correction_rounds": 0,
+      "showcaseChecksPassed": 9,
+      "compositionErrors": 0,
+      "compositionWarnings": 0,
+      "containmentPassed": ["1440x900", "1600x1000", "1920x1080", "2048x1320"],
+      "inspectedScreenshots": [
+        "ccgc-enterprise-provisioning.visual-check.1440x900.light.png",
+        "ccgc-enterprise-provisioning.visual-check.1440x900.dark.png",
+        "ccgc-enterprise-provisioning.visual-check.2048x1320.light.png",
+        "ccgc-enterprise-provisioning.visual-check.2048x1320.dark.png"
+      ],
+      "observations": [
+        "The eight-stage main path crosses distinct approval, platform, onboarding and promotion lanes.",
+        "Failed acceptance goes to failure containment, never directly to production promotion.",
+        "Recovery requires an existing known-good release; the first-install and no-replay caveats are visible.",
+        "Bicep OR Terraform remains a mutually exclusive environment choice.",
+        "The workflow is explicitly proposed; no runtime inference topology is mixed into it.",
+        "Both themes fit the checked desktop sizes; the numbered raster storyboard is preferred for presentations."
+      ]
+    }
+  ],
+  "presentationImages": [
+    {
+      "diagram_type": "architecture",
+      "file": "ccgc-enterprise-runtime-v2.png",
+      "sha256": "92d4ddd8ae59e555464ddcdd5a2152ef3209b45d76af27299b1ff06ba676203d",
+      "bytes": 2268627,
+      "width": 2560,
+      "height": 1600,
+      "generationReceipt": "ccgc-enterprise-runtime-v2.receipt.json",
+      "supersedesDraft": "ccgc-enterprise-runtime.png",
+      "visual_review": "passed",
+      "correction_rounds": 1,
+      "inspectedSizes": ["2560x1600", "1280x800"],
+      "correctedDefect": "The initial managed-identity connector stopped at the workload heading. The selected v2 connects the broker's upper-right edge continuously to Key Vault through a clear whitespace corridor.",
+      "observations": [
+        "All nine components and four primary request arrows preserve the technical topology.",
+        "Managed-identity, JWT trust, database and telemetry paths terminate at their intended components without crossing text.",
+        "The proposed/not-deployed badge is prominent and all production caveats remain readable.",
+        "The client remains unmodified with local tools; access remains per employee and entitled Claude model.",
+        "No provisioning flow, shared seat, direct Anthropic credential or image-generation service appears."
+      ],
+      "rubric": {
+        "scale": 5,
+        "minimumRequired": 4,
+        "technicalAccuracy": 5,
+        "primaryMessageClarity": 5,
+        "visualHierarchy": 4,
+        "readability": 4,
+        "layoutBalance": 4,
+        "connectorClarity": 5,
+        "textDensity": 4,
+        "consistency": 4,
+        "brandingRestraint": 4,
+        "presentationReadiness": 4
+      }
+    },
+    {
+      "diagram_type": "workflow",
+      "file": "ccgc-enterprise-provisioning.png",
+      "sha256": "19933c87f496d17dd36c386ce4acab734e893e1e03f8cc3c6cd204a9bb7c0328",
+      "bytes": 2360849,
+      "width": 2560,
+      "height": 1600,
+      "generationReceipt": "ccgc-enterprise-provisioning.receipt.json",
+      "visual_review": "passed",
+      "correction_rounds": 0,
+      "inspectedSizes": ["2560x1600", "1280x800"],
+      "observations": [
+        "Numbered stages 01-04 read left-to-right, then 05-08 right-to-left with a clear downward transition.",
+        "Pass goes to staged rollout; Fail goes to Block promotion; If prior good goes only to Approved recovery.",
+        "The first-install block and prohibition on inference replay remain visible.",
+        "Bicep OR Terraform, federated identity and human authorization gates are preserved.",
+        "The proposed/not-implemented badge and existing single-user automation limitation are explicit.",
+        "No runtime inference graph is included; the small build/foundation notes remain readable at presentation size."
+      ],
+      "rubric": {
+        "scale": 5,
+        "minimumRequired": 4,
+        "technicalAccuracy": 5,
+        "primaryMessageClarity": 5,
+        "visualHierarchy": 5,
+        "readability": 4,
+        "layoutBalance": 4,
+        "connectorClarity": 5,
+        "textDensity": 4,
+        "consistency": 4,
+        "brandingRestraint": 5,
+        "presentationReadiness": 4
+      }
+    }
+  ],
+  "evidencePolicy": "Automated delivery, screenshot and image-generation receipts are unchanged. Their pending visual-review fields are superseded only by this separate inspection record, not rewritten."
+}

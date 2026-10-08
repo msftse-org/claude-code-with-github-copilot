@@ -1,0 +1,52 @@
+{
+  "schema_version": 2,
+  "diagram_type": "workflow",
+  "meta": {
+    "title": "Enterprise provisioning - proposed workflow",
+    "locale": "en",
+    "quality_profile": "showcase"
+  },
+  "lanes": [
+    {"id": "release-governance", "label": "Scope and approval"},
+    {"id": "platform-build", "label": "Platform provisioning"},
+    {"id": "controlled-adoption", "label": "User onboarding and release"},
+    {"id": "release-promotion", "label": "Production promotion"},
+    {"id": "failed-acceptance", "label": "Failure containment", "variant": "exception"}
+  ],
+  "mainPath": ["approve-scope", "plan-infrastructure", "approve-change", "private-foundation", "deploy-runtime", "link-user-seats", "prove-acceptance", "promote-rings"],
+  "nodes": [
+    {"id": "approve-scope", "lane": "release-governance", "col": 0, "type": "security", "label": "Approve scope", "sublabel": "Permission / SLO / cost", "width": 155},
+    {"id": "plan-infrastructure", "lane": "release-governance", "col": 1, "type": "cloud", "label": "Build + IaC plan", "sublabel": "Signed build / Bicep OR Terraform", "width": 180},
+    {"id": "approve-change", "lane": "release-governance", "col": 2, "type": "security", "label": "Human approval", "sublabel": "Exact changes / costs", "width": 155},
+    {"id": "private-foundation", "lane": "platform-build", "col": 2, "type": "cloud", "label": "Private foundation", "sublabel": "Network / HA data / identities", "width": 180},
+    {"id": "deploy-runtime", "lane": "platform-build", "col": 3, "type": "backend", "label": "Deploy services", "sublabel": "APIM / apps / workers", "width": 155},
+    {"id": "link-user-seats", "lane": "controlled-adoption", "col": 3, "type": "frontend", "label": "Link each user", "sublabel": "SSO / own GitHub seat", "width": 155},
+    {"id": "prove-acceptance", "lane": "controlled-adoption", "col": 4, "type": "security", "label": "Acceptance gates", "sublabel": "SSE / isolation / failover", "width": 155},
+    {"id": "promote-rings", "lane": "release-promotion", "col": 4, "type": "cloud", "label": "Staged rollout", "sublabel": "Pilot / rings / monitoring", "width": 155},
+    {"id": "halt-promotion", "lane": "failed-acceptance", "col": 3, "type": "security", "label": "Block promotion", "sublabel": "Revoke affected admissions", "width": 155},
+    {"id": "restore-release", "lane": "failed-acceptance", "col": 4, "type": "messagebus", "label": "Approved recovery", "sublabel": "Restore known-good release", "width": 155}
+  ],
+  "edges": [
+    {"from": "approve-scope", "to": "plan-infrastructure", "label": "authorized", "role": "main"},
+    {"from": "plan-infrastructure", "to": "approve-change", "label": "review", "role": "main"},
+    {"from": "approve-change", "to": "private-foundation", "label": "approved", "variant": "security", "role": "main"},
+    {"from": "private-foundation", "to": "deploy-runtime", "label": "scoped", "role": "main"},
+    {"from": "deploy-runtime", "to": "link-user-seats", "label": "healthy", "role": "main"},
+    {"from": "link-user-seats", "to": "prove-acceptance", "label": "bound", "role": "main"},
+    {"from": "prove-acceptance", "to": "promote-rings", "label": "pass", "role": "main"},
+    {"from": "prove-acceptance", "to": "halt-promotion", "label": "fail", "variant": "security", "role": "error"},
+    {"from": "halt-promotion", "to": "restore-release", "label": "if prior good", "variant": "security", "role": "branch"}
+  ],
+  "semanticChecks": {
+    "allowedRoots": ["approve-scope"],
+    "allowedTerminals": ["promote-rings", "restore-release"],
+    "requiredPaths": [
+      {"from": "approve-change", "to": "promote-rings"},
+      {"from": "prove-acceptance", "to": "restore-release"}
+    ]
+  },
+  "cards": [
+    {"dot": "violet", "title": "Separate enterprise build path", "items": ["Federated CI identity; one IaC engine per environment.", "Enterprise modules are proposed, not implemented."]},
+    {"dot": "amber", "title": "Human gates and safe recovery", "items": ["No consent or acceptance means no promotion.", "First install stays blocked; inference is never replayed."]}
+  ]
+}

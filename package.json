@@ -1,0 +1,24 @@
+{
+  "name": "claude-code-with-github-copilot",
+  "version": "0.2.0-alpha.1",
+  "private": true,
+  "type": "module",
+  "description": "Experimental remote LiteLLM gateway and Claude Code configuration for Copilot-provided Anthropic models",
+  "engines": { "node": ">=24.0.0 <25" },
+  "bin": { "ccgc": "src/cli.ts" },
+  "scripts": {
+    "ccgc": "node src/cli.ts",
+    "serve": "node src/serve.ts",
+    "check": "tsc --noEmit",
+    "test": "node --test test/*.test.ts",
+    "test:client": "node --test test/claude.integration.ts test/remote.integration.ts",
+    "test:bootstrap": "python3 -m unittest discover -s server -p 'test_*.py'",
+    "deploy": "python3 server/deploy.py",
+    "test:infra": "terraform -chdir=infra/terraform test",
+    "test:litellm": "server/.venv/bin/python -m unittest discover -s server -p 'integration_*.py'"
+  },
+  "devDependencies": {
+    "@types/node": "24.10.1",
+    "typescript": "5.9.3"
+  }
+}

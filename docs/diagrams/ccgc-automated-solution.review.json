@@ -1,0 +1,53 @@
+{
+  "schemaVersion": 1,
+  "reviewedOn": "2026-10-07",
+  "reviewMethod": "Direct image inspection by Copilot",
+  "architecture": {
+    "file": "ccgc-automated-solution.html",
+    "sha256": "d4797fdb8cdf9a30b41b90080ef814ed42b6fb345d9162ee4d9c17127281b944",
+    "visual_review": "passed",
+    "correction_rounds": 0,
+    "showcaseChecksPassed": 9,
+    "compositionErrors": 0,
+    "compositionWarnings": 0,
+    "containmentPassed": ["1440x900", "1600x1000", "1920x1080", "2048x1320"],
+    "inspectedScreenshots": [
+      "ccgc-automated-solution.visual-check.1440x900.light.png",
+      "ccgc-automated-solution.visual-check.1440x900.dark.png",
+      "ccgc-automated-solution.visual-check.2048x1320.light.png",
+      "ccgc-automated-solution.visual-check.2048x1320.dark.png"
+    ],
+    "observations": [
+      "Primary request route is left-to-right with no unrelated node crossings.",
+      "Setup/control path and protected-state branches remain distinguishable.",
+      "Azure containment excludes local tools and the upstream Copilot service.",
+      "Text, cards and viewer controls remain contained in both inspected themes.",
+      "Large desktop composition uses the available height without a large empty lower band."
+    ]
+  },
+  "presentationImage": {
+    "file": "ccgc-automated-solution.gpt-image-v2.png",
+    "sha256": "d6c0ff37337d9bdcabecbd96bca84c7482bcf7333558ab2c2b910665f8e83923",
+    "visual_review": "passed",
+    "correction_rounds": 1,
+    "width": 2560,
+    "height": 1600,
+    "supersedesDraft": "ccgc-automated-solution.gpt-image.png",
+    "correctedDefect": "The first image's install/activate connector stopped at the Azure heading. The second image restores the downward arrow into Node gateway without obscuring the heading.",
+    "observations": [
+      "Five runtime nodes preserve the Claude Code, Caddy, Node gateway, LiteLLM, GitHub Copilot order.",
+      "Bicep or Terraform remains a mutually exclusive setup choice.",
+      "Defender JIT access points toward host bootstrap, not into the inference path.",
+      "Local tools remain outside Azure; protected server state remains inside.",
+      "All six Claude family/version names are readable and match the reviewed catalog.",
+      "Single-user, no-fallback and unexecuted-new-deployment caveats are retained.",
+      "No unimplemented enterprise services or image model appear as runtime components."
+    ]
+  },
+  "scope": {
+    "newInfrastructureDeployed": false,
+    "liveGatewayModified": false,
+    "clientSettingsModified": false,
+    "copilotInferencePerformed": false
+  }
+}

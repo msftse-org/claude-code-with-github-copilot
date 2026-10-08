@@ -1,0 +1,37 @@
+name: Validate gateway and deployment automation
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  offline:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24.18.1
+          cache: npm
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.14.3
+      - run: npm ci
+      - run: npm run check && npm test && npm run test:bootstrap
+      - run: bash -n server/azure-deploy.sh server/deploy-host.sh
+      - run: terraform fmt -recursive -check infra/terraform
+      - run: terraform -chdir=infra/terraform init -backend=false -input=false -lockfile=readonly
+      - run: terraform -chdir=infra/terraform validate && terraform -chdir=infra/terraform test
+      - run: az bicep install --version v0.48.1
+      - run: |
+          az bicep build --file infra/bicep/main.bicep --stdout > "$RUNNER_TEMP/ccgc-new.json"
+          az bicep build --file infra/main.bicep --stdout > "$RUNNER_TEMP/ccgc-legacy.json"
+      - run: pip install checkov==3.3.21
+      - run: checkov -d infra --framework bicep terraform --skip-download --compact

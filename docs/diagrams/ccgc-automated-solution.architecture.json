@@ -1,0 +1,142 @@
+{
+  "schema_version": 1,
+  "diagram_type": "architecture",
+  "meta": {
+    "title": "Claude Code with GitHub Copilot",
+    "locale": "en",
+    "quality_profile": "showcase",
+    "viewBox": [1390, 750]
+  },
+  "components": [
+    {
+      "id": "deployment-coordinator",
+      "type": "backend",
+      "label": "Deployment coordinator",
+      "sublabel": "server/deploy.py",
+      "tag": "APPROVAL-GATED",
+      "pos": [40, 65],
+      "size": [215, 85]
+    },
+    {
+      "id": "infrastructure-choice",
+      "type": "cloud",
+      "label": "Bicep or Terraform",
+      "sublabel": "One engine per deployment",
+      "pos": [395, 65],
+      "size": [215, 85]
+    },
+    {
+      "id": "host-bootstrap",
+      "type": "cloud",
+      "label": "Host bootstrap",
+      "sublabel": "D2as_v5 / Ubuntu / Docker",
+      "pos": [775, 65],
+      "size": [235, 85]
+    },
+    {
+      "id": "operator-access",
+      "type": "security",
+      "label": "Defender JIT + SSH",
+      "sublabel": "Verified host key / one IPv4",
+      "tag": "55-MINUTE WINDOW",
+      "pos": [1150, 65],
+      "size": [220, 85]
+    },
+    {
+      "id": "official-claude",
+      "type": "frontend",
+      "label": "Claude Code",
+      "sublabel": "Unmodified CLI 2.1.284",
+      "brand": "claude",
+      "pos": [40, 345],
+      "size": [200, 85]
+    },
+    {
+      "id": "https-ingress",
+      "type": "cloud",
+      "label": "Caddy",
+      "sublabel": "Public TLS ingress",
+      "pos": [350, 345],
+      "size": [150, 85]
+    },
+    {
+      "id": "admission-control",
+      "type": "backend",
+      "label": "Node gateway",
+      "sublabel": "Admission / history / limits",
+      "pos": [615, 345],
+      "size": [210, 85]
+    },
+    {
+      "id": "copilot-connector",
+      "type": "backend",
+      "label": "LiteLLM",
+      "sublabel": "Native Copilot connector",
+      "pos": [925, 345],
+      "size": [190, 85]
+    },
+    {
+      "id": "seat-model-access",
+      "type": "external",
+      "label": "GitHub Copilot",
+      "sublabel": "Entitled Claude models",
+      "tag": "NO PROVIDER FALLBACK",
+      "pos": [1200, 345],
+      "size": [180, 85]
+    },
+    {
+      "id": "local-workspace",
+      "type": "frontend",
+      "label": "Tools + Keychain",
+      "sublabel": "Read / Edit / Bash locally",
+      "pos": [40, 590],
+      "size": [215, 85]
+    },
+    {
+      "id": "protected-volume",
+      "type": "database",
+      "label": "Protected server state",
+      "sublabel": "Copilot credentials / catalog / gateway keys",
+      "pos": [670, 590],
+      "size": [370, 85]
+    }
+  ],
+  "boundaries": [
+    {
+      "kind": "region",
+      "label": "Azure VM / Sweden Central / private container networks",
+      "wraps": ["https-ingress", "admission-control", "copilot-connector", "protected-volume"],
+      "pad": 28
+    }
+  ],
+  "connections": [
+    {"id": "preview-and-apply", "from": "deployment-coordinator", "to": "infrastructure-choice", "label": "plan / apply", "variant": "dashed"},
+    {"id": "provision-reviewed-host", "from": "infrastructure-choice", "to": "host-bootstrap", "label": "provision", "variant": "dashed"},
+    {"id": "bounded-access", "from": "operator-access", "to": "host-bootstrap", "label": "SSH /32", "variant": "security"},
+    {"id": "install-activate", "from": "host-bootstrap", "to": "admission-control", "label": "install / activate", "variant": "dashed", "fromSide": "bottom", "toSide": "top"},
+    {"id": "configured-client-request", "from": "official-claude", "to": "https-ingress", "label": "HTTPS", "variant": "emphasis"},
+    {"id": "ingress-to-gateway", "from": "https-ingress", "to": "admission-control", "label": "Messages", "variant": "emphasis"},
+    {"id": "exact-model-routing", "from": "admission-control", "to": "copilot-connector", "label": "exact ID", "variant": "emphasis"},
+    {"id": "native-upstream-inference", "from": "copilot-connector", "to": "seat-model-access", "label": "HTTPS / SSE", "variant": "emphasis"},
+    {"id": "local-tool-execution", "from": "official-claude", "to": "local-workspace", "label": "local calls", "fromSide": "bottom", "toSide": "top"},
+    {"id": "gateway-state-binding", "from": "admission-control", "to": "protected-volume", "label": "verify binding", "variant": "security", "fromSide": "bottom", "toSide": "top"},
+    {"id": "provider-token-refresh", "from": "copilot-connector", "to": "protected-volume", "label": "token refresh", "variant": "security", "fromSide": "bottom", "toSide": "top"}
+  ],
+  "cards": [
+    {
+      "dot": "cyan",
+      "title": "Claude keeps the coding workflow",
+      "items": ["Tools and permissions stay on the Mac.", "Gateway discovery supports six Claude models."]
+    },
+    {
+      "dot": "amber",
+      "title": "Automation keeps human approvals",
+      "items": ["Costs, browser sign-in, client changes and inference.", "Synthetic tool proof precedes a fresh admission."]
+    },
+    {
+      "dot": "rose",
+      "title": "Single-user alpha, not enterprise HA",
+      "items": ["One authorized seat; no shared account pool.", "Fresh IaC applies remain unexecuted."]
+    }
+  ]
+}

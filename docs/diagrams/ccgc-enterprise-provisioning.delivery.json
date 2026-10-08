@@ -1,0 +1,24 @@
+{
+  "schemaVersion": 1,
+  "ok": true,
+  "command": "deliver",
+  "type": "workflow",
+  "input": "/Users/shironbabi/Library/CloudStorage/OneDrive-Microsoft/Desktop/microsoft/claude-code-with-github-copilot/docs/diagrams/ccgc-enterprise-provisioning.workflow.json",
+  "output": "/Users/shironbabi/Library/CloudStorage/OneDrive-Microsoft/Desktop/microsoft/claude-code-with-github-copilot/docs/diagrams/ccgc-enterprise-provisioning.html",
+  "specification": {
+    "sha256": "382587975a23b80f206f6acae371ee7156fe663466155b59460b135db5a15507",
+    "bytes": 4084
+  },
+  "artifact": {
+    "sha256": "c92a5e9af4cf743cea1c7284f3d60c25aa36ad47a7c76286f6e0e5d06fb1842e",
+    "bytes": 717693
+  },
+  "validation": {
+    "checksPassed": 9,
+    "checkCount": 9,
+    "compositionProfile": "showcase",
+    "compositionStatus": "pass",
+    "errors": 0,
+    "warnings": 0
+  }
+}

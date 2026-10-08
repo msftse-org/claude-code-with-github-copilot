@@ -1,0 +1,24 @@
+{
+  "schemaVersion": 1,
+  "ok": true,
+  "command": "deliver",
+  "type": "architecture",
+  "input": "/Users/shironbabi/Library/CloudStorage/OneDrive-Microsoft/Desktop/microsoft/claude-code-with-github-copilot/docs/diagrams/ccgc-automated-solution.architecture.json",
+  "output": "/Users/shironbabi/Library/CloudStorage/OneDrive-Microsoft/Desktop/microsoft/claude-code-with-github-copilot/docs/diagrams/ccgc-automated-solution.html",
+  "specification": {
+    "sha256": "8280ba2eb67a87aadd3f45e8331abad0cbe20d7ac83d242e3a097bedc1d1fe42",
+    "bytes": 5069
+  },
+  "artifact": {
+    "sha256": "d4797fdb8cdf9a30b41b90080ef814ed42b6fb345d9162ee4d9c17127281b944",
+    "bytes": 723187
+  },
+  "validation": {
+    "checksPassed": 9,
+    "checkCount": 9,
+    "compositionProfile": "showcase",
+    "compositionStatus": "pass",
+    "errors": 0,
+    "warnings": 0
+  }
+}

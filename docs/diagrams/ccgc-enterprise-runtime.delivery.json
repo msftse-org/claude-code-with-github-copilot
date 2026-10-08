@@ -1,0 +1,24 @@
+{
+  "schemaVersion": 1,
+  "ok": true,
+  "command": "deliver",
+  "type": "architecture",
+  "input": "/Users/shironbabi/Library/CloudStorage/OneDrive-Microsoft/Desktop/microsoft/claude-code-with-github-copilot/docs/diagrams/ccgc-enterprise-runtime.architecture.json",
+  "output": "/Users/shironbabi/Library/CloudStorage/OneDrive-Microsoft/Desktop/microsoft/claude-code-with-github-copilot/docs/diagrams/ccgc-enterprise-runtime.html",
+  "specification": {
+    "sha256": "f7f0d536b85c7c5395597010a17b37ddaf6d3f450bc81e5b087d4a97dace512b",
+    "bytes": 4086
+  },
+  "artifact": {
+    "sha256": "2ce3b932715444332fe9acb758f22d9e15a2186f9bb5657b2fcae56eb33eba7c",
+    "bytes": 716586
+  },
+  "validation": {
+    "checksPassed": 9,
+    "checkCount": 9,
+    "compositionProfile": "showcase",
+    "compositionStatus": "pass",
+    "errors": 0,
+    "warnings": 0
+  }
+}
