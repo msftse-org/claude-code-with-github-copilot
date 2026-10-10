@@ -1,8 +1,11 @@
 **
 !package.json
+!package-lock.json
 !src/
 !src/*.ts
 !server/
 !server/pyproject.toml
 !server/bootstrap.py
 !server/Dockerfile
+!server/Dockerfile.enterprise
+!server/Dockerfile.enterprise-worker

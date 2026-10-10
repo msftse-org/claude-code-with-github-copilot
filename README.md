@@ -5,6 +5,15 @@ Anthropic models supplied through **your own GitHub Copilot seat**. No separate
 Anthropic inference credential, replacement coding client, or local inference
 proxy is part of the target workflow.
 
+**Enterprise foundation implemented, not deployed.** The repository now includes
+an Entra-authenticated multi-user broker, PostgreSQL admission/dispatch fencing
+and audit outbox, Key Vault worker resolution, an isolated per-user worker
+wrapper, an Entra/admission-based Claude credential helper, private Container
+Apps/PostgreSQL/Key Vault/ACR Bicep, and optional internal APIM. APIM is not a
+LiteLLM replacement: APIM is an optional governance ingress, while LiteLLM
+remains the current Copilot/Anthropic connector inside each isolated user worker.
+See [the enterprise implementation and deployment gates](docs/ENTERPRISE.md).
+
 **Deployment automation:** [the end-to-end runbook](docs/AUTOMATION.md) supports
 both **Bicep and Terraform** through `python3 server/deploy.py`. It covers a new
 host, verified JIT/SSH, account binding, HTTPS activation, Mac configuration,
@@ -49,12 +58,14 @@ eligible Claude models after browser authorization, before explicit model bindin
 
 ## Architecture and access
 
-The **enterprise target** is documented in two separate diagrams:
+The **enterprise target and implemented foundation** are documented in
+[the enterprise runbook](docs/ENTERPRISE.md) and two separate diagrams:
 [runtime architecture](docs/diagrams/ccgc-enterprise-runtime-v2.png) and
 [provisioning/rollout](docs/diagrams/ccgc-enterprise-provisioning.png).
 Interactive [runtime](docs/diagrams/ccgc-enterprise-runtime.html) and
 [workflow](docs/diagrams/ccgc-enterprise-provisioning.html) versions are included.
-These are proposed designs, **not deployed enterprise functionality**; see the
+The broker, client, worker wrapper and secure Bicep foundation now exist and are
+locally validated, but they are **not deployed enterprise functionality**; see the
 [enterprise target contract](docs/PRD.md#enterprise-target-revision-017) and
 [diagram sources/provenance](docs/diagrams/README.md).
 

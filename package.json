@@ -4,11 +4,19 @@
   "private": true,
   "type": "module",
   "description": "Experimental remote LiteLLM gateway and Claude Code configuration for Copilot-provided Anthropic models",
-  "engines": { "node": ">=24.0.0 <25" },
-  "bin": { "ccgc": "src/cli.ts" },
+  "engines": {
+    "node": ">=24.0.0 <25"
+  },
+  "bin": {
+    "ccgc": "src/cli.ts"
+  },
   "scripts": {
     "ccgc": "node src/cli.ts",
     "serve": "node src/serve.ts",
+    "serve:enterprise": "node src/enterprise-serve.ts",
+    "serve:enterprise-worker": "node src/enterprise-worker-serve.ts",
+    "enterprise:admin": "node src/enterprise-admin.ts",
+    "enterprise:client": "node src/enterprise-cli.ts",
     "check": "tsc --noEmit",
     "test": "node --test test/*.test.ts",
     "test:client": "node --test test/claude.integration.ts test/remote.integration.ts",
@@ -19,6 +27,13 @@
   },
   "devDependencies": {
     "@types/node": "24.10.1",
+    "@types/pg": "8.15.5",
     "typescript": "5.9.3"
+  },
+  "dependencies": {
+    "@azure/identity": "4.13.1",
+    "@azure/keyvault-secrets": "4.10.0",
+    "jose": "6.1.0",
+    "pg": "8.16.3"
   }
 }

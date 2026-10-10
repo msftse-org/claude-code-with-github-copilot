@@ -15,6 +15,7 @@ Use Node.js 24 and install with `npm ci`.
 npm run check          # strict TypeScript check, no emit
 npm test               # synthetic unit and protocol tests
 npm run test:client    # real pinned Claude CLI against local fake upstream
+npm run enterprise:client -- --help
 ```
 
 Run one test file with `node --test test/gateway.test.ts`. Run one named test with:
@@ -30,6 +31,9 @@ node --test --test-name-pattern="<test name>" test/gateway.test.ts
 - `src/cli.ts` is the configuration-first remote CLI. It configures the supported Claude gateway surface, performs diagnostics, and manages the gateway credential without running a persistent local inference listener.
 - `src/remote-client.ts`, `src/remote-server.ts`, and `src/remote.ts` implement the remote profile, admission, metadata, and credential boundaries.
 - `src/litellm.ts` represents the preferred first connector candidate: LiteLLM's native GitHub Copilot Anthropic Messages provider.
+- `src/enterprise-auth.ts`, `src/enterprise-store.ts`, and `src/enterprise-server.ts` implement the Entra-authenticated, PostgreSQL-fenced enterprise broker.
+- `src/enterprise-worker-server.ts` is the isolated per-user LiteLLM wrapper; `src/enterprise-client.ts` supplies Claude with opaque bounded admission tokens.
+- `infra/enterprise/` is additive private Bicep. APIM is optional governance ingress, not a LiteLLM replacement.
 - `src/local-cli.ts`, `src/gateway.ts`, `src/copilot.ts`, and `src/claude.ts` retain the local native Messages adapter as an experimental development and regression harness, not the target deployment.
 - `src/protocol.ts` owns strict parsing and explicit bridge errors. Unsupported or ambiguous input must fail closed rather than be silently removed, retried, or routed to another provider.
 - `test/claude.integration.ts` exercises the pinned real Claude Code CLI with fake upstreams and disposable repositories; the other test files cover CLI, Copilot, gateway, and protocol behavior.

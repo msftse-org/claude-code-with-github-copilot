@@ -1,0 +1,15 @@
+{
+  "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentParameters.json#",
+  "contentVersion": "1.0.0.0",
+  "parameters": {
+    "prefix": {"value": "ccgc-prod"},
+    "location": {"value": "swedencentral"},
+    "tenantId": {"value": "00000000-0000-0000-0000-000000000000"},
+    "entraAudience": {"value": "api://00000000-0000-0000-0000-000000000000"},
+    "postgresAdminObjectId": {"value": "00000000-0000-0000-0000-000000000000"},
+    "postgresAdminName": {"value": "id-ccgc-postgres-admin"},
+    "brokerImage": {"value": "replace.azurecr.io/ccgc-enterprise-broker@sha256:replace"},
+    "enableApim": {"value": false},
+    "apimPublisherEmail": {"value": "platform-owners@example.com"}
+  }
+}

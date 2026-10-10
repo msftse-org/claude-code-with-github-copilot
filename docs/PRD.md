@@ -3,14 +3,39 @@
 | Field | Value |
 |---|---|
 | Project | `claude-code-with-github-copilot` |
-| Revision | 0.17 - Enterprise target with separate runtime and provisioning diagrams |
-| Created / revised | 2026-10-04 / 2026-10-07 |
-| Status | Claude Code 2.1.284 and multi-model gateway active; all six Copilot Claude models and switching through full tool histories live-verified; experimental single-user alpha |
+| Revision | 0.18 - Enterprise broker, client, worker contract and private Bicep foundation implemented |
+| Created / revised | 2026-10-04 / 2026-10-10 |
+| Status | Single-user alpha live evidence retained; enterprise foundation locally validated but not deployed or production-approved |
 | Working name / command | Copilot Gateway for Claude Code / ordinary Claude client, with optional `ccgc` setup and diagnostics |
 | Initial platform | macOS on Apple silicon |
 | Product decision owner | Project owner |
 
 ## 1. Product decision
+
+### Enterprise implementation (revision 0.18)
+
+Revision 0.18 implements the first enterprise foundation described by the
+revision 0.17 diagrams. It adds Microsoft Entra JWT validation; immutable
+tenant/object-to-GitHub bindings; opaque bounded admissions compatible with
+Claude's normal credential helper; PostgreSQL transactions for binding revision,
+attempt reservation, dispatch fencing and audit outbox; private Key Vault worker
+resolution; a per-user worker wrapper that rejects stale fences before LiteLLM;
+an Entra-aware Claude configuration helper; and secure Bicep for private,
+zone-redundant Container Apps, PostgreSQL, Key Vault, ACR, monitoring, NAT and
+optional internal APIM. The implementation and remaining gates are in
+[ENTERPRISE.md](ENTERPRISE.md).
+
+APIM and LiteLLM are explicitly not treated as equivalents. The broker itself
+validates Entra and is a functional private ingress, so APIM defaults off and is
+enabled only for centralized API governance. LiteLLM remains the current
+Copilot-specific authentication and native Messages connector inside each
+isolated worker; removing it requires a separately verified connector.
+
+This revision did not deploy Azure resources, publish images, create an Entra
+application, authorize another Copilot account or claim production readiness.
+Per-user worker lifecycle automation, supported linking, durable conversation
+lineage across worker restarts, private live tests, load/soak and vendor approval
+remain release gates.
 
 ### Enterprise target (revision 0.17)
 
