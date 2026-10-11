@@ -8,7 +8,7 @@ Claude Code on your Mac
         |
         | HTTPS
         v
-Admission gateway -> LiteLLM -> GitHub Copilot -> Claude
+Admission gateway -> LiteLLM -> GitHub Copilot -> Anthropic Models
 ```
 
 Claude Code remains unchanged. It reads and edits files and runs commands on
@@ -103,6 +103,13 @@ claude
 Use Claude Code's `/model` command to switch models. Do not use a command-line
 `--model` override because the credential helper intentionally rejects routing
 that conflicts with the approved gateway configuration.
+
+If Claude reports `ADMISSION_REQUIRED` with HTTP 410, the previous bounded
+session expired or was lost. Create and verify a fresh admission:
+
+```bash
+node src/cli.ts doctor --live --accept-unofficial
+```
 
 ## Install the development tools
 
