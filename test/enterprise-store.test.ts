@@ -18,7 +18,7 @@ test('PostgreSQL store atomically binds, reserves, fences, audits and revokes', 
       ...principal,
       githubAccountId: 1234,
       githubLogin: 'developer',
-      workerSecretName: 'worker-developer',
+      credentialSecretName: 'copilot-developer',
       models: ['claude-sonnet-5.5'],
       evidenceDigest: 'a'.repeat(64),
     });
@@ -26,17 +26,17 @@ test('PostgreSQL store atomically binds, reserves, fences, audits and revokes', 
     assert.equal((await store.binding(principal)).githubAccountId, 1234);
     const admission = await store.createAdmission(principal, 3600, 2);
     const tokenHash = Buffer.from(await crypto.subtle.digest('SHA-256', Buffer.from(admission.token))).toString('hex');
-    const reserved = await store.reserveDispatch(tokenHash, 'b'.repeat(64), 'claude-sonnet-5.5');
+    const reserved = await store.reserveDispatch(tokenHash, 'b'.repeat(64), 'claude-sonnet-5.5', 'main');
     assert.equal(reserved.fence, 1);
     await assert.rejects(
-      store.reserveDispatch(tokenHash, 'b'.repeat(64), 'claude-sonnet-5.5'),
+      store.reserveDispatch(tokenHash, 'b'.repeat(64), 'claude-sonnet-5.5', 'main'),
       /already reserved/i,
     );
     await store.finishDispatch(reserved.id, 'completed');
     await store.revokeBinding(principal.tenantId, principal.objectId, 'c'.repeat(64));
     await assert.rejects(store.binding(principal), /no active same-user/i);
     await assert.rejects(
-      store.reserveDispatch(tokenHash, 'd'.repeat(64), 'claude-sonnet-5.5'),
+      store.reserveDispatch(tokenHash, 'd'.repeat(64), 'claude-sonnet-5.5', 'main'),
       /missing, expired, or revoked/i,
     );
     const audit = await store.pool.query('SELECT event_type FROM enterprise_audit_outbox ORDER BY id');

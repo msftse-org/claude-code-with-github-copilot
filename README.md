@@ -12,15 +12,16 @@ Employee Claude Code
 Enterprise admission broker
         |
         v
-Isolated per-user worker
+Shared multi-user worker fleet
         |
         v
-LiteLLM -> Employee's GitHub Copilot seat -> Anthropic Models
+Account-scoped native connector -> Employee's GitHub Copilot seat -> Anthropic Models
 ```
 
-Each employee has a separate identity binding, worker, Copilot authorization,
-credential cache, model catalog, admission, limits, and conversation state.
-Seats and credentials are never pooled.
+Each employee has a separate identity binding, Copilot authorization, connector
+context, model catalog, admission, limits, and encrypted conversation
+checkpoints. Worker replicas are shared for scale, but seats, credentials,
+token refresh state, checkpoints, and quotas remain account scoped.
 
 > [!IMPORTANT]
 > The enterprise foundation is implemented and locally validated, but it is not
@@ -31,37 +32,40 @@ Seats and credentials are never pooled.
 > The Copilot connector is unofficial and is not endorsed by GitHub or
 > Anthropic. The organization must approve this use before onboarding employees.
 
-## Why both the broker and LiteLLM are needed
+## Why the enterprise path does not use LiteLLM
 
-They perform different required jobs:
+The enterprise path has two required project components:
 
 | Component | What it is | Why it is required |
 |---|---|---|
 | Enterprise admission broker | Project-developed TypeScript/Node.js service. | Validates Entra identity, resolves the employee binding, issues bounded admissions, reserves attempts, fences dispatches, and records audit metadata. |
-| Isolated per-user worker | Project-developed TypeScript/Node.js service. | Enforces one employee's identity, admission, model catalog, dispatch order, and conversation state before inference. |
-| [LiteLLM](https://github.com/BerriAI/litellm) | Third-party open-source model gateway. | Handles the employee's GitHub Copilot authorization, token refresh, model discovery, and Anthropic Messages transport. |
+| Shared multi-user worker | Project-developed TypeScript/Node.js service. | Verifies short-lived broker-signed dispatches, selects an account-scoped Copilot connector, enforces per-user fairness, and restores encrypted branch checkpoints on any replica. |
 
-The broker cannot replace LiteLLM's Copilot authentication and transport.
-LiteLLM cannot replace the broker's enterprise identity, admission, isolation,
-fencing, and audit controls.
+The native connector in `src/copilot.ts` performs GitHub identity validation,
+Copilot token refresh, model discovery, token counting, and Anthropic Messages
+transport independently for each account context. Unmodified LiteLLM is not used
+because its GitHub Copilot credential directory is process global and therefore
+cannot safely select many employee seats inside one shared worker process.
 
-API Management is not included because it does not replace either required
-component.
+LiteLLM remains only in the retained single-user proof deployment. API
+Management is not included because the broker already owns enterprise identity,
+policy, admission, routing, and audit controls.
 
 ## Enterprise Azure components
 
 | Component | Purpose |
 |---|---|
-| Azure Container Apps | Runs the internal broker and isolated per-user workers. |
+| Azure Container Apps | Runs two or more broker replicas and a shared worker fleet that scales from 2 to 30 replicas. |
 | Microsoft Entra ID | Authenticates employees and supplies immutable tenant/object identity. |
 | Azure Database for PostgreSQL | Stores user bindings, admission state, attempt reservations, dispatch fences, and audit intent. |
-| Azure Key Vault | Resolves each employee's private worker endpoint and broker credential. |
+| Azure Key Vault | Stores account-scoped GitHub credentials, the dispatch-signing secret, and checkpoint-encryption material. |
+| Azure Blob Storage | Stores client-side-encrypted branch checkpoints with ETag conditional writes. |
 | Azure Container Registry | Stores approved immutable broker and worker images. |
 | NAT Gateway | Gives the private workers controlled, stable outbound connectivity. |
 | Azure Monitor and Application Insights | Records operational metadata without prompt or response bodies. |
 
-The broker is the only enterprise ingress. Workers, PostgreSQL, Key Vault, and
-the registry remain private.
+The broker is the only employee-facing enterprise ingress. The worker service,
+PostgreSQL, Key Vault, Blob Storage, and the registry remain private.
 
 ## On the Mac
 
@@ -75,7 +79,8 @@ Each employee needs:
   metadata
 
 The Mac uses Microsoft Entra to request an admission. GitHub and Copilot
-credentials remain inside that employee's isolated worker.
+credentials remain in private Key Vault and are loaded only into the matching
+account-scoped worker connector.
 
 See [Mac enterprise setup and operation](docs/mac/README.md) for installation,
 Entra sign-in, configuration, Keychain behavior, verification, and daily use.
@@ -137,10 +142,14 @@ docker build -f server/Dockerfile.enterprise -t ccgc-enterprise-broker:test .
 docker build -f server/Dockerfile.enterprise-worker -t ccgc-enterprise-worker:test .
 
 az bicep build --file infra/enterprise/main.bicep --stdout > enterprise.json
-checkov -f enterprise.json --framework arm --skip-download --compact
+checkov -d infra/enterprise --framework bicep --skip-download --compact \
+  --skip-check CKV_AZURE_43
 ```
 
 The PostgreSQL integration test runs when `CCGC_TEST_POSTGRES_URL` is set.
+`CKV_AZURE_43` is skipped because Checkov cannot evaluate the Bicep
+`take(...uniqueString...)` storage name expression; the expression is lowercase
+alphanumeric and capped at Azure's 24-character limit.
 
 ## Employee onboarding
 
@@ -160,8 +169,8 @@ npm run enterprise:admin -- link --confirm-same-user \
 ```
 
 The binding contains the immutable Entra and GitHub IDs, approved models, and
-that employee's private worker reference. Updating a binding increments its
-revision and revokes existing admissions.
+that employee's Key Vault credential reference. Updating a binding increments
+its revision and revokes existing admissions.
 
 ### 2. Employee configures the Mac
 
@@ -187,8 +196,15 @@ cache policy.
 - Admission tokens are random, bounded, hashed server-side, and stored locally
   only in macOS Keychain.
 - PostgreSQL atomically reserves attempts and creates monotonic dispatch fences.
-- Per-user workers reject wrong principals, stale fences, model drift, and
-  excess admissions.
+- Broker-signed, 60-second dispatch assertions bind tenant, principal, account,
+  credential reference, binding revision, admission, branch, model, fence, and
+  dispatch ID.
+- Shared workers reject invalid assertions, duplicate dispatch IDs, stale
+  branch fences, cross-account state, model drift, and per-user saturation.
+- Account-scoped connectors never share GitHub OAuth credentials, Copilot token
+  caches, or refresh locks.
+- Conversation checkpoints are encrypted before private Blob Storage and use
+  ETag compare-and-swap to detect concurrent writers.
 - Broker and worker do not retry inference.
 - Prompt and response bodies are not logged or stored by the broker.
 - No provider fallback, response cache, or shared credential pool is used.
@@ -201,8 +217,8 @@ Production deployment still requires:
 1. Entra API registration, permissions, and Conditional Access approval
 2. Private PostgreSQL administrator/bootstrap flow
 3. Built, scanned, signed, and immutable broker/worker images
-4. Private employee worker lifecycle automation
-5. Two-user isolation, revocation, load, failure, and restore testing
+4. Supported employee GitHub linking/token revocation automation
+5. Live two-user, revocation, load, replica-failure, restore, and noisy-neighbor testing
 6. Monitoring privacy review
 7. Azure cost and change-plan approval
 8. Vendor and organization approval for the unofficial Copilot route
@@ -213,9 +229,11 @@ The foundation must not be described as production-ready until these gates pass.
 
 ![Enterprise architecture](docs/diagrams/ccgc-enterprise-runtime.png)
 
-The current diagram separates the enterprise broker, per-user worker, and
-LiteLLM connector, and records the verified rich-input, adaptive-thinking,
-token-counting, agent-branch, background-task, and completed-turn resume state.
+The current diagram shows the enterprise broker, horizontally scaled multi-user
+worker fleet, account-scoped native connectors, private credential store, and
+encrypted checkpoint store. It also records the verified rich-input,
+adaptive-thinking, token-counting, agent-branch, background-task, and
+completed-turn resume state.
 Diagram sources and validation receipts are in
 [docs/diagrams](docs/diagrams/README.md).
 

@@ -5,11 +5,14 @@ import { startEnterpriseServer } from '../src/enterprise-server.ts';
 import type { AccountBinding, DispatchReservation, EnterpriseStore } from '../src/enterprise-store.ts';
 import type { WorkerResolver } from '../src/enterprise-worker.ts';
 import { BridgeError } from '../src/protocol.ts';
-import type { ObjectValue } from '../src/protocol.ts';
+import type { Backend } from '../src/copilot.ts';
 import { startEnterpriseWorkerServer } from '../src/enterprise-worker-server.ts';
+import { DispatchSigner, DispatchVerifier, type DispatchClaims } from '../src/enterprise-dispatch.ts';
+import { MemoryCheckpointStore } from '../src/enterprise-checkpoint.ts';
+import { AccountScopedConnectorPool, type AccountConnectorFactory } from '../src/enterprise-connector.ts';
 import { message, model, request, tools } from './fixtures.ts';
 import { createServer as createNetServer } from 'node:net';
-import { access, mkdtemp, readFile, rm } from 'node:fs/promises';
+import { mkdtemp, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { EnterpriseClient, configureEnterprise } from '../src/enterprise-client.ts';
@@ -25,7 +28,7 @@ const binding: AccountBinding = {
   objectId: principal.objectId,
   githubAccountId: 1234,
   githubLogin: 'developer',
-  workerSecretName: 'worker-developer',
+  credentialSecretName: 'copilot-developer',
   models: ['claude-sonnet-5.5'],
   revision: 1,
 };
@@ -58,16 +61,18 @@ class FakeStore implements EnterpriseStore {
     assert.match(tokenHash, /^[a-f0-9]{64}$/);
     return { admissionId: '33333333-3333-3333-3333-333333333333', binding };
   }
-  async reserveDispatch(tokenHash: string, requestHash: string, model: string): Promise<DispatchReservation> {
+  async reserveDispatch(tokenHash: string, requestHash: string, model: string, branchId: string): Promise<DispatchReservation> {
     assert.match(tokenHash, /^[a-f0-9]{64}$/);
     assert.match(requestHash, /^[a-f0-9]{64}$/);
     assert.equal(model, 'claude-sonnet-5.5');
+    assert.equal(branchId, 'main');
     this.reservations++;
     return {
       id: '44444444-4444-4444-4444-444444444444',
       admissionId: '33333333-3333-3333-3333-333333333333',
       fence: 7,
       requestHash,
+      branchId,
       binding,
     };
   }
@@ -80,8 +85,32 @@ class FakeStore implements EnterpriseStore {
 class FakeWorkers implements WorkerResolver {
   async resolve(value: AccountBinding) {
     assert.deepEqual(value, binding);
-    return { url: 'https://worker.internal', token: 'x'.repeat(64), githubAccountId: binding.githubAccountId };
+    return { url: 'https://worker.internal', credentialSecretName: binding.credentialSecretName };
   }
+}
+
+const dispatchSecret = 'dispatch-secret-'.repeat(4);
+const brokerOrigin = 'https://broker.internal';
+const workerOrigin = 'https://worker.internal';
+
+function dispatchClaims(fence: number, dispatchId = `${String(fence).padStart(8, '0')}-4444-4444-8444-444444444444`): DispatchClaims {
+  return {
+    dispatchId,
+    tenantId: principal.tenantId,
+    objectId: principal.objectId,
+    admissionId: '33333333-3333-3333-3333-333333333333',
+    branchId: 'main',
+    bindingRevision: binding.revision,
+    githubAccountId: binding.githubAccountId,
+    githubLogin: binding.githubLogin,
+    credentialSecretName: binding.credentialSecretName,
+    fence,
+    model: model.id,
+  };
+}
+
+function connector(send: Backend['send']): AccountConnectorFactory {
+  return { async connector() { return { send }; } };
 }
 
 test('enterprise bearer parsing fails closed', () => {
@@ -93,52 +122,42 @@ test('enterprise bearer parsing fails closed', () => {
 
 test('isolated enterprise worker restores an exact pending tool batch after restart', async () => {
   const port = await freePort();
-  const stateDir = await mkdtemp(join(tmpdir(), 'ccgc-worker-state-'));
-  const token = 'w'.repeat(64);
-  const admissionId = '33333333-3333-3333-3333-333333333333';
-  const headers = (fence: number) => ({
-    authorization: 'Bearer ' + token,
+  const checkpoints = new MemoryCheckpointStore();
+  const signer = new DispatchSigner(dispatchSecret, brokerOrigin, workerOrigin);
+  const verifier = new DispatchVerifier(dispatchSecret, brokerOrigin, workerOrigin);
+  const headers = async (fence: number) => ({
+    authorization: 'Bearer ' + await signer.sign(dispatchClaims(fence)),
     'content-type': 'application/json',
-    'x-ccgc-principal-id': principal.objectId,
-    'x-ccgc-admission-id': admissionId,
-    'x-ccgc-dispatch-fence': String(fence),
   });
   const blocks = [{ type: 'tool_use', id: 'durable-read', name: 'Read', input: { file_path: 'synthetic.txt' } }];
   const options = {
-    token,
-    principalId: principal.objectId,
-    githubAccountId: binding.githubAccountId,
+    verifier,
+    checkpoints,
     models: [model],
-    litellmUrl: 'http://litellm.internal:4000',
-    litellmToken: 'l'.repeat(64),
     expectedHost: `127.0.0.1:${port}`,
-    stateDir,
     port,
   };
   let worker = await startEnterpriseWorkerServer({
     ...options,
-    fetcher: async () => Response.json(message(blocks, 'tool_use')),
+    connectors: connector(async () => Response.json(message(blocks, 'tool_use'))),
   });
   try {
     const first = await fetch(`http://127.0.0.1:${port}/v1/messages`, {
       method: 'POST',
-      headers: headers(1),
+      headers: await headers(1),
       body: JSON.stringify(request({ tools })),
     });
     assert.equal(first.status, 200, await first.text());
     await worker.close();
-    await access(join(stateDir, `${admissionId}.json`));
 
     let restoredCalls = 0;
     worker = await startEnterpriseWorkerServer({
       ...options,
-      fetcher: async (_input, init) => {
+      connectors: connector(async body => {
         restoredCalls++;
-        const raw = init?.body;
-        const payload = JSON.parse(typeof raw === 'string' ? raw : Buffer.from(raw as Uint8Array).toString('utf8')) as ObjectValue;
-        assert.match(JSON.stringify(payload.messages), /durable-read/);
+        assert.match(JSON.stringify(body.messages), /durable-read/);
         return Response.json(message());
-      },
+      }),
     });
     const continuation = request({
       tools,
@@ -150,16 +169,15 @@ test('isolated enterprise worker restores an exact pending tool batch after rest
     });
     const second = await fetch(`http://127.0.0.1:${port}/v1/messages`, {
       method: 'POST',
-      headers: headers(2),
+      headers: await headers(2),
       body: JSON.stringify(continuation),
     });
     assert.equal(second.status, 200, await second.text());
     assert.equal(restoredCalls, 1);
     await worker.close();
-    await assert.rejects(access(join(stateDir, `${admissionId}.json`)));
+    assert.equal(checkpoints.values.size, 0);
   } finally {
     await worker.close().catch(() => undefined);
-    await rm(stateDir, { recursive: true });
   }
 });
 
@@ -170,6 +188,7 @@ test('enterprise broker binds principal, admission, dispatch fence and isolated 
     authenticator: new FakeAuthenticator(),
     store,
     workers: new FakeWorkers(),
+    dispatchSigner: new DispatchSigner(dispatchSecret, brokerOrigin, workerOrigin),
     fetcher: async (input, init) => {
       calls.push({ url: String(input), init: init ?? {} });
       return new Response('event: message_stop\ndata: {}\n\n', {
@@ -223,9 +242,12 @@ test('enterprise broker binds principal, admission, dispatch fence and isolated 
     assert.equal(calls.length, 1);
     assert.equal(calls[0]?.url, 'https://worker.internal/v1/messages');
     const headers = new Headers(calls[0]?.init.headers);
-    assert.equal(headers.get('x-ccgc-dispatch-fence'), '7');
-    assert.equal(headers.get('x-ccgc-admission-id'), '33333333-3333-3333-3333-333333333333');
-    assert.equal(headers.get('x-ccgc-principal-id'), principal.objectId);
+    const assertion = headers.get('authorization')?.slice('Bearer '.length) ?? '';
+    const claims = await new DispatchVerifier(dispatchSecret, brokerOrigin, workerOrigin).verify(assertion);
+    assert.equal(claims.fence, 7);
+    assert.equal(claims.admissionId, '33333333-3333-3333-3333-333333333333');
+    assert.equal(claims.objectId, principal.objectId);
+    assert.equal(claims.credentialSecretName, binding.credentialSecretName);
     assert.equal(headers.get('anthropic-version'), '2023-06-01');
   } finally {
     await server.close();
@@ -240,6 +262,7 @@ test('enterprise broker records failed worker calls without retry', async () => 
     authenticator: new FakeAuthenticator(),
     store,
     workers: new FakeWorkers(),
+    dispatchSigner: new DispatchSigner(dispatchSecret, brokerOrigin, workerOrigin),
     fetcher: async () => {
       calls++;
       throw new Error('synthetic worker failure');
@@ -278,29 +301,23 @@ async function freePort(): Promise<number> {
 test('isolated enterprise worker rejects stale dispatch fences before inference', async () => {
   const port = await freePort();
   let calls = 0;
-  const token = 'w'.repeat(64);
+  const signer = new DispatchSigner(dispatchSecret, brokerOrigin, workerOrigin);
   const worker = await startEnterpriseWorkerServer({
-    token,
-    principalId: principal.objectId,
-    githubAccountId: binding.githubAccountId,
+    verifier: new DispatchVerifier(dispatchSecret, brokerOrigin, workerOrigin),
+    checkpoints: new MemoryCheckpointStore(),
     models: [model],
-    litellmUrl: 'http://litellm.internal:4000',
-    litellmToken: 'l'.repeat(64),
     expectedHost: `127.0.0.1:${port}`,
     port,
-    fetcher: async () => {
+    connectors: connector(async () => {
       calls++;
       return Response.json(message());
-    },
+    }),
   });
 
   try {
     const headers = {
-      authorization: `Bearer ${token}`,
+      authorization: `Bearer ${await signer.sign(dispatchClaims(1))}`,
       'content-type': 'application/json',
-      'x-ccgc-principal-id': principal.objectId,
-      'x-ccgc-admission-id': '33333333-3333-3333-3333-333333333333',
-      'x-ccgc-dispatch-fence': '1',
     };
     const first = await fetch(`http://127.0.0.1:${port}/v1/messages`, {
       method: 'POST',
@@ -318,6 +335,167 @@ test('isolated enterprise worker rejects stale dispatch fences before inference'
   } finally {
     await worker.close();
   }
+});
+
+test('one shared worker serves two users without sharing connector or checkpoint state', async () => {
+  const port = await freePort();
+  const signer = new DispatchSigner(dispatchSecret, brokerOrigin, workerOrigin);
+  const accounts: string[] = [];
+  const worker = await startEnterpriseWorkerServer({
+    verifier: new DispatchVerifier(dispatchSecret, brokerOrigin, workerOrigin),
+    checkpoints: new MemoryCheckpointStore(),
+    models: [model],
+    expectedHost: `127.0.0.1:${port}`,
+    port,
+    connectors: {
+      async connector(claims) {
+        accounts.push(`${claims.objectId}:${claims.githubLogin}`);
+        return { async send() { return Response.json(message()); } };
+      },
+    },
+  });
+  const second: DispatchClaims = {
+    ...dispatchClaims(1, '55555555-5555-4555-8555-555555555555'),
+    objectId: '66666666-6666-4666-8666-666666666666',
+    admissionId: '77777777-7777-4777-8777-777777777777',
+    githubAccountId: 5678,
+    githubLogin: 'second-developer',
+    credentialSecretName: 'copilot-second-developer',
+  };
+  try {
+    const [firstResponse, secondResponse] = await Promise.all([
+      fetch(`http://127.0.0.1:${port}/v1/messages`, {
+        method: 'POST',
+        headers: {
+          authorization: `Bearer ${await signer.sign(dispatchClaims(1))}`,
+          'content-type': 'application/json',
+        },
+        body: JSON.stringify(request()),
+      }),
+      fetch(`http://127.0.0.1:${port}/v1/messages`, {
+        method: 'POST',
+        headers: {
+          authorization: `Bearer ${await signer.sign(second)}`,
+          'content-type': 'application/json',
+        },
+        body: JSON.stringify(request()),
+      }),
+    ]);
+    assert.equal(firstResponse.status, 200, await firstResponse.text());
+    assert.equal(secondResponse.status, 200, await secondResponse.text());
+    assert.deepEqual(accounts.sort(), [
+      `${principal.objectId}:developer`,
+      `${second.objectId}:second-developer`,
+    ].sort());
+  } finally {
+    await worker.close();
+  }
+});
+
+test('a conversation branch moves between live worker replicas through durable checkpoints', async () => {
+  const [firstPort, secondPort] = await Promise.all([freePort(), freePort()]);
+  const checkpoints = new MemoryCheckpointStore();
+  const signer = new DispatchSigner(dispatchSecret, brokerOrigin, workerOrigin);
+  const verifier = new DispatchVerifier(dispatchSecret, brokerOrigin, workerOrigin);
+  const blocks = [{ type: 'tool_use', id: 'replica-read', name: 'Read', input: { file_path: 'synthetic.txt' } }];
+  const firstWorker = await startEnterpriseWorkerServer({
+    verifier,
+    checkpoints,
+    models: [model],
+    expectedHost: `127.0.0.1:${firstPort}`,
+    port: firstPort,
+    connectors: connector(async () => Response.json(message(blocks, 'tool_use'))),
+  });
+  let restored = false;
+  const secondWorker = await startEnterpriseWorkerServer({
+    verifier,
+    checkpoints,
+    models: [model],
+    expectedHost: `127.0.0.1:${secondPort}`,
+    port: secondPort,
+    connectors: connector(async body => {
+      restored = JSON.stringify(body.messages).includes('replica-read');
+      return Response.json(message());
+    }),
+  });
+  try {
+    const first = await fetch(`http://127.0.0.1:${firstPort}/v1/messages`, {
+      method: 'POST',
+      headers: {
+        authorization: `Bearer ${await signer.sign(dispatchClaims(1))}`,
+        'content-type': 'application/json',
+      },
+      body: JSON.stringify(request({ tools })),
+    });
+    assert.equal(first.status, 200, await first.text());
+    const continuation = request({
+      tools,
+      messages: [
+        { role: 'user', content: 'Hello' },
+        { role: 'assistant', content: blocks },
+        { role: 'user', content: [{ type: 'tool_result', tool_use_id: 'replica-read', content: 'synthetic file' }] },
+      ],
+    });
+    const second = await fetch(`http://127.0.0.1:${secondPort}/v1/messages`, {
+      method: 'POST',
+      headers: {
+        authorization: `Bearer ${await signer.sign(dispatchClaims(2, 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'))}`,
+        'content-type': 'application/json',
+      },
+      body: JSON.stringify(continuation),
+    });
+    assert.equal(second.status, 200, await second.text());
+    assert.equal(restored, true);
+  } finally {
+    await Promise.all([firstWorker.close(), secondWorker.close()]);
+  }
+});
+
+test('account connector pool keeps GitHub credentials and refresh state account scoped', async () => {
+  const claimsA = dispatchClaims(1);
+  const claimsB: DispatchClaims = {
+    ...claimsA,
+    dispatchId: '88888888-8888-4888-8888-888888888888',
+    objectId: '99999999-9999-4999-8999-999999999999',
+    githubAccountId: 5678,
+    githubLogin: 'second-developer',
+    credentialSecretName: 'copilot-second-developer',
+  };
+  const resolverCalls: string[] = [];
+  const upstreamAuthorization: string[] = [];
+  const pool = new AccountScopedConnectorPool({
+    async resolve(claims) {
+      resolverCalls.push(claims.githubLogin);
+      return { login: claims.githubLogin, accessToken: `oauth-${claims.githubLogin}-secret` };
+    },
+  }, async (input, init = {}) => {
+    const url = String(input);
+    const authorization = new Headers(init.headers).get('authorization') ?? '';
+    if (url.endsWith('/user')) {
+      return Response.json({ login: authorization.includes('second-developer') ? 'second-developer' : 'developer' });
+    }
+    if (url.endsWith('/copilot_internal/v2/token')) {
+      const account = authorization.includes('second-developer') ? 'second' : 'first';
+      return Response.json({
+        token: `session-${account}`,
+        expires_at: Math.floor(Date.now() / 1000) + 600,
+        endpoints: { api: 'https://api.githubcopilot.com' },
+      });
+    }
+    upstreamAuthorization.push(authorization);
+    return Response.json(message());
+  });
+  const [first, firstConcurrent] = await Promise.all([
+    pool.connector(claimsA),
+    pool.connector(claimsA),
+  ]);
+  assert.equal(firstConcurrent, first);
+  const second = await pool.connector(claimsB);
+  assert.equal(await pool.connector(claimsA), first);
+  await first.send(request(), new Headers(), new AbortController().signal);
+  await second.send(request(), new Headers(), new AbortController().signal);
+  assert.deepEqual(resolverCalls, ['developer', 'second-developer']);
+  assert.deepEqual(upstreamAuthorization, ['Bearer session-first', 'Bearer session-second']);
 });
 
 test('enterprise client uses Entra for control and an opaque admission token for Claude', async () => {

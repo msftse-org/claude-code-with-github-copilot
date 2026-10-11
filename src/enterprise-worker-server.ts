@@ -1,43 +1,36 @@
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
-import { timingSafeEqual } from 'node:crypto';
-import { join } from 'node:path';
-import { unlink } from 'node:fs/promises';
-import { createMessageSession } from './gateway.ts';
-import type { MessageSessionCheckpoint } from './gateway.ts';
-import { LiteLLMBackend } from './litellm.ts';
+import { createMessageSession, type MessageSessionCheckpoint } from './gateway.ts';
+import type { AccountConnectorFactory } from './enterprise-connector.ts';
+import type { CheckpointIdentity, ConversationCheckpointStore } from './enterprise-checkpoint.ts';
+import type { DispatchClaims, DispatchVerifier } from './enterprise-dispatch.ts';
 import { BridgeError, envelope, object, safeError } from './protocol.ts';
 import type { Model } from './protocol.ts';
 import { clientHistory, isModelCheck, resolveModel } from './remote.ts';
-import { readState, writePrivate } from './private-state.ts';
 
 interface WorkerSession {
   session: ReturnType<typeof createMessageSession>;
+  claims: DispatchClaims;
+  identity: CheckpointIdentity;
+  version?: string;
   lastFence: number;
   createdAt: number;
   lastAt: number;
-  checkpoints: Record<string, MessageSessionCheckpoint>;
   save: Promise<void>;
 }
 
 export interface EnterpriseWorkerServerOptions {
-  token: string;
-  principalId: string;
-  githubAccountId: number;
+  verifier: DispatchVerifier;
+  connectors: AccountConnectorFactory;
+  checkpoints: ConversationCheckpointStore;
   models: Model[];
-  litellmUrl: string;
-  litellmToken: string;
   expectedHost: string;
   maxTurns?: number;
+  maxActiveBranches?: number;
+  maxActiveBranchesPerUser?: number;
   host?: string;
   port?: number;
   now?: () => number;
-  fetcher?: typeof fetch;
   onError?: (error: BridgeError) => void;
-  stateDir?: string;
-}
-
-function equal(left: string, right: string): boolean {
-  return Buffer.byteLength(left) === Buffer.byteLength(right) && timingSafeEqual(Buffer.from(left), Buffer.from(right));
 }
 
 function send(response: ServerResponse, status: number, value: unknown): void {
@@ -48,6 +41,13 @@ function send(response: ServerResponse, status: number, value: unknown): void {
     'x-should-retry': 'false',
   });
   response.end(JSON.stringify(value));
+}
+
+function bearer(value: string | undefined): string {
+  if (!value?.startsWith('Bearer ') || value.length < 8) {
+    throw new BridgeError('GATEWAY_AUTH_REQUIRED', 'A broker dispatch assertion is required.', 401);
+  }
+  return value.slice(7);
 }
 
 function messageCheckpoint(value: unknown): MessageSessionCheckpoint {
@@ -74,65 +74,57 @@ function messageCheckpoint(value: unknown): MessageSessionCheckpoint {
     throw new BridgeError('CREDENTIAL_STORE_UNSAFE', 'Durable conversation checkpoint is malformed.');
   }
   if (checkpoint.pendingAssistant !== undefined) object(checkpoint.pendingAssistant);
+  return structuredClone(checkpoint) as unknown as MessageSessionCheckpoint;
+}
+
+function identity(claims: DispatchClaims): CheckpointIdentity {
   return {
-    version: 1,
-    prefix: checkpoint.prefix.map(String),
-    prefixFields: checkpoint.prefixFields.map(value => Object.fromEntries(
-      Object.entries(object(value)).map(([key, field]) => [key, String(field)]),
-    )),
-    prefixShapes: structuredClone(checkpoint.prefixShapes),
-    ...(typeof checkpoint.semantics === 'string' ? { semantics: checkpoint.semantics } : {}),
-    ...(typeof checkpoint.compactionSummary === 'string' ? { compactionSummary: checkpoint.compactionSummary } : {}),
-    ...(checkpoint.pendingAssistant === undefined ? {} : { pendingAssistant: structuredClone(object(checkpoint.pendingAssistant)) }),
-    ...(typeof checkpoint.selectedModel === 'string' ? { selectedModel: checkpoint.selectedModel } : {}),
-    pending: checkpoint.pending.map(String),
-    pendingSince: Number(checkpoint.pendingSince),
-    seen: checkpoint.seen.map(String),
-    stats: {
-      attempts: Number(stats.attempts),
-      completed: Number(stats.completed),
-      failed: Number(stats.failed),
-      usage: Object.fromEntries(Object.entries(usage).map(([key, value]) => [key, Number(value)])),
-    },
+    tenantId: claims.tenantId,
+    objectId: claims.objectId,
+    bindingRevision: claims.bindingRevision,
+    admissionId: claims.admissionId,
+    branchId: claims.branchId,
+    githubAccountId: claims.githubAccountId,
   };
 }
 
+function sessionId(claims: DispatchClaims): string {
+  return [
+    claims.tenantId, claims.objectId, claims.bindingRevision,
+    claims.admissionId, claims.branchId,
+  ].join(':');
+}
+
+function sameAccount(left: DispatchClaims, right: DispatchClaims): boolean {
+  return left.tenantId === right.tenantId && left.objectId === right.objectId
+    && left.bindingRevision === right.bindingRevision && left.githubAccountId === right.githubAccountId
+    && left.githubLogin === right.githubLogin && left.credentialSecretName === right.credentialSecretName;
+}
+
 export async function startEnterpriseWorkerServer(options: EnterpriseWorkerServerOptions) {
-  if (options.token.length < 32 || /[\r\n]/.test(options.token)
-    || !/^[0-9a-f-]{36}$/i.test(options.principalId) || !Number.isSafeInteger(options.githubAccountId)
-    || options.githubAccountId <= 0 || !options.models.length || options.models.length > 100
+  if (!options.models.length || options.models.length > 100
     || !/^[a-z0-9.-]+(?::\d+)?$/i.test(options.expectedHost)) {
-    throw new BridgeError('INVALID_OPTIONS', 'Enterprise worker identity, token, host, or model catalog is invalid.');
+    throw new BridgeError('INVALID_OPTIONS', 'Enterprise worker host or model catalog is invalid.');
   }
   const now = options.now ?? Date.now;
   const maxTurns = options.maxTurns ?? 50;
-  const backend = new LiteLLMBackend(options.litellmUrl, options.litellmToken, options.fetcher);
+  const maxActiveBranches = options.maxActiveBranches ?? 500;
+  const maxActiveBranchesPerUser = options.maxActiveBranchesPerUser ?? 4;
+  if (!Number.isSafeInteger(maxActiveBranches) || maxActiveBranches < 1
+    || !Number.isSafeInteger(maxActiveBranchesPerUser) || maxActiveBranchesPerUser < 1) {
+    throw new BridgeError('INVALID_OPTIONS', 'Enterprise worker branch capacity is invalid.');
+  }
   const sessions = new Map<string, WorkerSession>();
-  const checkpointPath = (admissionId: string) => options.stateDir ? join(options.stateDir, `${admissionId}.json`) : undefined;
-  const loadCheckpoints = async (admissionId: string): Promise<Record<string, MessageSessionCheckpoint>> => {
-    const path = checkpointPath(admissionId);
-    if (!path) return {};
-    const value = await readState(path);
-    if (!value) return {};
-    if (value.version !== 1 || value.principalId !== options.principalId || value.githubAccountId !== options.githubAccountId) {
-      throw new BridgeError('CREDENTIAL_STORE_UNSAFE', 'Durable conversation checkpoint identity is invalid.');
-    }
-    const branches = object(value.branches);
-    const restored: Record<string, MessageSessionCheckpoint> = {};
-    for (const [id, raw] of Object.entries(branches)) {
-      if (!/^[A-Za-z0-9._:-]{1,128}$/.test(id)) {
-        throw new BridgeError('CREDENTIAL_STORE_UNSAFE', 'Durable conversation checkpoint is malformed.');
-      }
-      restored[id] = messageCheckpoint(raw);
-    }
-    return restored;
-  };
+  const seenDispatches = new Map<string, number>();
   const expire = () => {
     for (const [id, record] of sessions) {
       if (now() - record.lastAt >= 15 * 60_000 || now() - record.createdAt >= 8 * 60 * 60_000) {
         record.session.close();
         sessions.delete(id);
       }
+    }
+    for (const [id, seenAt] of seenDispatches) {
+      if (now() - seenAt >= 2 * 60_000) seenDispatches.delete(id);
     }
   };
   const timer = setInterval(expire, 30_000);
@@ -149,12 +141,68 @@ export async function startEnterpriseWorkerServer(options: EnterpriseWorkerServe
   server.headersTimeout = 10_000;
   server.maxHeadersCount = 64;
 
+  async function createSession(claims: DispatchClaims): Promise<WorkerSession> {
+    if (sessions.size >= maxActiveBranches) {
+      throw new BridgeError('LIMIT_REACHED', 'Shared worker branch capacity is exhausted.', 429);
+    }
+    const activeForUser = [...sessions.values()].filter(record =>
+      record.claims.tenantId === claims.tenantId && record.claims.objectId === claims.objectId).length;
+    if (activeForUser >= maxActiveBranchesPerUser) {
+      throw new BridgeError('LIMIT_REACHED', 'Per-user worker branch capacity is exhausted.', 429);
+    }
+    const checkpointIdentity = identity(claims);
+    const stored = await options.checkpoints.load(checkpointIdentity);
+    const backend = await options.connectors.connector(claims);
+    const createdAt = now();
+    const record: WorkerSession = {
+      claims,
+      identity: checkpointIdentity,
+      version: stored?.version,
+      lastFence: 0,
+      createdAt,
+      lastAt: createdAt,
+      save: Promise.resolve(),
+      session: undefined as never,
+    };
+    record.session = createMessageSession({
+      backend,
+      model: resolveModel(options.models, claims.model),
+      maxTurns,
+      resolveModel: id => resolveModel(options.models, id),
+      history: clientHistory,
+      isModelCheck,
+      onError: options.onError,
+      restoredBranches: stored ? { main: messageCheckpoint(stored.checkpoint) } : {},
+      checkpoint(id, value) {
+        if (id !== 'main') {
+          return Promise.reject(new BridgeError('CONTEXT_CONFLICT', 'Worker branch routing escaped its signed dispatch scope.', 409));
+        }
+        record.save = record.save.then(async () => {
+          if (!value) {
+            if (record.version) await options.checkpoints.delete(record.identity, record.version);
+            record.version = undefined;
+            return;
+          }
+          record.version = await options.checkpoints.save(
+            record.identity,
+            messageCheckpoint(value),
+            record.version,
+          );
+        });
+        return record.save;
+      },
+    }, claims.dispatchId, `https://${options.expectedHost}`);
+    sessions.set(sessionId(claims), record);
+    return record;
+  }
+
   async function handle(request: IncomingMessage, response: ServerResponse): Promise<void> {
     expire();
     if (request.url === '/healthz' && request.method === 'GET') {
       send(response, 200, {
         status: 'listening',
-        activeAdmissions: sessions.size,
+        activeBranches: sessions.size,
+        cachedDispatches: seenDispatches.size,
         inference: 'not-verified',
       });
       return;
@@ -162,70 +210,38 @@ export async function startEnterpriseWorkerServer(options: EnterpriseWorkerServe
     if (request.headers.origin || request.headers.host !== options.expectedHost) {
       throw new BridgeError('ORIGIN_REJECTED', 'Worker host or origin is not approved.', 403);
     }
-    const authorization = request.headers.authorization;
-    const supplied = authorization?.startsWith('Bearer ') ? authorization.slice(7) : '';
-    const principalId = request.headers['x-ccgc-principal-id'];
-    const admissionId = request.headers['x-ccgc-admission-id'];
-    const fenceValue = request.headers['x-ccgc-dispatch-fence'];
-    if (!supplied || !equal(supplied, options.token) || principalId !== options.principalId
-      || typeof admissionId !== 'string' || !/^[0-9a-f-]{36}$/i.test(admissionId)
-      || typeof fenceValue !== 'string' || !/^\d+$/.test(fenceValue)) {
-      throw new BridgeError('GATEWAY_AUTH_REQUIRED', 'Broker authentication, principal binding, admission, or fence is invalid.', 401);
+    if (request.url !== '/v1/messages' || request.method !== 'POST') {
+      throw new BridgeError('ROUTE_UNSUPPORTED', 'Only worker health and native Messages routes are exposed.', 404);
     }
-    const fence = Number(fenceValue);
-    let record = sessions.get(admissionId);
-    if (!record) {
-      if (sessions.size >= 4) throw new BridgeError('CONTEXT_CONFLICT', 'Worker admission capacity is exhausted.', 409);
-      const createdAt = now();
-      const checkpoints = await loadCheckpoints(admissionId);
-      const workerSession: WorkerSession = {
-        lastFence: 0,
-        createdAt,
-        lastAt: createdAt,
-        checkpoints,
-        save: Promise.resolve(),
-        session: undefined as never,
-      };
-      workerSession.session = createMessageSession({
-        backend,
-        model: options.models[0]!,
-        maxTurns,
-        resolveModel: id => resolveModel(options.models, id),
-        history: clientHistory,
-        isModelCheck,
-        onError: options.onError,
-        restoredBranches: checkpoints,
-        checkpoint(id, value) {
-          if (value) workerSession.checkpoints[id] = value;
-          else delete workerSession.checkpoints[id];
-          const path = checkpointPath(admissionId);
-          if (!path) return Promise.resolve();
-          workerSession.save = workerSession.save.then(async () => {
-            if (!Object.keys(workerSession.checkpoints).length) {
-              await unlink(path).catch(error => { if (error.code !== 'ENOENT') throw error; });
-              return;
-            }
-            await writePrivate(path, {
-              version: 1,
-              principalId: options.principalId,
-              githubAccountId: options.githubAccountId,
-              branches: workerSession.checkpoints,
-            });
-          });
-          return workerSession.save;
-        },
-      }, options.token, `https://${options.expectedHost}`);
-      sessions.set(admissionId, workerSession);
-      record = workerSession;
+    const claims = await options.verifier.verify(bearer(request.headers.authorization));
+    if (seenDispatches.has(claims.dispatchId)) {
+      throw new BridgeError('CONTEXT_CONFLICT', 'Duplicate broker dispatch rejected before inference.', 409);
     }
-    if (!Number.isSafeInteger(fence) || fence <= record.lastFence) {
-      throw new BridgeError('CONTEXT_CONFLICT', 'Stale or duplicate dispatch fence rejected before inference.', 409);
+    seenDispatches.set(claims.dispatchId, now());
+    let record = sessions.get(sessionId(claims));
+    if (!record) record = await createSession(claims);
+    if (!sameAccount(record.claims, claims)) {
+      throw new BridgeError('IDENTITY_CONFLICT', 'Dispatch account differs from the active branch binding.', 403);
     }
-    record.lastFence = fence;
+    if (claims.fence <= record.lastFence) {
+      throw new BridgeError('CONTEXT_CONFLICT', 'Stale dispatch fence rejected before inference.', 409);
+    }
+    record.lastFence = claims.fence;
     record.lastAt = now();
-    request.headers.authorization = `Bearer ${options.token}`;
+    request.headers.authorization = `Bearer ${record.claims.dispatchId}`;
     delete request.headers['x-api-key'];
-    response.once('close', () => { if (record) record.lastAt = now(); });
+    delete request.headers['x-claude-code-agent-id'];
+    let released = false;
+    const release = () => {
+      if (released || !record) return;
+      released = true;
+      record.lastAt = now();
+      record.session.close();
+      sessions.delete(sessionId(record.claims));
+      void record.save.catch(error => options.onError?.(safeError(error)));
+    };
+    response.once('finish', release);
+    response.once('close', release);
     record.session.handle(request, response);
   }
 

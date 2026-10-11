@@ -4,6 +4,7 @@ import { bearerToken, type EnterpriseAuthenticator } from './enterprise-auth.ts'
 import { BridgeError, envelope, object, parseJson, safeError, text } from './protocol.ts';
 import type { EnterpriseStore } from './enterprise-store.ts';
 import type { WorkerResolver } from './enterprise-worker.ts';
+import type { DispatchSigner } from './enterprise-dispatch.ts';
 
 const MAX_BODY = 16 * 1024 * 1024;
 
@@ -11,6 +12,7 @@ export interface EnterpriseServerOptions {
   authenticator: EnterpriseAuthenticator;
   store: EnterpriseStore;
   workers: WorkerResolver;
+  dispatchSigner: DispatchSigner;
   host?: string;
   port?: number;
   fetcher?: typeof fetch;
@@ -109,23 +111,37 @@ export async function startEnterpriseServer(options: EnterpriseServerOptions) {
     const raw = await requestBody(request);
     const payload = object(parseJson(raw.toString('utf8')));
     const model = text(payload.model, 'model');
+    const branchHeader = request.headers['x-claude-code-agent-id'];
+    const branchId = typeof branchHeader === 'string' ? branchHeader : 'main';
+    if (!/^[A-Za-z0-9._:-]{1,128}$/.test(branchId)) {
+      throw new BridgeError('INVALID_REQUEST', 'Invalid Claude agent identifier.');
+    }
     const requestHash = createHash('sha256').update(raw).digest('hex');
     const tokenHash = createHash('sha256').update(admissionToken).digest('hex');
-    const reservation = await options.store.reserveDispatch(tokenHash, requestHash, model);
+    const reservation = await options.store.reserveDispatch(tokenHash, requestHash, model, branchId);
     const worker = await options.workers.resolve(reservation.binding);
+    const assertion = await options.dispatchSigner.sign({
+      dispatchId: reservation.id,
+      tenantId: reservation.binding.tenantId,
+      objectId: reservation.binding.objectId,
+      admissionId: reservation.admissionId,
+      branchId: reservation.branchId,
+      bindingRevision: reservation.binding.revision,
+      githubAccountId: reservation.binding.githubAccountId,
+      githubLogin: reservation.binding.githubLogin,
+      credentialSecretName: worker.credentialSecretName,
+      fence: reservation.fence,
+      model,
+    });
     const controller = new AbortController();
     request.once('close', () => controller.abort());
     let outcome: 'completed' | 'failed' | 'cancelled' = 'failed';
     try {
       const headers = new Headers({
-        authorization: `Bearer ${worker.token}`,
+        authorization: `Bearer ${assertion}`,
         'content-type': 'application/json',
-        'x-ccgc-dispatch-id': reservation.id,
-        'x-ccgc-dispatch-fence': String(reservation.fence),
-        'x-ccgc-admission-id': reservation.admissionId,
-        'x-ccgc-principal-id': reservation.binding.objectId,
       });
-      for (const name of ['anthropic-version', 'anthropic-beta', 'x-claude-code-session-id']) {
+      for (const name of ['anthropic-version', 'anthropic-beta', 'x-claude-code-session-id', 'x-claude-code-agent-id']) {
         const value = request.headers[name];
         if (typeof value === 'string' && !/[\r\n]/.test(value)) headers.set(name, value);
       }

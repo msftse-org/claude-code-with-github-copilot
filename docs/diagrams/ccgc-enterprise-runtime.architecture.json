@@ -11,30 +11,32 @@
     {"id": "managed-client", "type": "frontend", "label": "Claude Code", "sublabel": "Rich input / agents / local tools", "brand": "claude", "pos": [25, 355], "size": [190, 90]},
     {"id": "enterprise-identity", "type": "security", "label": "Microsoft Entra ID", "sublabel": "SSO / conditional access", "pos": [310, 70], "size": [190, 90]},
     {"id": "principal-seat-broker", "type": "backend", "label": "Enterprise broker", "sublabel": "Entra admission / dispatch fence", "pos": [290, 355], "size": [210, 90]},
-    {"id": "isolated-user-worker", "type": "backend", "label": "Per-user worker", "sublabel": "Replay fence / durable lineage", "pos": [590, 355], "size": [190, 90]},
-    {"id": "isolated-copilot-connector", "type": "backend", "label": "LiteLLM connector", "sublabel": "Copilot auth / token count", "pos": [865, 355], "size": [185, 90]},
+    {"id": "multiuser-worker-fleet", "type": "backend", "label": "Multi-user worker fleet", "sublabel": "2-30 replicas / per-user fairness", "pos": [570, 355], "size": [220, 90]},
+    {"id": "account-scoped-connectors", "type": "backend", "label": "Account-scoped connectors", "sublabel": "Native Copilot auth / refresh", "pos": [850, 355], "size": [220, 90]},
     {"id": "individual-copilot-seat", "type": "external", "label": "GitHub Copilot", "sublabel": "User's Anthropic models", "brand": "github", "pos": [1150, 355], "size": [210, 90]},
-    {"id": "private-credential-store", "type": "security", "label": "Azure Key Vault", "sublabel": "Per-user secrets / private access", "pos": [760, 70], "size": [225, 90]},
-    {"id": "durable-admission-ledger", "type": "database", "label": "Azure PostgreSQL HA", "sublabel": "Bindings / leases / quotas / audit outbox", "pos": [610, 615], "size": [385, 90]},
-    {"id": "restricted-observability", "type": "cloud", "label": "Azure Monitor", "sublabel": "Audit / alerts / no prompt bodies", "pos": [300, 615], "size": [230, 90]}
+    {"id": "private-credential-store", "type": "security", "label": "Azure Key Vault", "sublabel": "Account credentials / signing keys", "pos": [770, 70], "size": [245, 90]},
+    {"id": "durable-admission-ledger", "type": "database", "label": "Azure PostgreSQL HA", "sublabel": "Bindings / branch fences / quotas / audit", "pos": [440, 615], "size": [300, 90]},
+    {"id": "encrypted-checkpoints", "type": "database", "label": "Encrypted Blob checkpoints", "sublabel": "Branch state / ETag compare-and-swap", "pos": [960, 615], "size": [300, 90]},
+    {"id": "restricted-observability", "type": "cloud", "label": "Azure Monitor", "sublabel": "Audit / alerts / no prompt bodies", "pos": [130, 615], "size": [230, 90]}
   ],
   "boundaries": [
-    {"kind": "region", "label": "Private Azure workload / zone-redundant target", "wraps": ["principal-seat-broker", "isolated-user-worker", "isolated-copilot-connector", "durable-admission-ledger", "restricted-observability"], "pad": 28}
+    {"kind": "region", "label": "Private Azure workload / zone-redundant target", "wraps": ["principal-seat-broker", "multiuser-worker-fleet", "account-scoped-connectors", "durable-admission-ledger", "encrypted-checkpoints", "restricted-observability"], "pad": 28}
   ],
   "connections": [
     {"id": "private-client-access", "from": "managed-client", "to": "principal-seat-broker", "label": "VPN / TLS / Messages", "variant": "emphasis", "labelAt": [253, 465]},
-    {"id": "user-bound-dispatch", "from": "principal-seat-broker", "to": "isolated-user-worker", "label": "fenced dispatch", "variant": "emphasis"},
-    {"id": "reviewed-message-route", "from": "isolated-user-worker", "to": "isolated-copilot-connector", "label": "Messages / exact model", "variant": "emphasis", "labelAt": [823, 351]},
-    {"id": "copilot-native-stream", "from": "isolated-copilot-connector", "to": "individual-copilot-seat", "label": "TLS / SSE", "variant": "emphasis"},
+    {"id": "user-bound-dispatch", "from": "principal-seat-broker", "to": "multiuser-worker-fleet", "label": "signed fenced dispatch", "variant": "emphasis", "labelAt": [535, 351]},
+    {"id": "reviewed-message-route", "from": "multiuser-worker-fleet", "to": "account-scoped-connectors", "label": "identity-bound Messages", "variant": "emphasis", "labelAt": [820, 351]},
+    {"id": "copilot-native-stream", "from": "account-scoped-connectors", "to": "individual-copilot-seat", "label": "TLS / SSE", "variant": "emphasis"},
     {"id": "trusted-token-validation", "from": "principal-seat-broker", "to": "enterprise-identity", "label": "JWT trust", "variant": "security", "fromSide": "top", "toSide": "bottom", "labelDy": -75},
-    {"id": "broker-secret-access", "from": "principal-seat-broker", "to": "private-credential-store", "label": "MI / secrets", "variant": "security", "fromSide": "top", "toSide": "bottom"},
+    {"id": "worker-secret-access", "from": "multiuser-worker-fleet", "to": "private-credential-store", "label": "MI / account secret", "variant": "security", "fromSide": "top", "toSide": "bottom"},
     {"id": "atomic-admission-reservation", "from": "principal-seat-broker", "to": "durable-admission-ledger", "label": "reserve / fence", "fromSide": "bottom", "toSide": "top"},
-    {"id": "durable-attempt-outcome", "from": "isolated-user-worker", "to": "durable-admission-ledger", "label": "record outcome", "fromSide": "bottom", "toSide": "top", "labelAt": [710, 485]},
+    {"id": "durable-attempt-outcome", "from": "multiuser-worker-fleet", "to": "durable-admission-ledger", "label": "branch capacity", "fromSide": "bottom", "toSide": "top", "labelAt": [600, 510]},
+    {"id": "checkpoint-state", "from": "multiuser-worker-fleet", "to": "encrypted-checkpoints", "label": "encrypted CAS", "variant": "security", "fromSide": "bottom", "toSide": "top"},
     {"id": "metadata-only-telemetry", "from": "principal-seat-broker", "to": "restricted-observability", "label": "metadata only", "fromSide": "bottom", "toSide": "top", "labelAt": [320, 540]}
   ],
   "cards": [
     {"dot": "cyan", "title": "Verified Claude compatibility", "items": ["Images, PDFs, adaptive thinking and token counts.", "Compaction, Cron and automatic memory complete native lifecycles."]},
-    {"dot": "violet", "title": "Isolated state control", "items": ["Coordinated agents use fenced branches per admission.", "Pending tool lineage survives worker restart on private state."]},
+    {"dot": "violet", "title": "Shared compute, isolated accounts", "items": ["Any turn can land on any healthy worker replica.", "Credentials, refresh locks, quotas and checkpoints remain account scoped."]},
     {"dot": "amber", "title": "Remaining provider boundary", "items": ["Advisor is available only on the Anthropic API.", "Fixed token thinking budgets are rejected by Sonnet 5.5."]}
   ]
 }

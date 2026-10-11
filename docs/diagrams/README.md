@@ -20,25 +20,27 @@ and production gates. These diagrams do not certify enterprise readiness.
 ![Proposed enterprise runtime architecture](ccgc-enterprise-runtime.png)
 
 The primary request path is **Claude Code -> private enterprise broker ->
-isolated per-user worker -> LiteLLM connector -> GitHub Copilot -> Anthropic
-models**. Native Messages and streamed responses follow this route; Claude's
-Read/Edit/Bash, hooks, and background execution remain local. The worker owns
-replay fencing and isolated agent branches. LiteLLM owns Copilot authorization,
-model discovery, transport, and exact token counting.
+shared multi-user worker fleet -> account-scoped native connector -> GitHub
+Copilot -> Anthropic models**. Native Messages and streamed responses follow
+this route; Claude's Read/Edit/Bash, hooks, and background execution remain
+local. The broker owns admission and branch fencing. Any worker replica can load
+the matching encrypted checkpoint, while each connector owns only one account's
+Copilot authorization, token cache, refresh lock, transport, and token counting.
 
 The compatibility labels reflect the latest verified implementation: images,
 PDFs, adaptive thinking, exact token counts, coordinated agent branches,
-background tasks, completed-turn resume, automatic compaction, Cron lifecycle,
-and automatic-memory persistence are working. Pending-tool resume remains
-unsupported, and Claude Code `2.1.296` does not expose an Advisor tool through
-this route.
+background tasks, completed-turn resume, exact pending-tool restart, automatic
+compaction, Cron lifecycle, and automatic-memory persistence are working.
+Claude Code `2.1.296` does not expose an Advisor tool through this route.
 
 Entra authenticates broker access, not Copilot entitlement. Each immutable
 enterprise principal must be linked to that same employee's authorized GitHub
-account. The broker uses managed identity to access user-bound secrets in Key
-Vault; workers do not share account caches or receive vault-wide access.
-PostgreSQL holds durable reservations, fenced ownership and audit intent.
-Azure Monitor collects restricted metadata, never prompt/response bodies.
+account. Workers use managed identity to resolve the signed account credential
+reference from Key Vault; connector caches remain account keyed. PostgreSQL
+holds durable reservations, per-branch active locks, fences, quotas, and audit
+intent. Private Blob Storage holds client-side-encrypted checkpoints with ETag
+conditional writes. Azure Monitor collects restricted metadata, never
+prompt/response bodies.
 
 The private-workload outline is a logical boundary, not a subnet-placement map.
 Key Vault is also an Azure managed service, reached privately. The JWT trust

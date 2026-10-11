@@ -5,16 +5,26 @@ param entraAudience string
 param postgresAdminObjectId string
 param postgresAdminName string
 param brokerImage string
+param workerImage string
+@secure()
+param dispatchSigningSecret string
+@secure()
+param checkpointEncryptionKey string
+param cryptographicSecretExpiration int
+param modelsJson string
 
 var compact = replace(prefix, '-', '')
 var unique = toLower(uniqueString(subscription().id, resourceGroup().id, prefix))
 var vnetName = 'vnet-${prefix}-enterprise'
 var brokerIdentityName = 'id-${prefix}-broker'
+var workerIdentityName = 'id-${prefix}-worker'
 var postgresName = take('psql-${compact}-${unique}', 63)
 var vaultName = take('kv-${compact}-${unique}', 24)
 var registryName = take('cr${compact}${unique}', 50)
+var storageName = take('st${compact}${unique}', 24)
 var environmentName = 'cae-${prefix}-enterprise'
 var brokerName = 'ca-${prefix}-broker'
+var workerName = 'ca-${prefix}-worker'
 var workspaceName = 'log-${prefix}-enterprise'
 var insightsName = 'appi-${prefix}-enterprise'
 var postgresDnsZoneName = '${compact}.postgres.database.azure.com'
@@ -30,7 +40,13 @@ resource brokerIdentity 'Microsoft.ManagedIdentity/userAssignedIdentities@2024-1
   tags: tags
 }
 
-resource workspace 'Microsoft.OperationalInsights/workspaces@2025-02-01' = {
+resource workerIdentity 'Microsoft.ManagedIdentity/userAssignedIdentities@2024-11-30' = {
+  name: workerIdentityName
+  location: location
+  tags: tags
+}
+
+resource workspace 'Microsoft.OperationalInsights/workspaces@2023-09-01' = {
   name: workspaceName
   location: location
   tags: tags
@@ -38,9 +54,9 @@ resource workspace 'Microsoft.OperationalInsights/workspaces@2025-02-01' = {
     retentionInDays: 30
     publicNetworkAccessForIngestion: 'Enabled'
     publicNetworkAccessForQuery: 'Enabled'
-  }
-  sku: {
-    name: 'PerGB2018'
+    sku: {
+      name: 'PerGB2018'
+    }
   }
 }
 
@@ -154,7 +170,7 @@ resource vnet 'Microsoft.Network/virtualNetworks@2024-07-01' = {
           networkSecurityGroup: {
             id: workloadNsg.id
           }
-          privateEndpointNetworkPolicies: 'Enabled'
+          privateEndpointNetworkPolicies: 'Disabled'
         }
       }
       {
@@ -181,7 +197,7 @@ resource vnet 'Microsoft.Network/virtualNetworks@2024-07-01' = {
           networkSecurityGroup: {
             id: workloadNsg.id
           }
-          privateEndpointNetworkPolicies: 'Enabled'
+          privateEndpointNetworkPolicies: 'Disabled'
         }
       }
     ]
@@ -294,6 +310,32 @@ resource vault 'Microsoft.KeyVault/vaults@2024-11-01' = {
   }
 }
 
+resource dispatchSecret 'Microsoft.KeyVault/vaults/secrets@2024-11-01' = {
+  parent: vault
+  name: 'broker-worker-dispatch-signing'
+  properties: {
+    value: dispatchSigningSecret
+    contentType: 'application/vnd.ccgc.dispatch-signing-key'
+    attributes: {
+      enabled: true
+      exp: cryptographicSecretExpiration
+    }
+  }
+}
+
+resource checkpointKeySecret 'Microsoft.KeyVault/vaults/secrets@2024-11-01' = {
+  parent: vault
+  name: 'worker-checkpoint-encryption'
+  properties: {
+    value: checkpointEncryptionKey
+    contentType: 'application/vnd.ccgc.checkpoint-key'
+    attributes: {
+      enabled: true
+      exp: cryptographicSecretExpiration
+    }
+  }
+}
+
 resource registry 'Microsoft.ContainerRegistry/registries@2025-04-01' = {
   name: registryName
   location: location
@@ -323,6 +365,58 @@ resource registry 'Microsoft.ContainerRegistry/registries@2025-04-01' = {
   }
 }
 
+//checkov:skip=CKV_AZURE_43:Name is generated from lowercase alphanumeric inputs and capped at 24 characters.
+resource storage 'Microsoft.Storage/storageAccounts@2023-05-01' = {
+  name: storageName
+  location: location
+  tags: tags
+  sku: {
+    name: 'Standard_GZRS'
+  }
+  kind: 'StorageV2'
+  properties: {
+    allowBlobPublicAccess: false
+    allowCrossTenantReplication: false
+    allowSharedKeyAccess: false
+    defaultToOAuthAuthentication: true
+    minimumTlsVersion: 'TLS1_2'
+    networkAcls: {
+      bypass: 'AzureServices'
+      defaultAction: 'Deny'
+      ipRules: []
+      virtualNetworkRules: []
+    }
+    publicNetworkAccess: 'Disabled'
+    supportsHttpsTrafficOnly: true
+  }
+}
+
+resource blobService 'Microsoft.Storage/storageAccounts/blobServices@2023-05-01' = {
+  parent: storage
+  name: 'default'
+  properties: {
+    deleteRetentionPolicy: {
+      enabled: true
+      days: 14
+    }
+    containerDeleteRetentionPolicy: {
+      enabled: true
+      days: 14
+    }
+  }
+}
+
+resource checkpointContainer 'Microsoft.Storage/storageAccounts/blobServices/containers@2023-05-01' = {
+  parent: blobService
+  name: 'checkpoints'
+  properties: {
+    publicAccess: 'None'
+    immutableStorageWithVersioning: {
+      enabled: false
+    }
+  }
+}
+
 var privateServices = [
   {
     name: 'kv'
@@ -337,6 +431,13 @@ var privateServices = [
     groupId: 'registry'
     zoneName: 'privatelink.azurecr.io'
     zoneId: 'registry'
+  }
+  {
+    name: 'blob'
+    resourceId: storage.id
+    groupId: 'blob'
+    zoneName: 'privatelink.blob.${az.environment().suffixes.storage}'
+    zoneId: 'blob'
   }
 ]
 
@@ -513,6 +614,18 @@ resource broker 'Microsoft.App/containerApps@2025-01-01' = {
               value: '.${environment.properties.defaultDomain}'
             }
             {
+              name: 'CCGC_WORKER_URL'
+              value: 'https://${workerName}.${environment.properties.defaultDomain}'
+            }
+            {
+              name: 'CCGC_BROKER_ORIGIN'
+              value: 'https://${brokerName}.${environment.properties.defaultDomain}'
+            }
+            {
+              name: 'CCGC_DISPATCH_SECRET_NAME'
+              value: dispatchSecret.name
+            }
+            {
               name: 'CCGC_POSTGRES_URL'
               value: 'postgresql://${brokerIdentity.name}@${postgres.properties.fullyQualifiedDomainName}:5432/postgres?sslmode=require'
             }
@@ -573,6 +686,149 @@ resource broker 'Microsoft.App/containerApps@2025-01-01' = {
     containerDns
     privateDnsGroups
     postgresAdmin
+    keyVaultAccess
+    registryPull
+  ]
+}
+
+resource worker 'Microsoft.App/containerApps@2025-01-01' = {
+  name: workerName
+  location: location
+  tags: tags
+  identity: {
+    type: 'UserAssigned'
+    userAssignedIdentities: {
+      '${workerIdentity.id}': {}
+    }
+  }
+  properties: {
+    environmentId: environment.id
+    workloadProfileName: 'D4'
+    configuration: {
+      activeRevisionsMode: 'Single'
+      ingress: {
+        allowInsecure: false
+        external: true
+        targetPort: 8080
+        transport: 'http2'
+      }
+      registries: [
+        {
+          identity: workerIdentity.id
+          server: registry.properties.loginServer
+        }
+      ]
+      secrets: []
+    }
+    template: {
+      containers: [
+        {
+          name: 'worker'
+          image: workerImage
+          env: [
+            {
+              name: 'CCGC_KEY_VAULT_URL'
+              value: vault.properties.vaultUri
+            }
+            {
+              name: 'CCGC_DISPATCH_SECRET_NAME'
+              value: dispatchSecret.name
+            }
+            {
+              name: 'CCGC_CHECKPOINT_KEY_SECRET_NAME'
+              value: checkpointKeySecret.name
+            }
+            {
+              name: 'CCGC_CHECKPOINT_STORAGE_URL'
+              value: 'https://${storage.name}.blob.${az.environment().suffixes.storage}/'
+            }
+            {
+              name: 'CCGC_CHECKPOINT_CONTAINER'
+              value: checkpointContainer.name
+            }
+            {
+              name: 'CCGC_BROKER_ORIGIN'
+              value: 'https://${brokerName}.${environment.properties.defaultDomain}'
+            }
+            {
+              name: 'CCGC_WORKER_ORIGIN'
+              value: 'https://${workerName}.${environment.properties.defaultDomain}'
+            }
+            {
+              name: 'CCGC_EXPECTED_HOST'
+              value: '${workerName}.${environment.properties.defaultDomain}'
+            }
+            {
+              name: 'CCGC_MODELS_JSON'
+              value: modelsJson
+            }
+            {
+              name: 'CCGC_MAX_CONNECTORS'
+              value: '500'
+            }
+            {
+              name: 'CCGC_MAX_ACTIVE_BRANCHES'
+              value: '500'
+            }
+            {
+              name: 'CCGC_MAX_ACTIVE_BRANCHES_PER_USER'
+              value: '4'
+            }
+            {
+              name: 'APPLICATIONINSIGHTS_CONNECTION_STRING'
+              value: insights.properties.ConnectionString
+            }
+          ]
+          probes: [
+            {
+              type: 'Liveness'
+              httpGet: {
+                path: '/healthz'
+                port: 8080
+                scheme: 'HTTP'
+              }
+              initialDelaySeconds: 10
+              periodSeconds: 10
+            }
+            {
+              type: 'Readiness'
+              httpGet: {
+                path: '/healthz'
+                port: 8080
+                scheme: 'HTTP'
+              }
+              initialDelaySeconds: 5
+              periodSeconds: 5
+            }
+          ]
+          resources: {
+            cpu: json('2.0')
+            memory: '4Gi'
+          }
+        }
+      ]
+      scale: {
+        minReplicas: 2
+        maxReplicas: 30
+        rules: [
+          {
+            name: 'http'
+            http: {
+              metadata: {
+                concurrentRequests: '8'
+              }
+            }
+          }
+        ]
+      }
+    }
+  }
+  dependsOn: [
+    containerDns
+    privateDnsGroups
+    workerKeyVaultAccess
+    workerRegistryPull
+    workerStorageAccess
   ]
 }
 
@@ -581,6 +837,16 @@ resource keyVaultAccess 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
   scope: vault
   properties: {
     principalId: brokerIdentity.properties.principalId
+    principalType: 'ServicePrincipal'
+    roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', '4633458b-17de-408a-b874-0445c86b69e6')
+  }
+}
+
+resource workerKeyVaultAccess 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
+  name: guid(vault.id, workerIdentity.id, 'Key Vault Secrets User')
+  scope: vault
+  properties: {
+    principalId: workerIdentity.properties.principalId
     principalType: 'ServicePrincipal'
     roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', '4633458b-17de-408a-b874-0445c86b69e6')
   }
@@ -596,7 +862,29 @@ resource registryPull 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
   }
 }
 
+resource workerRegistryPull 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
+  name: guid(registry.id, workerIdentity.id, 'AcrPull')
+  scope: registry
+  properties: {
+    principalId: workerIdentity.properties.principalId
+    principalType: 'ServicePrincipal'
+    roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', '7f951dda-4ed3-4680-a7ca-43fe172d538d')
+  }
+}
+
+resource workerStorageAccess 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
+  name: guid(storage.id, workerIdentity.id, 'Storage Blob Data Contributor')
+  scope: storage
+  properties: {
+    principalId: workerIdentity.properties.principalId
+    principalType: 'ServicePrincipal'
+    roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', 'ba92f5b4-2d11-453d-a403-e96b0029c9fe')
+  }
+}
+
 output brokerInternalFqdn string = broker.properties.configuration.ingress.fqdn
+output workerInternalFqdn string = worker.properties.configuration.ingress.fqdn
 output keyVaultName string = vault.name
 output postgresHost string = postgres.properties.fullyQualifiedDomainName
 output registryName string = registry.name
+output checkpointStorageName string = storage.name

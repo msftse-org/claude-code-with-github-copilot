@@ -16,6 +16,11 @@ export interface Credential {
   accessToken: string;
 }
 
+export interface CredentialSource {
+  load(): Promise<Credential>;
+  save?(credential: Credential): Promise<void>;
+}
+
 export interface Backend {
   send(body: ObjectValue, headers: Headers, signal: AbortSignal): Promise<Response>;
   countTokens?(body: ObjectValue, headers: Headers, signal: AbortSignal): Promise<Response>;
@@ -104,13 +109,13 @@ const compatibilityHeaders = {
 };
 
 export class CopilotBackend implements Backend {
-  readonly store: CredentialStore;
+  readonly store: CredentialSource;
   readonly fetcher: typeof fetch;
   private credential: Credential | undefined;
   private session: { token: string; endpoint: string; expires: number } | undefined;
   private refreshing: Promise<void> | undefined;
 
-  constructor(store = new CredentialStore(), fetcher: typeof fetch = fetch) {
+  constructor(store: CredentialSource = new CredentialStore(), fetcher: typeof fetch = fetch) {
     this.store = store;
     this.fetcher = fetcher;
   }
@@ -146,6 +151,7 @@ export class CopilotBackend implements Backend {
         const user = await this.json('https://api.github.com/user', { headers: { authorization: `Bearer ${accessToken}` } });
         this.credential = { login: text(user.login, 'GitHub login'), accessToken };
         await this.refresh();
+        if (!this.store.save) throw new BridgeError('INVALID_OPTIONS', 'This credential source cannot persist device authorization.');
         await this.store.save(this.credential);
         return this.credential.login;
       }

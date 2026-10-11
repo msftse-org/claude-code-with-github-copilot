@@ -18,8 +18,9 @@ architecture.
 | `~/.claude/settings.json` | Routes Claude to the enterprise broker and installs the credential helper. | Preview and explicitly apply the generated patch. |
 | Enterprise profile | Stores non-secret Entra/GitHub binding, catalog, revision, and admission metadata. | Let the helper create it; do not hand-edit or restore stale grants. |
 
-GitHub OAuth and Copilot tokens do not belong on the Mac. They remain inside the
-employee's isolated worker.
+GitHub OAuth and Copilot tokens do not belong on the Mac. The long-lived
+credential remains in private Key Vault; short-lived Copilot state exists only
+inside the matching account-scoped connector on a shared worker replica.
 
 ## 1. Install prerequisites
 
@@ -59,7 +60,7 @@ The operator provides:
 - the private enterprise broker URL
 - the Entra application audience, such as `api://APPLICATION-ID`
 - confirmation that the employee's Entra principal is linked to the same
-  employee's GitHub account and private worker
+  employee's GitHub account and approved credential reference
 
 Run:
 
@@ -99,7 +100,7 @@ It does not contain:
 - the Entra access token
 - GitHub OAuth credentials
 - Copilot tokens
-- worker credentials
+- GitHub or worker-service credentials
 - the opaque admission token
 
 The profile is private operational state. Do not commit it, synchronize it,
@@ -204,8 +205,8 @@ provider keys or override the broker URL.
 
 Auto mode is not the default. Start or select it only under the organization's
 normal Claude Code permission policy; the local classifier path has official
-client coverage through this gateway and does not require LiteLLM to emulate
-Anthropic safeguard results.
+client coverage through this gateway and does not require the native connector
+to emulate Anthropic safeguard results.
 
 The detailed reasons and enforcement points are in the root
 [feature compatibility table](../../README.md#claude-code-feature-compatibility).
@@ -254,8 +255,8 @@ Do not delete or edit the profile to bypass an identity conflict.
 | Broker returns HTTP 403 | Ask the operator to verify the employee binding and its revision. |
 | Keychain credential is unavailable | Unlock Keychain and confirm the current macOS user owns the enrollment. |
 | Routing conflict | Remove or resolve the reported environment or Claude setting; do not force an overwrite. |
-| No models are listed | Ask the operator to verify the employee's approved catalog and worker binding. |
-| Worker restart interrupts a conversation | Retire the old admission and start a new foreground conversation; durable resume is not implemented. |
+| No models are listed | Ask the operator to verify the employee's approved catalog and account binding. |
+| A worker replica restarts | Retry only through normal Claude behavior. The next admitted turn can restore the encrypted branch checkpoint on another replica; an uncertain in-flight inference is never replayed automatically. |
 
 Useful checks:
 

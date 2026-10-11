@@ -55,29 +55,34 @@ async function main(argv = process.argv.slice(2)): Promise<void> {
     if (!values['confirm-same-user']) {
       throw new BridgeError('ACCESS_UNVERIFIED', 'Linking requires operator confirmation that Entra and GitHub identities belong to the same user.');
     }
-    const worker = object(input.worker);
-    const workerSecretName = text(input.workerSecretName, 'worker secret name');
-    const workerValue = {
-      url: text(worker.url, 'worker URL'),
-      token: text(worker.token, 'worker token'),
+    const githubLogin = text(input.githubLogin, 'GitHub login');
+    const credentialInput = object(input.credential);
+    const credentialSecretName = text(input.credentialSecretName, 'credential secret name');
+    const credentialValue = {
+      login: text(credentialInput.login, 'credential GitHub login'),
+      accessToken: text(credentialInput.accessToken, 'GitHub credential'),
       githubAccountId: positive(input.githubAccountId, 'GitHub account ID'),
     };
+    if (credentialValue.login !== githubLogin || credentialValue.accessToken.length < 20
+      || /[\r\n]/.test(credentialValue.accessToken)) {
+      throw new BridgeError('IDENTITY_CONFLICT', 'The credential identity does not match the confirmed GitHub account.', 403);
+    }
     const vault = new SecretClient(required('CCGC_KEY_VAULT_URL'), credential);
-    await vault.setSecret(workerSecretName, JSON.stringify(workerValue), {
-      contentType: 'application/vnd.ccgc.worker+json',
+    await vault.setSecret(credentialSecretName, JSON.stringify(credentialValue), {
+      contentType: 'application/vnd.ccgc.copilot-credential+json',
       tags: {
         tenantId,
         objectId,
-        githubAccountId: String(workerValue.githubAccountId),
+        githubAccountId: String(credentialValue.githubAccountId),
       },
     });
     const models = Array.isArray(input.models) ? input.models.map(value => text(value, 'model ID')) : [];
     const binding = await store.linkAccount({
       tenantId,
       objectId,
-      githubAccountId: workerValue.githubAccountId,
-      githubLogin: text(input.githubLogin, 'GitHub login'),
-      workerSecretName,
+      githubAccountId: credentialValue.githubAccountId,
+      githubLogin,
+      credentialSecretName,
       models,
       evidenceDigest,
     });

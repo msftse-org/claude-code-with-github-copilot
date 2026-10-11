@@ -8,7 +8,7 @@ export interface AccountBinding {
   objectId: string;
   githubAccountId: number;
   githubLogin: string;
-  workerSecretName: string;
+  credentialSecretName: string;
   models: string[];
   revision: number;
 }
@@ -18,6 +18,7 @@ export interface DispatchReservation {
   admissionId: string;
   fence: number;
   requestHash: string;
+  branchId: string;
   binding: AccountBinding;
 }
 
@@ -26,7 +27,7 @@ export interface EnterpriseStore {
   binding(principal: EnterprisePrincipal): Promise<AccountBinding>;
   createAdmission(principal: EnterprisePrincipal, ttlSeconds: number, maxAttempts: number): Promise<{ id: string; token: string; expiresAt: string }>;
   admissionBinding(tokenHash: string): Promise<{ admissionId: string; binding: AccountBinding }>;
-  reserveDispatch(tokenHash: string, requestHash: string, model: string): Promise<DispatchReservation>;
+  reserveDispatch(tokenHash: string, requestHash: string, model: string, branchId: string): Promise<DispatchReservation>;
   finishDispatch(id: string, outcome: 'completed' | 'failed' | 'cancelled'): Promise<void>;
   close(): Promise<void>;
 }
@@ -40,7 +41,7 @@ export interface LinkAccountInput {
   objectId: string;
   githubAccountId: number;
   githubLogin: string;
-  workerSecretName: string;
+  credentialSecretName: string;
   models: string[];
   evidenceDigest: string;
 }
@@ -51,7 +52,7 @@ CREATE TABLE IF NOT EXISTS enterprise_account_bindings (
   object_id uuid NOT NULL,
   github_account_id bigint NOT NULL,
   github_login text NOT NULL,
-  worker_secret_name text NOT NULL,
+  credential_secret_name text NOT NULL,
   models jsonb NOT NULL,
   revision bigint NOT NULL DEFAULT 1,
   revoked_at timestamptz,
@@ -60,6 +61,19 @@ CREATE TABLE IF NOT EXISTS enterprise_account_bindings (
   CHECK (github_account_id > 0),
   CHECK (jsonb_typeof(models) = 'array')
 );
+ALTER TABLE enterprise_account_bindings ADD COLUMN IF NOT EXISTS credential_secret_name text;
+DO $$
+BEGIN
+  IF EXISTS (
+    SELECT 1 FROM information_schema.columns
+    WHERE table_name = 'enterprise_account_bindings' AND column_name = 'worker_secret_name'
+  ) THEN
+    EXECUTE 'UPDATE enterprise_account_bindings
+             SET credential_secret_name = worker_secret_name
+             WHERE credential_secret_name IS NULL';
+  END IF;
+END $$;
+ALTER TABLE enterprise_account_bindings ALTER COLUMN credential_secret_name SET NOT NULL;
 CREATE TABLE IF NOT EXISTS enterprise_admissions (
   id uuid PRIMARY KEY,
   tenant_id uuid NOT NULL,
@@ -82,6 +96,7 @@ CREATE TABLE IF NOT EXISTS enterprise_dispatches (
   admission_id uuid NOT NULL REFERENCES enterprise_admissions(id),
   request_hash text NOT NULL,
   model text NOT NULL,
+  branch_id text NOT NULL DEFAULT 'main',
   fence bigint NOT NULL,
   status text NOT NULL,
   reserved_at timestamptz NOT NULL DEFAULT now(),
@@ -89,6 +104,11 @@ CREATE TABLE IF NOT EXISTS enterprise_dispatches (
   UNIQUE (admission_id, request_hash),
   CHECK (status IN ('reserved', 'completed', 'failed', 'cancelled'))
 );
+ALTER TABLE enterprise_dispatches ADD COLUMN IF NOT EXISTS branch_id text NOT NULL DEFAULT 'main';
+CREATE UNIQUE INDEX IF NOT EXISTS enterprise_dispatches_active_branch
+  ON enterprise_dispatches (admission_id, branch_id) WHERE status = 'reserved';
+CREATE INDEX IF NOT EXISTS enterprise_dispatches_active_principal
+  ON enterprise_dispatches (status, admission_id) WHERE status = 'reserved';
 CREATE TABLE IF NOT EXISTS enterprise_audit_outbox (
   id bigserial PRIMARY KEY,
   event_type text NOT NULL,
@@ -106,7 +126,7 @@ function bindingRow(row: Record<string, unknown>): AccountBinding {
   return {
     tenantId: String(row.tenant_id), objectId: String(row.object_id),
     githubAccountId: Number(row.github_account_id), githubLogin: String(row.github_login),
-    workerSecretName: String(row.worker_secret_name), models, revision: Number(row.revision),
+    credentialSecretName: String(row.credential_secret_name), models, revision: Number(row.revision),
   };
 }
 
@@ -148,7 +168,7 @@ export class PostgresEnterpriseStore implements EnterpriseStore {
 
   async binding(principal: EnterprisePrincipal): Promise<AccountBinding> {
     const result = await this.pool.query(
-      `SELECT tenant_id, object_id, github_account_id, github_login, worker_secret_name, models, revision
+      `SELECT tenant_id, object_id, github_account_id, github_login, credential_secret_name, models, revision
        FROM enterprise_account_bindings
        WHERE tenant_id = $1 AND object_id = $2 AND revoked_at IS NULL`,
       [principal.tenantId, principal.objectId],
@@ -161,7 +181,7 @@ export class PostgresEnterpriseStore implements EnterpriseStore {
     if (!/^[0-9a-f-]{36}$/i.test(input.tenantId) || !/^[0-9a-f-]{36}$/i.test(input.objectId)
       || !Number.isSafeInteger(input.githubAccountId) || input.githubAccountId <= 0
       || !/^[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})$/.test(input.githubLogin)
-      || !/^[0-9A-Za-z-]{1,127}$/.test(input.workerSecretName)
+      || !/^[0-9A-Za-z-]{1,127}$/.test(input.credentialSecretName)
       || !/^[a-f0-9]{64}$/.test(input.evidenceDigest)
       || !input.models.length || input.models.length > 100
       || input.models.some(model => !/^claude-[a-z0-9.-]+$/.test(model))) {
@@ -172,20 +192,20 @@ export class PostgresEnterpriseStore implements EnterpriseStore {
       await client.query('BEGIN');
       const result = await client.query(
         `INSERT INTO enterprise_account_bindings
-           (tenant_id, object_id, github_account_id, github_login, worker_secret_name, models, revision, revoked_at)
+           (tenant_id, object_id, github_account_id, github_login, credential_secret_name, models, revision, revoked_at)
          VALUES ($1, $2, $3, $4, $5, $6::jsonb, 1, NULL)
          ON CONFLICT (tenant_id, object_id) DO UPDATE SET
            github_account_id = EXCLUDED.github_account_id,
            github_login = EXCLUDED.github_login,
-           worker_secret_name = EXCLUDED.worker_secret_name,
+           credential_secret_name = EXCLUDED.credential_secret_name,
            models = EXCLUDED.models,
            revision = enterprise_account_bindings.revision + 1,
            revoked_at = NULL,
            updated_at = now()
-         RETURNING tenant_id, object_id, github_account_id, github_login, worker_secret_name, models, revision`,
+         RETURNING tenant_id, object_id, github_account_id, github_login, credential_secret_name, models, revision`,
         [
           input.tenantId.toLowerCase(), input.objectId.toLowerCase(), input.githubAccountId,
-          input.githubLogin, input.workerSecretName, JSON.stringify([...new Set(input.models)]),
+          input.githubLogin, input.credentialSecretName, JSON.stringify([...new Set(input.models)]),
         ],
       );
       await client.query(
@@ -201,7 +221,7 @@ export class PostgresEnterpriseStore implements EnterpriseStore {
           JSON.stringify({
             githubAccountId: input.githubAccountId,
             githubLogin: input.githubLogin,
-            workerSecretName: input.workerSecretName,
+            credentialSecretName: input.credentialSecretName,
             evidenceDigest: input.evidenceDigest,
           }),
         ],
@@ -295,7 +315,7 @@ export class PostgresEnterpriseStore implements EnterpriseStore {
     if (!/^[a-f0-9]{64}$/.test(tokenHash)) throw new BridgeError('ADMISSION_REQUIRED', 'Invalid admission token digest.', 401);
     const result = await this.pool.query(
       `SELECT a.id, a.binding_revision,
-              b.tenant_id, b.object_id, b.github_account_id, b.github_login, b.worker_secret_name, b.models, b.revision
+              b.tenant_id, b.object_id, b.github_account_id, b.github_login, b.credential_secret_name, b.models, b.revision
        FROM enterprise_admissions a
        JOIN enterprise_account_bindings b ON b.tenant_id = a.tenant_id AND b.object_id = a.object_id
        WHERE a.token_hash = $1 AND a.revoked_at IS NULL AND a.expires_at > now() AND b.revoked_at IS NULL`,
@@ -308,10 +328,10 @@ export class PostgresEnterpriseStore implements EnterpriseStore {
     return { admissionId: String(row.id), binding };
   }
 
-  async reserveDispatch(tokenHash: string, requestHash: string, model: string): Promise<DispatchReservation> {
+  async reserveDispatch(tokenHash: string, requestHash: string, model: string, branchId: string): Promise<DispatchReservation> {
     if (!/^[a-f0-9]{64}$/.test(tokenHash) || !/^[a-f0-9]{64}$/.test(requestHash)
-      || !/^claude-[a-z0-9.-]+$/.test(model)) {
-      throw new BridgeError('INVALID_REQUEST', 'Invalid admission token digest, request digest, or model.');
+      || !/^claude-[a-z0-9.-]+$/.test(model) || !/^[A-Za-z0-9._:-]{1,128}$/.test(branchId)) {
+      throw new BridgeError('INVALID_REQUEST', 'Invalid admission token digest, request digest, model, or branch.');
     }
     const client = await this.pool.connect();
     try {
@@ -327,7 +347,7 @@ export class PostgresEnterpriseStore implements EnterpriseStore {
       const row = admission.rows[0] as Record<string, unknown>;
       const admissionId = String(row.id);
       const bindingResult = await client.query(
-        `SELECT tenant_id, object_id, github_account_id, github_login, worker_secret_name, models, revision
+        `SELECT tenant_id, object_id, github_account_id, github_login, credential_secret_name, models, revision
          FROM enterprise_account_bindings
          WHERE tenant_id = $1 AND object_id = $2 AND revoked_at IS NULL
          FOR SHARE`,
@@ -338,6 +358,21 @@ export class PostgresEnterpriseStore implements EnterpriseStore {
       if (!binding.models.includes(model)) throw new BridgeError('MODEL_UNAVAILABLE', 'This model is not approved for the linked Copilot account.', 403);
       if (Number(row.binding_revision) !== binding.revision) throw new BridgeError('IDENTITY_CONFLICT', 'The account binding changed after admission.', 409);
       if (Number(row.attempts) >= Number(row.max_attempts)) throw new BridgeError('LIMIT_REACHED', 'Admission attempt budget is exhausted.', 429);
+      const active = await client.query(
+        `SELECT
+           count(*) FILTER (WHERE d.admission_id = $1 AND d.branch_id = $2) AS branch_count,
+           count(*) AS principal_count
+         FROM enterprise_dispatches d
+         JOIN enterprise_admissions active_admission ON active_admission.id = d.admission_id
+         WHERE active_admission.tenant_id = $3 AND active_admission.object_id = $4 AND d.status = 'reserved'`,
+        [admissionId, branchId, binding.tenantId, binding.objectId],
+      );
+      if (Number(active.rows[0].branch_count) > 0) {
+        throw new BridgeError('CONTEXT_CONFLICT', 'This conversation branch already has an active dispatch.', 409);
+      }
+      if (Number(active.rows[0].principal_count) >= 4) {
+        throw new BridgeError('LIMIT_REACHED', 'Per-user active dispatch capacity is exhausted.', 429);
+      }
       const dispatchId = randomUUID();
       const updated = await client.query(
         `UPDATE enterprise_admissions SET attempts = attempts + 1, fence = fence + 1
@@ -347,9 +382,9 @@ export class PostgresEnterpriseStore implements EnterpriseStore {
       const fence = Number(updated.rows[0].fence);
       try {
         await client.query(
-          `INSERT INTO enterprise_dispatches (id, admission_id, request_hash, model, fence, status)
-           VALUES ($1, $2, $3, $4, $5, 'reserved')`,
-          [dispatchId, admissionId, requestHash, model, fence],
+          `INSERT INTO enterprise_dispatches (id, admission_id, request_hash, model, branch_id, fence, status)
+           VALUES ($1, $2, $3, $4, $5, $6, 'reserved')`,
+          [dispatchId, admissionId, requestHash, model, branchId, fence],
         );
       } catch (error) {
         if (typeof error === 'object' && error && 'code' in error && error.code === '23505') {
@@ -360,10 +395,10 @@ export class PostgresEnterpriseStore implements EnterpriseStore {
       await client.query(
         `INSERT INTO enterprise_audit_outbox (event_type, tenant_id, object_id, subject_id, metadata)
          VALUES ('dispatch.reserved', $1, $2, $3, $4::jsonb)`,
-        [binding.tenantId, binding.objectId, dispatchId, JSON.stringify({ admissionId, requestHash, model, fence })],
+        [binding.tenantId, binding.objectId, dispatchId, JSON.stringify({ admissionId, requestHash, model, branchId, fence })],
       );
       await client.query('COMMIT');
-      return { id: dispatchId, admissionId, fence, requestHash, binding };
+      return { id: dispatchId, admissionId, fence, requestHash, branchId, binding };
     } catch (error) {
       await rollback(client);
       throw error;

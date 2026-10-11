@@ -3,7 +3,7 @@
 | Field | Value |
 |---|---|
 | Project | `claude-code-with-github-copilot` |
-| Revision | 0.19 - Enterprise foundation reduced to required runtime components |
+| Revision | 0.20 - Container Apps multi-user worker fleet |
 | Created / revised | 2026-10-04 / 2026-10-11 |
 | Status | Single-user alpha live evidence retained; enterprise foundation locally validated but not deployed or production-approved |
 | Working name / command | Copilot Gateway for Claude Code / ordinary Claude client, with optional `ccgc` setup and diagnostics |
@@ -12,29 +12,36 @@
 
 ## 1. Product decision
 
-### Enterprise implementation (revision 0.19)
+### Enterprise implementation (revision 0.20)
 
-Revision 0.19 retains the enterprise foundation implemented in revision 0.18
-and removes the optional API Management branch so the topology contains only
-required runtime components. The foundation includes Microsoft Entra JWT
-validation; immutable
-tenant/object-to-GitHub bindings; opaque bounded admissions compatible with
-Claude's normal credential helper; PostgreSQL transactions for binding revision,
-attempt reservation, dispatch fencing and audit outbox; private Key Vault worker
-resolution; a per-user worker wrapper that rejects stale fences before LiteLLM;
-an Entra-aware Claude configuration helper; and secure Bicep for private,
-zone-redundant Container Apps, PostgreSQL, Key Vault, ACR, monitoring, NAT and
-private DNS. The internal Container Apps broker is the sole enterprise ingress.
-LiteLLM remains the current Copilot-specific authentication and native Messages
-connector inside each isolated worker; removing it requires a separately
-verified connector. The implementation and remaining gates are in
+Revision 0.20 replaces the per-user worker/LiteLLM target with a horizontally
+scaled, shared multi-user Container Apps worker fleet. Microsoft Entra JWT
+validation, immutable tenant/object-to-GitHub bindings, opaque bounded
+admissions, PostgreSQL reservation/fencing, and the audit outbox remain.
+The broker now signs 60-second dispatch assertions binding the principal,
+binding revision, GitHub account, credential reference, admission, branch,
+model, fence, and dispatch ID.
+
+Any worker replica can verify that assertion, select an account-keyed native
+Copilot connector, and restore the encrypted branch checkpoint from private Blob
+Storage. Connector objects never share OAuth credentials, Copilot token caches,
+or refresh locks. PostgreSQL and worker limits enforce per-user fairness before
+global capacity. Blob ETags reject stale checkpoint writers. This removes sticky
+session and one-container-per-user requirements while preserving one employee
+Copilot seat per binding.
+
+LiteLLM remains only in the retained single-user proof. Its process-wide GitHub
+Copilot credential directory is not suitable for many users in one worker
+process. The enterprise connector is now based on the repository's native
+`CopilotBackend`, extended with Key Vault credential resolution and account
+scoping. The implementation and remaining gates are in
 [ENTERPRISE.md](ENTERPRISE.md).
 
 This revision did not deploy Azure resources, publish images, create an Entra
 application, authorize another Copilot account or claim production readiness.
-Per-user worker lifecycle automation, supported linking, durable conversation
-lineage across worker restarts, private live tests, load/soak and vendor approval
-remain release gates.
+Supported linking/token rotation, private live tests, long-duration Container
+Apps SSE, load/soak, replica-failure recovery, signed release, cost review, and
+vendor approval remain release gates.
 
 ### Enterprise target (revision 0.17)
 
@@ -58,9 +65,9 @@ acceptance and rollout. Both have GPT-image presentation companions in the
 | Gateway identity | Entra tenant/issuer/audience/signature/expiry validation plus approved conditional-access policies. Bind immutable `(tenant ID, object ID)` to the same developer's verified immutable GitHub account ID through a short-lived, anti-replay linking transaction. Email matching or a client-supplied account header is insufficient. |
 | Private ingress | Internal, zone-redundant Azure Container Apps broker in a private VNet. Employees reach its private DNS name through approved corporate connectivity; there is no direct public connector. The broker validates Entra identity and authenticates worker hops; ingress never supplies a Copilot entitlement. |
 | Admission and seat broker | Zone-redundant Azure Container Apps environment with multiple gateway replicas. Recheck principal, link revision, grant, model policy and revocation before dispatch. The gateway-owned catalog is the intersection of organizational policy and that user's live entitlement; no client-side per-model routing table. |
-| Copilot workers | One user's account/cache per isolated provider process and private ephemeral filesystem, with an authorized session owner. Do not run different users through LiteLLM's current single-account global token directory or mount one shared credential volume. Workers accept only broker-authorized, user-bound requests and cannot choose another account. Worker density, startup latency, per-app identities and platform quotas need scale proof. |
-| Credential custody | Broker-only managed identity and least-privilege Key Vault data-plane RBAC over private access. Store long-lived account authorization under the intended user binding; short-lived Copilot token caches stay isolated to that user's worker. Workers do not receive vault-wide read access. Refresh, revocation, unlinking, cache invalidation and deletion must be implemented and tested. Managed identity accesses Azure resources; it is not Copilot authorization. |
-| Durable controls | Zone-redundant Azure Database for PostgreSQL for principal/account bindings, catalog and revocation epochs, admission budgets, fenced ownership leases, dispatch records, lineage digests and an audit outbox. Transactions reserve an attempt before inference. Every record is scoped to principal/account/grant; tenant/user access is checked in APIs and database policies. This is not a default transcript store. |
+| Copilot workers | Shared Container Apps replicas serve many users, but each request resolves an immutable account-keyed connector. Broker assertions bind every identity and routing field; workers cannot accept caller-selected accounts. Per-user branch/concurrency limits precede global limits. Any turn can land on any replica. |
+| Credential custody | Worker managed identity has private Key Vault secret-read access. Long-lived account authorization is stored under the immutable binding reference; each connector owns independent short-lived Copilot token and refresh state. Managed identity accesses Azure resources; it is not Copilot authorization. Supported browser linking, rotation, unlinking, and narrower per-secret authorization remain release gates. |
+| Durable controls | Zone-redundant PostgreSQL stores principal/account bindings, admission budgets, active branch reservations, monotonic fences, dispatch outcomes, and audit intent. Private Blob Storage holds client-side-encrypted branch checkpoints; ETags provide conditional writes. This is not a transcript store. |
 | Availability and recovery | Healthy replicas can accept new admissions, but an interrupted stream is not transparently resumed. A failed owner retires affected work; uncertain dispatches retain their accounting and are not replayed. Ownership leases require fencing and verified old-owner retirement; a lease alone cannot prevent an old process from making a late external call. Start with one foreground session per user and separately identified auxiliary requests. |
 | Operations and governance | Metadata-only Azure Monitor/Application Insights, restricted audit access and retention, alerts for denials, refresh failures, saturation and interrupted streams. Never log authorization headers, prompts, responses or tool bodies. Persist audit intent with control-state changes before export. Reconcile gateway counters with authorized provider reporting where available; counters are not a guaranteed billing cap or authoritative Copilot invoice. |
 
