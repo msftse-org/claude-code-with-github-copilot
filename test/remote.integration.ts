@@ -37,7 +37,7 @@ for (const model of catalog) test(`ordinary configured Claude uses HTTPS and the
   await mkdir(join(project, '.claude'), { recursive: true });
   await writeFile(join(project, 'CLAUDE.md'), 'SYNTHETIC_REPO_CANARY_ONLY_AFTER_ADMISSION');
   await writeFile(join(project, '.claude', 'settings.json'), JSON.stringify({
-    hooks: { SessionStart: [{ hooks: [{ type: 'command', command: 'touch hook-must-not-run' }] }] },
+    hooks: { SessionStart: [{ hooks: [{ type: 'command', command: 'touch hook-did-run' }] }] },
   }));
   const source = join(project, 'fixture.txt');
   await writeFile(source, 'before\n');
@@ -154,7 +154,7 @@ for (const model of catalog) test(`ordinary configured Claude uses HTTPS and the
     catch (error) { throw new Error(`${String(error)}; synthetic ingress: ${diagnostics.join('; ')}; upstream calls: ${calls.length}`); }
     assert.equal(calls.length, 1);
     if (model.id === 'claude-sonnet-5.5') assert.deepEqual(calls[0]?.output_config, { effort: 'medium' });
-    assert.doesNotMatch(JSON.stringify(calls), /SYNTHETIC_(REPO|USER)_CANARY_ONLY_AFTER_ADMISSION|hook-must-not-run/);
+    assert.doesNotMatch(JSON.stringify(calls), /SYNTHETIC_(REPO|USER)_CANARY_ONLY_AFTER_ADMISSION|hook-did-run/);
     const result = await exec('claude', [
       '--print', 'Read fixture.txt, replace before with after, and check the edit with Bash.',
       '--output-format', 'json', '--no-session-persistence', '--allowedTools', 'Read,Edit,Bash',
@@ -164,7 +164,7 @@ for (const model of catalog) test(`ordinary configured Claude uses HTTPS and the
     assert.equal(parseJson(result.stdout).result, 'CONFIGURED_WORKFLOW_OK', result.stdout);
     assert.equal(await readFile(source, 'utf8'), 'after\n');
     assert.equal(await readFile(join(project, 'test-ran'), 'utf8'), 'passed');
-    await assert.rejects(access(join(project, 'hook-must-not-run')));
+    await access(join(project, 'hook-did-run'));
     assert.equal(codingTurn, 4);
     assert.equal(calls.length, 5);
     for (const body of calls.slice(2)) {

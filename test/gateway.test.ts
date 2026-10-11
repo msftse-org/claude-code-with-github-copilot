@@ -76,29 +76,100 @@ test('reviewed output effort is validated and forwarded unchanged without enabli
   }
 });
 
-test('images, documents, extended thinking, and token counting fail before inference', async () => {
-  const gateway = await startGateway({ model, backend: { async send() { throw new Error('Unexpected inference'); } } });
-  const headers = { 'content-type': 'application/json', 'x-api-key': gateway.token };
-  try {
-    const unsupported = [
-      request({ thinking: { type: 'enabled', budget_tokens: 1024 } }),
-      request({ messages: [{ role: 'user', content: [{ type: 'image', source: { type: 'base64', media_type: 'image/png', data: 'AA==' } }] }] }),
-      request({ messages: [{ role: 'user', content: [{ type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: 'AA==' } }] }] }),
-    ];
-    for (const body of unsupported) {
+test('images, documents, extended thinking, and exact connector token counting pass through', async () => {
+  const supported = [
+    request({ thinking: { type: 'enabled', budget_tokens: 64 } }),
+    request({ thinking: { type: 'adaptive' } }),
+    request({ messages: [{ role: 'user', content: [{ type: 'image', source: { type: 'base64', media_type: 'image/png', data: 'AA==' } }] }] }),
+    request({ messages: [{ role: 'user', content: [{ type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: 'AA==' } }] }] }),
+  ];
+  for (const body of supported) {
+    let received: ObjectValue | undefined;
+    const gateway = await startGateway({ model, backend: { async send(value) { received = structuredClone(value); return Response.json(message()); } } });
+    try {
       const response = await fetch(`${gateway.url}/v1/messages`, {
-        method: 'POST', headers, body: JSON.stringify(body),
+        method: 'POST',
+        headers: { 'content-type': 'application/json', 'x-api-key': gateway.token },
+        body: JSON.stringify(body),
       });
-      assert.equal(response.status, 400);
-      assert.match(JSON.stringify(await response.json()), /FEATURE_UNSUPPORTED/);
-    }
-    const count = await fetch(`${gateway.url}/v1/messages/count_tokens`, {
-      method: 'POST', headers, body: JSON.stringify(request()),
+      assert.equal(response.status, 200);
+      await response.json();
+      assert.deepEqual(received, body);
+    } finally { await gateway.close(); }
+  }
+  let normalized: ObjectValue | undefined;
+  const compatibility = await startGateway({ model, backend: { async send(value) {
+    normalized = structuredClone(value);
+    return Response.json(message());
+  } } });
+  try {
+    const body = request({
+      thinking: { type: 'enabled', budget_tokens: 1024, display: 'omitted' },
+      output_config: { effort: 'medium' },
+      context_management: { edits: [{ type: 'clear_thinking_20251015', keep: 'all' }] },
+      messages: [
+        { role: 'user', content: 'Hello' },
+        { role: 'system', content: [{ type: 'text', text: 'Persistent context' }], output_config: { effort: 'medium' } },
+        { role: 'user', content: 'Continue' },
+      ],
     });
-    assert.equal(count.status, 404);
-    assert.match(JSON.stringify(await count.json()), /FEATURE_UNSUPPORTED/);
-    assert.equal(gateway.stats.attempts, 0);
+    const response = await fetch(`${compatibility.url}/v1/messages`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'x-api-key': compatibility.token },
+      body: JSON.stringify(body),
+    });
+    assert.equal(response.status, 200);
+    await response.json();
+    assert.deepEqual(normalized?.thinking, { type: 'adaptive' });
+    assert.deepEqual(normalized?.context_management, body.context_management);
+  } finally { await compatibility.close(); }
+  let counted: ObjectValue | undefined;
+  const gateway = await startGateway({ model, backend: {
+    async send() { throw new Error('Unexpected inference'); },
+    async countTokens(body) { counted = structuredClone(body); return Response.json({ input_tokens: 37 }); },
+  } });
+  try {
+    const count = await fetch(`${gateway.url}/v1/messages/count_tokens`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'x-api-key': gateway.token },
+      body: JSON.stringify(request()),
+    });
+    assert.equal(count.status, 200);
+    assert.deepEqual(await count.json(), { input_tokens: 37 });
+    assert.deepEqual(counted, request());
+    assert.equal(gateway.stats.completed, 0);
   } finally { await gateway.close(); }
+});
+
+test('thinking response blocks are preserved for native and streaming responses', async () => {
+  const thinking = { type: 'thinking', thinking: 'Synthetic reasoning.', signature: 'synthetic-signature' };
+  for (const streaming of [false, true]) {
+    const gateway = await startGateway({ model, backend: { async send() {
+      if (!streaming) return Response.json(message([thinking]));
+      const events = [
+        { type: 'message_start', message: { ...message([], 'end_turn'), stop_reason: null, usage: { input_tokens: 7, output_tokens: 0 } } },
+        { type: 'content_block_start', index: 0, content_block: { type: 'thinking', thinking: '' } },
+        { type: 'content_block_delta', index: 0, delta: { type: 'thinking_delta', thinking: 'Synthetic reasoning.' } },
+        { type: 'content_block_delta', index: 0, delta: { type: 'signature_delta', signature: 'synthetic-signature' } },
+        { type: 'content_block_stop', index: 0 },
+        { type: 'message_delta', delta: { stop_reason: 'end_turn', stop_sequence: null }, usage: { output_tokens: 3 } },
+        { type: 'message_stop' },
+      ];
+      return new Response(events.map(value => `event: ${value.type}\ndata: ${JSON.stringify(value)}\n\n`).join(''), {
+        headers: { 'content-type': 'text/event-stream' },
+      });
+    } } });
+    try {
+      const response = await fetch(`${gateway.url}/v1/messages`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', 'x-api-key': gateway.token },
+        body: JSON.stringify(request({ stream: streaming, thinking: { type: 'enabled', budget_tokens: 64 } })),
+      });
+      const body = await response.text();
+      assert.equal(response.status, 200, body);
+      assert.match(body, /synthetic-signature/);
+    } finally { await gateway.close(); }
+  }
 });
 
 test('text system messages preserve their role, history and tool-result matching', async () => {
@@ -293,16 +364,35 @@ test('client cancellation and inactivity abort upstream work and retire the bran
   }
 });
 
-test('independent agent requests and stale tool results are rejected before inference', async () => {
-  const gateway = await startGateway({ model, backend: { async send() { throw new Error('Unexpected inference'); } } });
+test('independent agent branches are isolated while stale tool results are rejected before inference', async () => {
+  const calls: ObjectValue[] = [];
+  const gateway = await startGateway({ model, backend: { async send(body) { calls.push(structuredClone(body)); return Response.json(message()); } } });
   try {
+    for (let i = 0; i < 12; i++) {
+      const unauthorized = await fetch(`${gateway.url}/v1/messages`, {
+        method: 'POST',
+        headers: { 'x-api-key': 'invalid', 'content-type': 'application/json', 'x-claude-code-agent-id': `unauthorized-${i}` },
+        body: JSON.stringify(request({ messages: [{ role: 'user', content: 'Rejected branch' }] })),
+      });
+      assert.equal(unauthorized.status, 401);
+    }
     const headers = { authorization: `Bearer ${gateway.token}`, 'content-type': 'application/json' };
-    assert.equal((await fetch(`${gateway.url}/v1/messages`, { method: 'POST', headers: { ...headers, 'x-claude-code-agent-id': 'other' }, body: JSON.stringify(request()) })).status, 400);
+    const agent = await fetch(`${gateway.url}/v1/messages`, {
+      method: 'POST',
+      headers: { ...headers, 'x-claude-code-agent-id': 'agent-1' },
+      body: JSON.stringify(request({ messages: [{ role: 'user', content: 'Agent branch' }] })),
+    });
+    assert.equal(agent.status, 200);
+    const main = await fetch(`${gateway.url}/v1/messages`, {
+      method: 'POST', headers, body: JSON.stringify(request({ messages: [{ role: 'user', content: 'Main branch' }] })),
+    });
+    assert.equal(main.status, 200);
+    assert.equal(calls.length, 2);
     const body = request({ messages: [{ role: 'user', content: [{ type: 'tool_result', tool_use_id: 'stale', content: 'no' }] }] });
     const response = await fetch(`${gateway.url}/v1/messages`, { method: 'POST', headers, body: JSON.stringify(body) });
     assert.equal(response.status, 409);
     assert.equal(object(await response.json()).type, 'error');
-    assert.equal(gateway.stats.attempts, 0);
+    assert.equal(gateway.stats.completed, 2);
   } finally { await gateway.close(); }
 });
 

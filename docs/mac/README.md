@@ -179,17 +179,17 @@ admission renewal are covered by automated tests.
 
 | Feature | Status | Employee impact |
 |---|---|---|
-| Image and document input | Not working | Claude requests containing image or document blocks are rejected before inference. Use text input. |
-| Extended thinking | Not working | Thinking-enabled requests are rejected. Reviewed output effort levels remain available. |
-| Automatic compaction | Not fully verified | It is not explicitly blocked, but do not rely on it until a real context-limit cycle passes release testing. |
-| Resume across admissions/restarts | Not working | Start a new conversation after admission replacement or worker restart. |
-| Agents and teams | Not working | Agent branches are rejected; use the single foreground conversation. |
-| Background tasks | Disabled | Work must remain in the foreground Claude session. |
-| Hooks | Disabled | Custom hooks do not run under the enterprise settings. |
-| Cron | Disabled | Scheduled Claude tasks are unavailable. |
-| Automatic memory | Disabled | Claude does not write or use automatic memory through this profile. |
-| Advisor | Disabled | The advisor tool is unavailable. |
-| Exact token counting | Not working | The token-count endpoint is unavailable; Claude uses a local estimate. |
+| Image and document input | Working | Images and base64 PDF documents pass through the gateway to the approved Anthropic model. |
+| Extended thinking | Working with model limits | Adaptive thinking works. Explicit fixed thinking budgets are not supported by the current Sonnet model. |
+| Automatic compaction | Not fully verified | Thinking cleanup works, but do not rely on full context-limit compaction until a real long-context cycle passes release testing. |
+| Resume across admissions/restarts | Working for completed turns | Use Claude's saved session after re-admission. After a worker restart, refresh the profile and re-admit first. A conversation paused inside a tool batch cannot yet resume safely. |
+| Agents and teams | Agents working; teams partially verified | Live subagents work through isolated branches. Full coordinated multi-agent teams remain a release-test gap. |
+| Background tasks | Working | Live background Bash execution and result collection passed. |
+| Hooks | Working | User hooks are no longer disabled; keep normal Claude Code trust and review controls. |
+| Cron | Not available in Claude Code 2.1.284 | The gateway does not disable cron, but this client version exposes no native cron command/tool. |
+| Automatic memory | Enabled, not fully verified | Automatic memory is no longer disabled, but controlled persistence and reload testing is still pending. |
+| Advisor | Not working in Claude Code 2.1.284 | The disable flag is gone, but the live client did not expose the Advisor tool. |
+| Exact token counting | Working | Claude can call the gateway token-count endpoint, which uses the verified LiteLLM/Copilot route. |
 
 The detailed reasons and enforcement points are in the root
 [feature compatibility table](../../README.md#claude-code-feature-compatibility).

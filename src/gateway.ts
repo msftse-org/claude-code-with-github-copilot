@@ -3,7 +3,7 @@ import type { IncomingMessage, ServerResponse } from 'node:http';
 import { createHash, randomBytes, timingSafeEqual } from 'node:crypto';
 import type { Backend } from './copilot.ts';
 import { statusError } from './copilot.ts';
-import { BridgeError, MessageTracker, canonical, envelope, object, parseJson, safeError, toolResults, validateRequest } from './protocol.ts';
+import { BridgeError, MessageTracker, canonical, envelope, object, parseJson, safeError, toolResults, validateRequest, validateTokenCountRequest } from './protocol.ts';
 import type { Model, ObjectValue, Usage } from './protocol.ts';
 
 const MAX_BODY = 8 * 1024 * 1024;
@@ -65,6 +65,19 @@ function historyShape(value: unknown): unknown {
   };
 }
 
+function normalizeClaudeCodeRequest(body: ObjectValue): void {
+  if (body.thinking === null || typeof body.thinking !== 'object' || Array.isArray(body.thinking)) return;
+  const thinking = body.thinking as ObjectValue;
+  if (thinking.type === 'enabled' && thinking.display === 'omitted'
+    && Object.keys(thinking).every(key => ['type', 'budget_tokens', 'display'].includes(key))
+    && typeof thinking.budget_tokens === 'number' && Number.isSafeInteger(thinking.budget_tokens) && thinking.budget_tokens > 0) {
+    body.thinking = { type: 'adaptive' };
+  } else if (thinking.type === 'adaptive' && thinking.display === 'omitted'
+    && Object.keys(thinking).every(key => ['type', 'display'].includes(key))) {
+    body.thinking = { type: 'adaptive' };
+  }
+}
+
 async function requestBody(request: IncomingMessage): Promise<ObjectValue> {
   const chunks: Buffer[] = [];
   let size = 0;
@@ -80,6 +93,17 @@ async function requestBody(request: IncomingMessage): Promise<ObjectValue> {
 function json(response: ServerResponse, status: number, value: unknown): void {
   response.writeHead(status, { 'content-type': 'application/json', 'cache-control': 'no-store', 'x-should-retry': 'false' });
   response.end(JSON.stringify(value));
+}
+
+function validCredential(request: IncomingMessage, token: string): boolean {
+  const authorization = request.headers.authorization;
+  const apiKey = request.headers['x-api-key'];
+  const supplied = authorization?.startsWith('Bearer ') ? authorization.slice(7) : apiKey;
+  return typeof supplied === 'string'
+    && Buffer.byteLength(supplied) === Buffer.byteLength(token)
+    && timingSafeEqual(Buffer.from(supplied), Buffer.from(token))
+    && (apiKey === undefined || apiKey === token)
+    && (authorization === undefined || authorization === 'Bearer ' + token);
 }
 
 async function write(response: ServerResponse, data: string): Promise<void> {
@@ -124,7 +148,7 @@ async function streamResponse(upstream: Response, downstream: ServerResponse, tr
   tracker.finish();
 }
 
-export function createMessageSession(options: GatewayOptions, token: string, origin: string) {
+function createSingleMessageSession(options: GatewayOptions, token: string, origin: string) {
   const maxTurns = options.maxTurns ?? 50;
   if (!Number.isSafeInteger(maxTurns) || maxTurns <= 0) throw new BridgeError('INVALID_OPTIONS', 'max-upstream-turns must be a positive integer.');
   const stats: { attempts: number; completed: number; failed: number; usage: Usage } = { attempts: 0, completed: 0, failed: 0, usage: {} };
@@ -155,27 +179,40 @@ export function createMessageSession(options: GatewayOptions, token: string, ori
     const path = new URL(request.url, origin).pathname;
     if (path === '/healthz' && request.method === 'GET') { json(response, 200, { status: 'listening', inference: 'not-verified' }); return; }
     if (path === '/api/hello' && request.method === 'HEAD') { response.writeHead(204); response.end(); return; }
-    const authorization = request.headers.authorization;
-    const apiKey = request.headers['x-api-key'];
-    const supplied = authorization?.startsWith('Bearer ') ? authorization.slice(7) : apiKey;
-    if (typeof supplied !== 'string' || Buffer.byteLength(supplied) !== Buffer.byteLength(token)
-      || !timingSafeEqual(Buffer.from(supplied), Buffer.from(token))
-      || (apiKey !== undefined && apiKey !== token)
-      || (authorization !== undefined && authorization !== `Bearer ${token}`)) {
+    if (!validCredential(request, token)) {
       throw new BridgeError('LOCAL_AUTH_REQUIRED', 'A valid per-launch gateway credential is required.', 401);
     }
-    if (path === '/v1/messages/count_tokens') throw new BridgeError('FEATURE_UNSUPPORTED', 'Token counting is unavailable; use the client estimate.', 404);
-    if (path !== '/v1/messages') throw new BridgeError('ROUTE_UNSUPPORTED', 'This gateway only serves Messages inference.', 404);
+    if (!['/v1/messages', '/v1/messages/count_tokens'].includes(path)) throw new BridgeError('ROUTE_UNSUPPORTED', 'This gateway only serves Messages and token counting.', 404);
     if (request.method !== 'POST') throw new BridgeError('METHOD_UNSUPPORTED', 'Messages requires POST.', 405);
     if (!request.headers['content-type']?.toLowerCase().startsWith('application/json')) throw new BridgeError('INVALID_REQUEST', 'Expected application/json.', 415);
     if (Number(request.headers['content-length']) > MAX_BODY) throw new BridgeError('REQUEST_TOO_LARGE', 'Request exceeds 8 MiB.', 413);
     const body = await requestBody(request);
     const model = options.resolveModel?.(body.model) ?? options.model;
     body.model = options.resolveModel ? model.id : body.model;
+    normalizeClaudeCodeRequest(body);
+    if (path === '/v1/messages/count_tokens') {
+      if (!options.backend.countTokens) throw new BridgeError('FEATURE_UNSUPPORTED', 'The configured connector does not provide exact token counting.', 404);
+      validateTokenCountRequest(body, model);
+      const headers = new Headers();
+      for (const name of ['anthropic-version', 'anthropic-beta']) {
+        const value = request.headers[name];
+        if (typeof value === 'string') headers.set(name, value);
+      }
+      const upstream = await options.backend.countTokens(body, headers, AbortSignal.timeout(options.inactivityMs ?? 5 * 60_000));
+      if (!upstream.ok) {
+        await upstream.body?.cancel();
+        throw statusError(upstream.status);
+      }
+      const value = object(await upstream.json());
+      if (typeof value.input_tokens !== 'number' || !Number.isSafeInteger(value.input_tokens) || value.input_tokens < 0) {
+        throw new BridgeError('PROTOCOL_ERROR', 'Invalid upstream token count.', 502);
+      }
+      json(response, 200, { input_tokens: value.input_tokens });
+      return;
+    }
     validateRequest(body, model);
     options.validate?.(body);
     const modelCheck = options.isModelCheck?.(body) === true;
-    if (request.headers['x-claude-code-agent-id']) throw new BridgeError('FEATURE_UNSUPPORTED', 'Subagents are not enabled in this profile.');
     if (retired) throw new BridgeError('CONTEXT_CONFLICT', 'This session has uncertain or cancelled upstream state; start a new session.', 409);
     if (active) throw new BridgeError('CONTEXT_CONFLICT', 'Concurrent main-branch generation is not allowed.', 409);
     const switching = selectedModel !== undefined && selectedModel !== model.id;
@@ -291,6 +328,64 @@ export function createMessageSession(options: GatewayOptions, token: string, ori
   }
 
   return { handle, stats, close() { retired = true; active?.abort(); } };
+}
+
+export function createMessageSession(options: GatewayOptions, token: string, origin: string) {
+  const branches = new Map<string, ReturnType<typeof createSingleMessageSession>>();
+  const maxTurns = options.maxTurns ?? 50;
+  let totalAttempts = 0;
+  const create = () => createSingleMessageSession({
+    ...options,
+    admit() {
+      if (totalAttempts >= maxTurns) throw new BridgeError('LIMIT_REACHED', 'Admission upstream-turn limit reached.', 429);
+      options.admit?.();
+      totalAttempts++;
+    },
+  }, token, origin);
+  const main = create();
+  branches.set('main', main);
+  const handle = (request: IncomingMessage, response: ServerResponse) => {
+    const header = request.headers['x-claude-code-agent-id'];
+    const id = typeof header === 'string' ? header : 'main';
+    if (!/^[A-Za-z0-9._:-]{1,128}$/.test(id)) {
+      json(response, 400, envelope(new BridgeError('INVALID_REQUEST', 'Invalid Claude agent identifier.')));
+      return;
+    }
+    let branch = branches.get(id);
+    if (!branch) {
+      if (!validCredential(request, token)) {
+        json(response, 401, envelope(new BridgeError('LOCAL_AUTH_REQUIRED', 'A valid per-launch gateway credential is required.', 401)));
+        return;
+      }
+      if (branches.size >= 9) {
+        json(response, 429, envelope(new BridgeError('LIMIT_REACHED', 'At most eight agent branches are allowed.', 429)));
+        return;
+      }
+      branch = create();
+      branches.set(id, branch);
+    }
+    branch.handle(request, response);
+  };
+  const stats = {
+    get attempts() { return [...branches.values()].reduce((sum, branch) => sum + branch.stats.attempts, 0); },
+    get completed() { return [...branches.values()].reduce((sum, branch) => sum + branch.stats.completed, 0); },
+    get failed() { return [...branches.values()].reduce((sum, branch) => sum + branch.stats.failed, 0); },
+    get usage(): Usage {
+      const usage: Usage = {};
+      for (const branch of branches.values()) {
+        for (const [key, value] of Object.entries(branch.stats.usage)) usage[key] = (usage[key] ?? 0) + value;
+      }
+      return usage;
+    },
+  };
+  return {
+    handle,
+    stats,
+    close() {
+      for (const branch of branches.values()) branch.close();
+      branches.clear();
+    },
+  };
 }
 
 export async function startGateway(options: GatewayOptions) {

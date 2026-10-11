@@ -222,15 +222,21 @@ export function settingsPatch(profile: ClientProfile): ObjectValue {
   }
   Object.assign(env, {
     CLAUDE_CODE_API_KEY_HELPER_TTL_MS: '60000',
-    CLAUDE_CODE_DISABLE_BACKGROUND_TASKS: '1',
-    CLAUDE_CODE_DISABLE_AUTO_MEMORY: '1',
-    CLAUDE_CODE_DISABLE_CRON: '1',
-    CLAUDE_CODE_DISABLE_ADVISOR_TOOL: '1',
   });
-  return { env, apiKeyHelper: helperCommand(), disableAllHooks: true };
+  return { env, apiKeyHelper: helperCommand() };
 }
 
 const legacyPins = ['ANTHROPIC_MODEL', ...['SONNET', 'OPUS', 'HAIKU', 'FABLE'].map(family => `ANTHROPIC_DEFAULT_${family}_MODEL`)];
+const featurePins = [
+  'CLAUDE_CODE_DISABLE_BACKGROUND_TASKS',
+  'CLAUDE_CODE_DISABLE_AUTO_MEMORY',
+  'CLAUDE_CODE_DISABLE_CRON',
+  'CLAUDE_CODE_DISABLE_ADVISOR_TOOL',
+  'CLAUDE_CODE_DISABLE_EXPERIMENTAL_BETAS',
+  'CLAUDE_CODE_DISABLE_ADAPTIVE_THINKING',
+  'CLAUDE_CODE_DISABLE_1M_CONTEXT',
+  'MAX_THINKING_TOKENS',
+];
 
 async function readSettings(path: string): Promise<ObjectValue> {
   try {
@@ -260,7 +266,7 @@ export async function inspectRemoteSettings(project: string, profile: ClientProf
     const env = settings.env === undefined ? {} : object(settings.env);
     for (const [key, value] of Object.entries(env)) {
       if (migratePins && path === join(home, '.claude', 'settings.json') && settings.apiKeyHelper === helperCommand()
-        && legacyPins.includes(key) && value === profile.info.model.id) continue;
+        && ((legacyPins.includes(key) && value === profile.info.model.id) || (featurePins.includes(key) && value === '1'))) continue;
       if (controlsRouting(key) && expected[key] !== value) {
         throw new BridgeError('ROUTING_CONFLICT', 'Settings contain a conflicting provider, model, or credential override; no settings were changed.');
       }
@@ -289,7 +295,9 @@ export async function configure(profile: ClientProfile, project: string, apply: 
   const patch = settingsPatch(profile);
   const currentEnv = { ...(current.env === undefined ? {} : object(current.env)) };
   for (const key of legacyPins) delete currentEnv[key];
+  for (const key of featurePins) delete currentEnv[key];
   const next: ObjectValue = { ...current, ...patch, env: { ...currentEnv, ...object(patch.env) } };
+  if (current.apiKeyHelper === helperCommand() && current.disableAllHooks === true) delete next.disableAllHooks;
   if (resetUnavailableModel && current.model !== undefined && !['sonnet', 'opus', 'haiku', 'default'].includes(String(current.model))) {
     try { resolveModel(profile.info.models, current.model); }
     catch { next.model = profile.info.model.id; }

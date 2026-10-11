@@ -105,28 +105,45 @@ export function claudeModels(payload: unknown): Model[] {
 
 const fields = new Set([
   'model', 'messages', 'system', 'tools', 'tool_choice', 'max_tokens', 'stream',
-  'metadata', 'temperature', 'top_p', 'top_k', 'stop_sequences', 'thinking', 'output_config',
+  'metadata', 'temperature', 'top_p', 'top_k', 'stop_sequences', 'thinking', 'output_config', 'context_management',
 ]);
 
 export function validateRequest(body: ObjectValue, model: Model): void {
   for (const key of Object.keys(body)) {
     if (!fields.has(key)) throw new BridgeError('FEATURE_UNSUPPORTED', `Unsupported request field: ${key}.`);
   }
+
   if (body.model !== model.id) throw new BridgeError('MODEL_UNAVAILABLE', 'Only the explicitly selected Copilot Claude model is allowed.');
   if (positive(body.max_tokens, 'max_tokens') > model.output) {
     throw new BridgeError('LIMIT_REACHED', 'Requested output exceeds the catalog model limit.');
   }
   if (body.stream !== undefined && typeof body.stream !== 'boolean') throw new BridgeError('INVALID_REQUEST', 'stream must be boolean.');
-  if (body.thinking !== undefined && object(body.thinking).type !== 'disabled') {
-    throw new BridgeError('FEATURE_UNSUPPORTED', 'Thinking is not enabled in this initial profile.');
+  if (body.thinking !== undefined) {
+    const thinking = object(body.thinking);
+    if (thinking.type === 'enabled') {
+      const budget = positive(thinking.budget_tokens, 'thinking budget');
+      if (Object.keys(thinking).some(key => !['type', 'budget_tokens'].includes(key)) || budget >= Number(body.max_tokens)) {
+        throw new BridgeError('INVALID_REQUEST', 'Enabled thinking requires only a positive budget_tokens smaller than max_tokens.');
+      }
+    } else if (thinking.type === 'adaptive') {
+      if (Object.keys(thinking).some(key => key !== 'type')) throw new BridgeError('INVALID_REQUEST', 'Adaptive thinking accepts no additional fields.');
+    } else if (thinking.type !== 'disabled' || Object.keys(thinking).some(key => key !== 'type')) {
+      throw new BridgeError('INVALID_REQUEST', 'thinking.type must be disabled, enabled, or adaptive.');
+    }
   }
   if (body.output_config !== undefined) {
-    const output = object(body.output_config);
-    if (Object.keys(output).some(key => key !== 'effort')) {
-      throw new BridgeError('FEATURE_UNSUPPORTED', 'Only output_config.effort is enabled in this profile.');
-    }
-    if (typeof output.effort !== 'string' || !['low', 'medium', 'high', 'xhigh', 'max'].includes(output.effort)) {
-      throw new BridgeError('INVALID_REQUEST', 'output_config.effort must be low, medium, high, xhigh, or max.');
+    validateOutputConfig(body.output_config);
+  }
+  if (body.context_management !== undefined) {
+    const management = object(body.context_management);
+    if (Object.keys(management).some(key => key !== 'edits') || !Array.isArray(management.edits)
+      || management.edits.length === 0 || management.edits.length > 4
+      || management.edits.some(value => {
+        const edit = object(value);
+        return Object.keys(edit).some(key => !['type', 'keep'].includes(key))
+          || edit.type !== 'clear_thinking_20251015' || edit.keep !== 'all';
+      })) {
+      throw new BridgeError('FEATURE_UNSUPPORTED', 'Only Claude Code clear-thinking context management is enabled.');
     }
   }
   if (body.system !== undefined && typeof body.system !== 'string') {
@@ -149,9 +166,10 @@ export function validateRequest(body: ObjectValue, model: Model): void {
     const message = object(value);
     if (message.role === 'system') {
       if (lastConversationRole !== 'user') throw new BridgeError('INVALID_REQUEST', 'Mid-conversation system messages must follow a user turn.');
-      if (Object.keys(message).some(key => key !== 'role' && key !== 'content')) {
+      if (Object.keys(message).some(key => !['role', 'content', 'output_config'].includes(key))) {
         throw new BridgeError('FEATURE_UNSUPPORTED', 'Only persistent text system messages are enabled.');
       }
+      if (message.output_config !== undefined) validateOutputConfig(message.output_config);
     } else if (message.role === 'user' || message.role === 'assistant') lastConversationRole = message.role;
     else throw new BridgeError('INVALID_REQUEST', 'Unsupported message role.');
     if (typeof message.content === 'string') continue;
@@ -161,11 +179,14 @@ export function validateRequest(body: ObjectValue, model: Model): void {
       if (message.role === 'system' && block.type !== 'text') {
         throw new BridgeError('FEATURE_UNSUPPORTED', 'Mid-conversation system messages must contain only text.');
       }
-      if (!['text', 'tool_use', 'tool_result'].includes(String(block.type))) {
-        throw new BridgeError('FEATURE_UNSUPPORTED', 'Only text and client-owned tool blocks are enabled.');
+      if (!['text', 'tool_use', 'tool_result', 'image', 'document'].includes(String(block.type))) {
+        throw new BridgeError('FEATURE_UNSUPPORTED', 'Unsupported message content block.');
       }
       if (block.type === 'text') {
         if (typeof block.text !== 'string') throw new BridgeError('INVALID_REQUEST', 'Invalid text block.');
+      } else if (block.type === 'image' || block.type === 'document') {
+        if (message.role !== 'user') throw new BridgeError('INVALID_REQUEST', 'Media input must belong to a user message.');
+        validateMediaSource(block.type, block.source);
       } else if (block.type === 'tool_use') {
         text(block.id, 'tool ID');
         text(block.name, 'tool name');
@@ -177,10 +198,14 @@ export function validateRequest(body: ObjectValue, model: Model): void {
         if (block.is_error !== undefined && typeof block.is_error !== 'boolean') throw new BridgeError('INVALID_REQUEST', 'Invalid tool error flag.');
         if (Array.isArray(block.content)) {
           for (const nested of block.content) {
-            if (object(nested).type !== 'text' || typeof object(nested).text !== 'string') throw new BridgeError('FEATURE_UNSUPPORTED', 'Only valid text tool results are enabled.');
+            const item = object(nested);
+            if (item.type === 'text' && typeof item.text === 'string') continue;
+            if (item.type === 'image') { validateMediaSource('image', item.source); continue; }
+            throw new BridgeError('FEATURE_UNSUPPORTED', 'Only text and image tool results are enabled.');
           }
         } else if (typeof block.content !== 'string') throw new BridgeError('INVALID_REQUEST', 'Invalid tool result content.');
       }
+
     }
     if (body.tool_choice !== undefined) {
       const choice = object(body.tool_choice);
@@ -203,6 +228,33 @@ export function validateRequest(body: ObjectValue, model: Model): void {
       names.add(name);
       object(tool.input_schema);
     }
+  }
+}
+
+function validateOutputConfig(value: unknown): void {
+  const output = object(value);
+  if (Object.keys(output).some(key => key !== 'effort')) {
+    throw new BridgeError('FEATURE_UNSUPPORTED', 'Only output_config.effort is enabled in this profile.');
+  }
+  if (typeof output.effort !== 'string' || !['low', 'medium', 'high', 'xhigh', 'max'].includes(output.effort)) {
+    throw new BridgeError('INVALID_REQUEST', 'output_config.effort must be low, medium, high, xhigh, or max.');
+  }
+}
+
+export function validateTokenCountRequest(body: ObjectValue, model: Model): void {
+  validateRequest({ ...body, max_tokens: model.output, stream: false }, model);
+}
+
+function validateMediaSource(kind: 'image' | 'document', value: unknown): void {
+  const source = object(value);
+  const media = text(source.media_type, `${kind} media type`);
+  const allowed = kind === 'image'
+    ? ['image/jpeg', 'image/png', 'image/gif', 'image/webp']
+    : ['application/pdf', 'text/plain'];
+  if (source.type !== 'base64' || !allowed.includes(media) || typeof source.data !== 'string'
+    || !source.data.length || source.data.length > 8 * 1024 * 1024
+    || source.data.length % 4 !== 0 || !/^[A-Za-z0-9+/]*={0,2}$/.test(source.data)) {
+    throw new BridgeError('INVALID_REQUEST', `Invalid ${kind} base64 source.`);
   }
 }
 
@@ -237,7 +289,7 @@ export class MessageTracker {
   readonly model: Model;
   readonly tools: Set<string>;
   readonly pending = new Set<string>();
-  readonly blocks = new Map<number, { type: string; json: string }>();
+  readonly blocks = new Map<number, { type: string; json: string; signature?: boolean }>();
   usage: Usage = {};
   started = false;
   stopped = false;
@@ -255,7 +307,7 @@ export class MessageTracker {
     }
   }
 
-  block(value: unknown): { type: string; json: string } {
+  block(value: unknown, streaming = false): { type: string; json: string; signature?: boolean } {
     const block = object(value);
     if (block.type === 'tool_use') {
       const id = text(block.id, 'tool ID');
@@ -264,6 +316,11 @@ export class MessageTracker {
       }
       this.pending.add(id);
       object(block.input);
+    } else if (block.type === 'thinking') {
+      if (typeof block.thinking !== 'string' || (!streaming && typeof block.signature !== 'string')) throw new BridgeError('PROTOCOL_ERROR', 'Invalid upstream thinking block.', 502);
+      return { type: 'thinking', json: '', signature: typeof block.signature === 'string' };
+    } else if (block.type === 'redacted_thinking') {
+      if (typeof block.data !== 'string') throw new BridgeError('PROTOCOL_ERROR', 'Invalid upstream redacted thinking block.', 502);
     } else if (block.type !== 'text' || typeof block.text !== 'string') throw new BridgeError('FEATURE_UNSUPPORTED', 'Unsupported or invalid upstream content block.', 502);
     return { type: String(block.type), json: '' };
   }
@@ -283,18 +340,22 @@ export class MessageTracker {
     if (!this.started) throw new BridgeError('PROTOCOL_ERROR', 'Event before message start.', 502);
     if (value.type === 'content_block_start') {
       if (value.index !== this.nextIndex++) throw new BridgeError('PROTOCOL_ERROR', 'Invalid content block order.', 502);
-      this.blocks.set(Number(value.index), this.block(value.content_block));
+      this.blocks.set(Number(value.index), this.block(value.content_block, true));
     } else if (value.type === 'content_block_delta') {
       const block = this.blocks.get(Number(value.index));
       if (!block) throw new BridgeError('PROTOCOL_ERROR', 'Delta outside an open block.', 502);
       const delta = object(value.delta);
       if (block.type === 'tool_use' && delta.type === 'input_json_delta' && typeof delta.partial_json === 'string') block.json += delta.partial_json;
-      else if (block.type !== 'text' || delta.type !== 'text_delta' || typeof delta.text !== 'string') throw new BridgeError('PROTOCOL_ERROR', 'Invalid block delta.', 502);
+      else if (block.type === 'text' && delta.type === 'text_delta' && typeof delta.text === 'string') {}
+      else if (block.type === 'thinking' && delta.type === 'thinking_delta' && typeof delta.thinking === 'string') {}
+      else if (block.type === 'thinking' && delta.type === 'signature_delta' && typeof delta.signature === 'string') block.signature = true;
+      else throw new BridgeError('PROTOCOL_ERROR', 'Invalid block delta.', 502);
       if (block.json.length > 8 * 1024 * 1024) throw new BridgeError('LIMIT_REACHED', 'Tool JSON exceeds the local limit.', 502);
     } else if (value.type === 'content_block_stop') {
       const block = this.blocks.get(Number(value.index));
       if (!block) throw new BridgeError('PROTOCOL_ERROR', 'Unknown or already closed block.', 502);
       if (block.json) parseJson(block.json);
+      if (block.type === 'thinking' && !block.signature) throw new BridgeError('PROTOCOL_ERROR', 'Thinking block ended without a signature.', 502);
       this.blocks.delete(Number(value.index));
     } else if (value.type === 'message_delta') {
       const reason = object(value.delta).stop_reason;

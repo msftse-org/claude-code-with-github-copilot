@@ -280,11 +280,11 @@ test('client persists no tokens in profile/settings; configure requires consent 
     assert.equal(object(applied.env).CUSTOM, 'preserved');
     assert.equal(object(applied.env).ANTHROPIC_BASE_URL, profile.gateway);
     assert.equal(object(applied.env).ANTHROPIC_AUTH_TOKEN, undefined);
-    assert.equal(object(applied.env).CLAUDE_CODE_DISABLE_BACKGROUND_TASKS, '1');
-    assert.equal(object(applied.env).CLAUDE_CODE_DISABLE_AUTO_MEMORY, '1');
-    assert.equal(object(applied.env).CLAUDE_CODE_DISABLE_CRON, '1');
-    assert.equal(object(applied.env).CLAUDE_CODE_DISABLE_ADVISOR_TOOL, '1');
-    assert.equal(applied.disableAllHooks, true);
+    assert.equal(object(applied.env).CLAUDE_CODE_DISABLE_BACKGROUND_TASKS, undefined);
+    assert.equal(object(applied.env).CLAUDE_CODE_DISABLE_AUTO_MEMORY, undefined);
+    assert.equal(object(applied.env).CLAUDE_CODE_DISABLE_CRON, undefined);
+    assert.equal(object(applied.env).CLAUDE_CODE_DISABLE_ADVISOR_TOOL, undefined);
+    assert.equal(applied.disableAllHooks, undefined);
     assert.match(text(applied.apiKeyHelper, 'helper'), /cli\.ts' token$/);
     assert.doesNotMatch(JSON.stringify(applied), new RegExp(ownerKey));
     assert.deepEqual(settingsPatch(profile).apiKeyHelper, applied.apiKeyHelper);
@@ -301,7 +301,7 @@ test('unsafe private state and conflicting/symlinked Claude settings are rejecte
   const profile = { gateway: 'https://gateway.test', info: { ...identity, profile: REMOTE_PROFILE, instance: 'test' } };
   try {
     await assert.rejects(inspectRemoteSettings(home, profile, home, join(home, 'managed'), { ANTHROPIC_API_KEY: 'synthetic-conflict' }), /Shell environment/);
-    await assert.rejects(inspectRemoteSettings(home, profile, home, join(home, 'managed'), { CLAUDE_CODE_DISABLE_BACKGROUND_TASKS: '0' }), /Shell environment/);
+    await assert.rejects(inspectRemoteSettings(home, profile, home, join(home, 'managed'), { CLAUDE_CODE_USE_BEDROCK: '1' }), /Shell environment/);
     const state = join(home, 'state', 'profile.json');
     await writePrivate(state, { test: true });
     await chmod(state, 0o644);

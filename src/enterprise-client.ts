@@ -136,15 +136,21 @@ export function enterpriseSettingsPatch(value: EnterpriseProfile): ObjectValue {
       ANTHROPIC_DEFAULT_MODEL: defaultModel,
       CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY: '1',
       CLAUDE_CODE_API_KEY_HELPER_TTL_MS: '60000',
-      CLAUDE_CODE_DISABLE_BACKGROUND_TASKS: '1',
-      CLAUDE_CODE_DISABLE_AUTO_MEMORY: '1',
-      CLAUDE_CODE_DISABLE_CRON: '1',
-      CLAUDE_CODE_DISABLE_ADVISOR_TOOL: '1',
     },
     apiKeyHelper: enterpriseHelperCommand(),
-    disableAllHooks: true,
   };
 }
+
+const featurePins = [
+  'CLAUDE_CODE_DISABLE_BACKGROUND_TASKS',
+  'CLAUDE_CODE_DISABLE_AUTO_MEMORY',
+  'CLAUDE_CODE_DISABLE_CRON',
+  'CLAUDE_CODE_DISABLE_ADVISOR_TOOL',
+  'CLAUDE_CODE_DISABLE_EXPERIMENTAL_BETAS',
+  'CLAUDE_CODE_DISABLE_ADAPTIVE_THINKING',
+  'CLAUDE_CODE_DISABLE_1M_CONTEXT',
+  'MAX_THINKING_TOKENS',
+];
 
 async function readSettings(path: string): Promise<ObjectValue> {
   try {
@@ -177,6 +183,7 @@ export async function configureEnterprise(value: EnterpriseProfile, apply: boole
     }
   }
   for (const [key, currentValue] of Object.entries(env)) {
+    if (current.apiKeyHelper === enterpriseHelperCommand() && featurePins.includes(key) && currentValue === '1') continue;
     if (controlsRouting(key) && expectedEnv[key] !== currentValue) {
       throw new BridgeError('ROUTING_CONFLICT', `Existing Claude setting ${key} conflicts with the enterprise gateway.`);
     }
@@ -184,7 +191,10 @@ export async function configureEnterprise(value: EnterpriseProfile, apply: boole
   if (current.apiKeyHelper !== undefined && current.apiKeyHelper !== enterpriseHelperCommand()) {
     throw new BridgeError('ROUTING_CONFLICT', 'An unrelated Claude credential helper is already configured.');
   }
-  const next = { ...current, ...expected, env: { ...env, ...expectedEnv } };
+  const currentEnv = { ...env };
+  for (const key of featurePins) delete currentEnv[key];
+  const next: ObjectValue = { ...current, ...expected, env: { ...currentEnv, ...expectedEnv } };
+  if (current.apiKeyHelper === enterpriseHelperCommand() && current.disableAllHooks === true) delete next.disableAllHooks;
   if (apply) {
     await mkdir(dirname(path), { recursive: true, mode: 0o700 });
     const directory = await lstat(dirname(path));

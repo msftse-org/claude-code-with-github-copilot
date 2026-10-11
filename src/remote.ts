@@ -127,9 +127,13 @@ export function clientHistory(messages: unknown[]): ObjectValue[] {
   for (const value of messages) {
     const message = object(value);
     if ('clientContext' in message) throw new BridgeError('FEATURE_UNSUPPORTED', 'clientContext is reserved for internal history comparison.');
-    if (message.role === 'system' && typeof message.content === 'string' && result.at(-1)?.role === 'user') {
+    const systemText = typeof message.content === 'string' ? message.content
+      : Array.isArray(message.content) && message.content.length === 1
+        && object(message.content[0]).type === 'text' && typeof object(message.content[0]).text === 'string'
+        ? String(object(message.content[0]).text) : undefined;
+    if (message.role === 'system' && systemText !== undefined && result.at(-1)?.role === 'user') {
       const previous = result.at(-1)!;
-      const next = contextValue(message.content);
+      const next = contextValue(systemText);
       const existing = next.includes('<ccgc-model-context>') && previous.clientContext === '<ccgc-model-identity>'
         ? undefined : previous.clientContext;
       previous.clientContext = [existing, next].filter(Boolean).join('\n\n');

@@ -25,11 +25,7 @@ export function childEnvironment(url: string, token: string, model: Model, sourc
     ANTHROPIC_DEFAULT_HAIKU_MODEL: model.id,
     ANTHROPIC_DEFAULT_FABLE_MODEL: model.id,
     CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: '1',
-    CLAUDE_CODE_DISABLE_EXPERIMENTAL_BETAS: '1',
-    CLAUDE_CODE_DISABLE_ADAPTIVE_THINKING: '1',
-    CLAUDE_CODE_DISABLE_1M_CONTEXT: '1',
     CLAUDE_CODE_MAX_OUTPUT_TOKENS: String(Math.min(model.output, 16384)),
-    MAX_THINKING_TOKENS: '0',
     DISABLE_AUTOUPDATER: '1',
   };
 }

@@ -18,6 +18,7 @@ export interface Credential {
 
 export interface Backend {
   send(body: ObjectValue, headers: Headers, signal: AbortSignal): Promise<Response>;
+  countTokens?(body: ObjectValue, headers: Headers, signal: AbortSignal): Promise<Response>;
 }
 
 export class CredentialStore {
@@ -188,6 +189,14 @@ export class CopilotBackend implements Backend {
   }
 
   async send(body: ObjectValue, headers: Headers, signal: AbortSignal): Promise<Response> {
+    return this.messages('/v1/messages', body, headers, signal);
+  }
+
+  async countTokens(body: ObjectValue, headers: Headers, signal: AbortSignal): Promise<Response> {
+    return this.messages('/v1/messages/count_tokens', body, headers, signal);
+  }
+
+  private async messages(path: string, body: ObjectValue, headers: Headers, signal: AbortSignal): Promise<Response> {
     await this.refresh(signal);
     if (!this.session) throw new BridgeError('AUTH_REQUIRED', 'No authenticated Copilot session.', 401);
     const upstream = new Headers(compatibilityHeaders);
@@ -201,7 +210,7 @@ export class CopilotBackend implements Backend {
     upstream.set('x-github-api-version', '2026-06-01');
     upstream.set('x-request-id', randomUUID());
     upstream.set('x-initiator', toolResults(body).length ? 'agent' : 'user');
-    return this.fetcher(`${this.session.endpoint}/v1/messages`, {
+    return this.fetcher(`${this.session.endpoint}${path}`, {
       method: 'POST', headers: upstream, body: JSON.stringify(body), redirect: 'error', signal,
     });
   }

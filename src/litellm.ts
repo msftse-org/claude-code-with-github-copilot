@@ -18,12 +18,18 @@ export class LiteLLMBackend implements Backend {
     this.fetcher = fetcher;
   }
   async send(body: ObjectValue, headers: Headers, signal: AbortSignal): Promise<Response> {
+    return this.messages('/v1/messages', body, headers, signal);
+  }
+  async countTokens(body: ObjectValue, headers: Headers, signal: AbortSignal): Promise<Response> {
+    return this.messages('/v1/messages/count_tokens', body, headers, signal);
+  }
+  private async messages(path: string, body: ObjectValue, headers: Headers, signal: AbortSignal): Promise<Response> {
     const upstream = new Headers({ authorization: `Bearer ${this.token}`, 'content-type': 'application/json' });
     for (const name of ['anthropic-version', 'anthropic-beta']) {
       const value = headers.get(name);
       if (value) upstream.set(name, value);
     }
-    return this.fetcher(`${this.url}/v1/messages`, {
+    return this.fetcher(`${this.url}${path}`, {
       method: 'POST', headers: upstream, body: JSON.stringify(body), redirect: 'error', signal,
     });
   }

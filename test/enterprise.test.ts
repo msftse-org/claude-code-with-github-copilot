@@ -298,11 +298,11 @@ test('enterprise client uses Entra for control and an opaque admission token for
     assert.equal(configured.applied, true);
     const settings = JSON.parse(await readFile(join(home, '.claude', 'settings.json'), 'utf8')) as Record<string, unknown>;
     assert.equal((settings.env as Record<string, string>).ANTHROPIC_BASE_URL, 'https://enterprise.example');
-    assert.equal((settings.env as Record<string, string>).CLAUDE_CODE_DISABLE_BACKGROUND_TASKS, '1');
-    assert.equal((settings.env as Record<string, string>).CLAUDE_CODE_DISABLE_AUTO_MEMORY, '1');
-    assert.equal((settings.env as Record<string, string>).CLAUDE_CODE_DISABLE_CRON, '1');
-    assert.equal((settings.env as Record<string, string>).CLAUDE_CODE_DISABLE_ADVISOR_TOOL, '1');
-    assert.equal(settings.disableAllHooks, true);
+    assert.equal((settings.env as Record<string, string>).CLAUDE_CODE_DISABLE_BACKGROUND_TASKS, undefined);
+    assert.equal((settings.env as Record<string, string>).CLAUDE_CODE_DISABLE_AUTO_MEMORY, undefined);
+    assert.equal((settings.env as Record<string, string>).CLAUDE_CODE_DISABLE_CRON, undefined);
+    assert.equal((settings.env as Record<string, string>).CLAUDE_CODE_DISABLE_ADVISOR_TOOL, undefined);
+    assert.equal(settings.disableAllHooks, undefined);
     assert.match(String(settings.apiKeyHelper), /enterprise-cli\.ts' token$/);
   } finally {
     await rm(home, { recursive: true });
