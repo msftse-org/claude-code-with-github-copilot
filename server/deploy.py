@@ -22,7 +22,7 @@ from urllib.request import HTTPRedirectHandler, build_opener
 import uuid
 
 ROOT = Path(__file__).resolve().parent.parent
-CLIENT_VERSION = "2.1.284"
+CLIENT_VERSION = "2.1.296"
 STAGES = ("infra", "host", "gateway", "client", "verified")
 
 

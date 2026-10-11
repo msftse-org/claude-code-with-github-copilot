@@ -303,6 +303,7 @@ test('enterprise client uses Entra for control and an opaque admission token for
     assert.equal((settings.env as Record<string, string>).CLAUDE_CODE_DISABLE_CRON, undefined);
     assert.equal((settings.env as Record<string, string>).CLAUDE_CODE_DISABLE_ADVISOR_TOOL, undefined);
     assert.equal(settings.disableAllHooks, undefined);
+    assert.deepEqual(settings.permissions, { defaultMode: 'manual' });
     assert.match(String(settings.apiKeyHelper), /enterprise-cli\.ts' token$/);
   } finally {
     await rm(home, { recursive: true });

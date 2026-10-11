@@ -223,7 +223,11 @@ export function settingsPatch(profile: ClientProfile): ObjectValue {
   Object.assign(env, {
     CLAUDE_CODE_API_KEY_HELPER_TTL_MS: '60000',
   });
-  return { env, apiKeyHelper: helperCommand() };
+  return {
+    env,
+    apiKeyHelper: helperCommand(),
+    permissions: { defaultMode: 'manual' },
+  };
 }
 
 const legacyPins = ['ANTHROPIC_MODEL', ...['SONNET', 'OPUS', 'HAIKU', 'FABLE'].map(family => `ANTHROPIC_DEFAULT_${family}_MODEL`)];
@@ -294,9 +298,16 @@ export async function configure(profile: ClientProfile, project: string, apply: 
   const current = await readSettings(path);
   const patch = settingsPatch(profile);
   const currentEnv = { ...(current.env === undefined ? {} : object(current.env)) };
+  const currentPermissions = current.permissions === undefined ? {} : object(current.permissions);
+  const patchPermissions = object(patch.permissions);
   for (const key of legacyPins) delete currentEnv[key];
   for (const key of featurePins) delete currentEnv[key];
-  const next: ObjectValue = { ...current, ...patch, env: { ...currentEnv, ...object(patch.env) } };
+  const next: ObjectValue = {
+    ...current,
+    ...patch,
+    env: { ...currentEnv, ...object(patch.env) },
+    permissions: { ...currentPermissions, ...patchPermissions },
+  };
   if (current.apiKeyHelper === helperCommand() && current.disableAllHooks === true) delete next.disableAllHooks;
   if (resetUnavailableModel && current.model !== undefined && !['sonnet', 'opus', 'haiku', 'default'].includes(String(current.model))) {
     try { resolveModel(profile.info.models, current.model); }

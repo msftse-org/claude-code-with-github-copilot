@@ -4,7 +4,7 @@
   "reviewMethod": "Direct image inspection by Copilot",
   "architecture": {
     "file": "ccgc-automated-solution.html",
-    "sha256": "a754d3f194330f4e73c4c20324b83e7d789c81a600a2f03b4a9a256e5e66118c",
+    "sha256": "1a7f692c13942618286b7024c176bb95ef65a832de72fdc3d0b30d7cd01da246",
     "visual_review": "passed",
     "correction_rounds": 0,
     "showcaseChecksPassed": 9,
@@ -22,12 +22,13 @@
       "Setup/control path and protected-state branches remain distinguishable.",
       "Azure containment excludes local tools and the upstream Copilot service.",
       "Text, cards and viewer controls remain contained in both inspected themes.",
-      "Large desktop composition uses the available height without a large empty lower band."
+      "Large desktop composition uses the available height without a large empty lower band.",
+      "The client node clearly identifies the reviewed Claude Code 2.1.296 release."
     ]
   },
   "presentationImage": {
     "file": "ccgc-automated-solution.png",
-    "sha256": "341db2d1dd13274abbdd1486dcd3214b3ece7a6be84a4abde8150a9ae2b85a5c",
+    "sha256": "d86bf74b7c0e156e058a4bff6b78bf97eef3ca17f37533b89d75136a17256e0e",
     "visual_review": "passed",
     "correction_rounds": 1,
     "width": 2048,

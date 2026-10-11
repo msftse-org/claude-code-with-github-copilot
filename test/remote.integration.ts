@@ -162,6 +162,13 @@ for (const model of catalog) test(`ordinary configured Claude uses HTTPS and the
       throw new Error(`${String(error)}; synthetic ingress: ${diagnostics.join('; ')}`, { cause: error });
     });
     assert.equal(parseJson(result.stdout).result, 'CONFIGURED_WORKFLOW_OK', result.stdout);
+    if (model.id === 'claude-sonnet-5.5') {
+      const names = (calls[1]?.tools as ObjectValue[]).map(tool => String(object(tool).name));
+      for (const name of ['Agent', 'CronCreate', 'CronDelete', 'CronList', 'ListAgents', 'SendMessage', 'Workflow']) {
+        assert.ok(names.includes(name), `Claude Code ${CLAUDE_VERSION} did not expose ${name}.`);
+      }
+      assert.ok(!names.includes('Advisor'), `Claude Code ${CLAUDE_VERSION} unexpectedly exposed Advisor.`);
+    }
     assert.equal(await readFile(source, 'utf8'), 'after\n');
     assert.equal(await readFile(join(project, 'test-ran'), 'utf8'), 'passed');
     await access(join(project, 'hook-did-run'));

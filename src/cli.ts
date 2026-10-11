@@ -86,7 +86,7 @@ export async function main(argv = process.argv.slice(2)) {
     if (values['reset-unavailable-model'] && !values.apply) throw new BridgeError('INVALID_OPTIONS', '--reset-unavailable-model requires --apply.');
     const result = await configure(profile, project, values.apply ?? false, undefined, undefined, values['reset-unavailable-model'] ?? false);
     // Print only our patch, not unrelated settings that might contain user secrets.
-    console.log(JSON.stringify({ path: result.path, applied: result.applied, patch: settingsPatch(profile), next: result.applied ? 'Run ccgc doctor --live --accept-unofficial, then claude.' : 'Use --apply to enable gateway model discovery, remove old gateway-owned pins, and disable hooks.' }, null, 2));
+    console.log(JSON.stringify({ path: result.path, applied: result.applied, patch: settingsPatch(profile), next: result.applied ? 'Run ccgc doctor --live --accept-unofficial, then claude.' : 'Use --apply to enable gateway model discovery, remove old gateway-owned pins, and select manual permission mode.' }, null, 2));
     return;
   }
   if (values.live) {

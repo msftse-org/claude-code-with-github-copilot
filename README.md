@@ -67,7 +67,7 @@ the registry remain private.
 
 Each employee needs:
 
-- Official Claude Code `2.1.284`
+- Official Claude Code `2.1.296`
 - The project-developed enterprise `ccgc` command-line helper
 - A bounded opaque admission credential stored in macOS Keychain
 - `~/.claude/settings.json` pointing Claude Code to the enterprise broker
@@ -101,10 +101,11 @@ Entra sign-in, configuration, Keychain behavior, verification, and daily use.
 | Explicit fixed-budget thinking | **Not supported by the current model** | The current Sonnet model requires adaptive thinking and rejects `thinking.type: enabled` with an explicit token budget. |
 | Automatic compaction | **Not fully verified** | Claude Code clear-thinking context management works, but a real context-limit compaction cycle has not completed the release gates. Arbitrary same-admission history replacement remains blocked. |
 | Resume with a pending tool batch | **Not working** | Completed turns resume across admissions and restarts, but the gateway cannot safely prove pending tool-result lineage after state replacement. |
-| Agent teams | **Partially verified** | The gateway supports the main branch plus eight isolated agent branches with one shared admission limit. A single live subagent passed; a coordinated multi-agent team has not completed release testing. |
-| Cron | **Not available in this client** | The project no longer disables cron, but official Claude Code `2.1.284` does not expose a native cron command/tool that can be verified. |
+| Agent teams | **Exposed, not fully verified** | Claude Code `2.1.296` exposes `Agent`, `ListAgents`, `SendMessage`, and `Workflow`. The gateway supports the main branch plus eight isolated agent branches, but a coordinated multi-agent workflow has not completed release testing. |
+| Cron | **Exposed, not fully verified** | Claude Code `2.1.296` exposes `CronCreate`, `CronDelete`, and `CronList`. A scheduled fire, durable restart, and cleanup lifecycle has not completed release testing through this route. |
 | Automatic memory | **Enabled, not fully verified** | The project no longer disables automatic memory, but a controlled write-and-reload lifecycle has not completed release testing. |
-| Advisor tool | **Not working in this client** | The project no longer disables Advisor, but live Claude Code `2.1.284` did not expose the `Advisor` tool even when explicitly allowed. |
+| Advisor tool | **Not available in this client** | The project no longer disables Advisor, but Claude Code `2.1.296` does not expose an `Advisor` tool in its native tool catalog. |
+| Auto permission mode | **Not supported through this route** | Auto mode depends on an Anthropic safety-classifier model that is unavailable through the custom Copilot gateway. The generated profile selects Claude Code's `manual` mode, preserves allow/deny rules, and still honors explicit approvals such as `--allowedTools`. |
 
 Validated features have automated coverage and, where applicable, a live
 gateway proof. The table contains only behavior that remains unavailable,

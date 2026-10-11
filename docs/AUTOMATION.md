@@ -30,7 +30,7 @@ The original `server/azure-deploy.sh` remains the proof host's access-only helpe
 | Live proof | With separate consent, uses empty temporary HOME/project directories and synthetic files. Exercises Read/Edit/Bash through every approved model and back in one conversation. Checks successful tool results and files, closes only its diagnostic admission, and creates a fresh foreground admission. |
 
 The developer still runs ordinary `claude`; there is no persistent local proxy.
-Model mappings stay on the gateway. Current reviewed client: **2.1.284**.
+Model mappings stay on the gateway. Current source-reviewed client: **2.1.296**.
 
 ## Prerequisites and boundaries
 
@@ -45,7 +45,7 @@ Model mappings stay on the gateway. Current reviewed client: **2.1.284**.
 - Python 3.11+, OpenSSH, `tar`, Azure CLI/Bicep; Terraform 1.9+ and <2 for
   Terraform deployments. AzAPI **2.13.0** is pinned and its lock file is included.
 - For local client stages: macOS with Keychain, Node.js 24, and official Claude
-  2.1.284. `--install-client` explicitly permits installation/update from the
+  2.1.296. `--install-client` explicitly permits installation/update from the
   official distribution; `curl` is needed for a first installation.
 - A dedicated SSH key pair, with an unencrypted private key protected by mode
   0600. This operator profile uses non-interactive SSH; it does not collect key

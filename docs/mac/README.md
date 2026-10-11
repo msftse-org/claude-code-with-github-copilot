@@ -12,7 +12,7 @@ architecture.
 
 | Item | What it does | Required action |
 |---|---|---|
-| Official Claude Code `2.1.284` | Provides the unchanged coding interface and runs local Read, Edit, Bash, and permission decisions. | Install and verify the exact supported version. |
+| Official Claude Code `2.1.296` | Provides the unchanged coding interface and runs local Read, Edit, Bash, and permission decisions. | Install and verify the exact supported version. |
 | Enterprise CCGC helper | Uses Entra for broker control requests and acts as Claude's `apiKeyHelper`. | Keep this repository and Node.js at stable paths. |
 | Admission credential in macOS Keychain | Authenticates Claude requests for one employee and one bounded admission. | Allow the helper to create and renew it; never copy it manually. |
 | `~/.claude/settings.json` | Routes Claude to the enterprise broker and installs the credential helper. | Preview and explicitly apply the generated patch. |
@@ -28,7 +28,7 @@ Required:
 - macOS
 - Node.js 24
 - npm
-- Official Claude Code `2.1.284`
+- Official Claude Code `2.1.296`
 - A stable checkout of this repository
 - An approved Microsoft Entra credential source
 
@@ -44,7 +44,7 @@ npm run enterprise:client -- --help
 If Claude Code is missing or has another version:
 
 ```bash
-claude install 2.1.284
+claude install 2.1.296
 claude --version
 ```
 
@@ -128,8 +128,10 @@ This updates `~/.claude/settings.json` and:
 - enables gateway model discovery
 - installs the enterprise `apiKeyHelper`
 - sets a one-minute helper cache
-- disables hooks and unsupported background features
-- preserves unrelated Claude settings and permission rules
+- selects `manual` permission mode because Claude Code auto mode depends on an
+  Anthropic safety classifier that is unavailable through this custom route
+- removes obsolete project-owned feature-disable flags
+- preserves unrelated Claude settings and existing allow/deny rules
 
 Configuration fails without changing the file if it finds a conflicting shell
 environment variable, provider route, credential helper, or user setting.
@@ -193,10 +195,11 @@ provider keys or override the broker URL.
 | Explicit fixed-budget thinking | Not supported by the current model | Use adaptive thinking; the current Sonnet model rejects explicit thinking budgets. |
 | Automatic compaction | Not fully verified | Thinking cleanup works, but do not rely on full context-limit compaction until a real long-context cycle passes release testing. |
 | Resume with a pending tool batch | Not working | Completed turns resume, but a conversation paused inside a tool batch cannot yet resume safely. |
-| Agent teams | Partially verified | Live subagents work through isolated branches. Full coordinated multi-agent teams remain a release-test gap. |
-| Cron | Not available in Claude Code 2.1.284 | The gateway does not disable cron, but this client version exposes no native cron command/tool. |
+| Agent teams | Exposed, not fully verified | Claude Code 2.1.296 exposes Agent, ListAgents, SendMessage, and Workflow. Full coordinated multi-agent execution remains a release-test gap. |
+| Cron | Exposed, not fully verified | Claude Code 2.1.296 exposes CronCreate, CronDelete, and CronList, but scheduled firing and durable restart have not completed release testing. |
 | Automatic memory | Enabled, not fully verified | Automatic memory is no longer disabled, but controlled persistence and reload testing is still pending. |
-| Advisor | Not working in Claude Code 2.1.284 | The disable flag is gone, but the live client did not expose the Advisor tool. |
+| Advisor | Not available in Claude Code 2.1.296 | The disable flag is gone, but the client does not expose an Advisor tool. |
+| Auto permission mode | Not supported through this route | The custom route cannot reach Claude Code's Anthropic safety classifier. The generated profile uses manual mode and preserves explicit allow/deny rules. |
 
 The detailed reasons and enforcement points are in the root
 [feature compatibility table](../../README.md#claude-code-feature-compatibility).

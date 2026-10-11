@@ -157,7 +157,7 @@ admission, history, attempt limits and fail-closed state.
 
 The old 2.1.220 client itself inserts "Sonnet 5" into its system context for
 `claude-sonnet-5.5`. A model catalog response alone cannot repair that hardcoded
-identity. The selected minimum reviewed client is 2.1.284, which recognizes
+identity. The selected minimum reviewed client is 2.1.296, which recognizes
 Sonnet 5.5 and performs discovery while nonessential traffic remains disabled.
 The one-time migration removes only project-owned all-alias pins and preserves
 unrelated settings, account identity and stored credentials. The original live

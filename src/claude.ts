@@ -7,7 +7,7 @@ import { randomUUID } from 'node:crypto';
 import { BridgeError, object, parseJson } from './protocol.ts';
 import type { Model } from './protocol.ts';
 
-export const CLAUDE_VERSION = '2.1.284';
+export const CLAUDE_VERSION = '2.1.296';
 const exec = promisify(execFile);
 const inherited = ['PATH', 'HOME', 'USER', 'LOGNAME', 'SHELL', 'LANG', 'LC_ALL', 'LC_CTYPE', 'TERM', 'COLORTERM', 'TMPDIR', 'NODE_EXTRA_CA_CERTS'];
 const routingKey = /^(ANTHROPIC_|CLAUDE_CODE_(USE_|OAUTH|PROVIDER|API_KEY|CUSTOM|MODEL)|CLAUDE_CONFIG_DIR)/;

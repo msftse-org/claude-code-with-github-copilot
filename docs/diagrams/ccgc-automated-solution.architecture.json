@@ -46,7 +46,7 @@
       "id": "official-claude",
       "type": "frontend",
       "label": "Claude Code",
-      "sublabel": "Unmodified CLI 2.1.284",
+      "sublabel": "Unmodified CLI 2.1.296",
       "brand": "claude",
       "pos": [40, 345],
       "size": [200, 85]

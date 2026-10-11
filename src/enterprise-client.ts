@@ -138,6 +138,7 @@ export function enterpriseSettingsPatch(value: EnterpriseProfile): ObjectValue {
       CLAUDE_CODE_API_KEY_HELPER_TTL_MS: '60000',
     },
     apiKeyHelper: enterpriseHelperCommand(),
+    permissions: { defaultMode: 'manual' },
   };
 }
 
@@ -192,8 +193,15 @@ export async function configureEnterprise(value: EnterpriseProfile, apply: boole
     throw new BridgeError('ROUTING_CONFLICT', 'An unrelated Claude credential helper is already configured.');
   }
   const currentEnv = { ...env };
+  const currentPermissions = current.permissions === undefined ? {} : object(current.permissions);
+  const expectedPermissions = object(expected.permissions);
   for (const key of featurePins) delete currentEnv[key];
-  const next: ObjectValue = { ...current, ...expected, env: { ...currentEnv, ...expectedEnv } };
+  const next: ObjectValue = {
+    ...current,
+    ...expected,
+    env: { ...currentEnv, ...expectedEnv },
+    permissions: { ...currentPermissions, ...expectedPermissions },
+  };
   if (current.apiKeyHelper === enterpriseHelperCommand() && current.disableAllHooks === true) delete next.disableAllHooks;
   if (apply) {
     await mkdir(dirname(path), { recursive: true, mode: 0o700 });

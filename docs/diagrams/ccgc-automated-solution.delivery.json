@@ -6,11 +6,11 @@
   "input": "/Users/shironbabi/Desktop/OneDrive - Microsoft/Desktop/microsoft/claude-code-with-github-copilot/docs/diagrams/ccgc-automated-solution.architecture.json",
   "output": "/Users/shironbabi/Desktop/OneDrive - Microsoft/Desktop/microsoft/claude-code-with-github-copilot/docs/diagrams/ccgc-automated-solution.html",
   "specification": {
-    "sha256": "b9f19cb078272ac454f373debf582cc4ed47f8881fe5ef6307ffaa97c8cbde76",
+    "sha256": "4a545809716554dee843f2918992b3efd9728f745dc845d470ee03c481f76cc5",
     "bytes": 5122
   },
   "artifact": {
-    "sha256": "a754d3f194330f4e73c4c20324b83e7d789c81a600a2f03b4a9a256e5e66118c",
+    "sha256": "1a7f692c13942618286b7024c176bb95ef65a832de72fdc3d0b30d7cd01da246",
     "bytes": 723285
   },
   "validation": {

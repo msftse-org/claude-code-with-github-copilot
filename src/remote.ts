@@ -3,8 +3,8 @@ import { BridgeError, object, parseJson, positive, text } from './protocol.ts';
 import type { Model, ObjectValue } from './protocol.ts';
 
 export const LEGACY_REMOTE_PROFILE = 'remote-litellm-cli-2.1.220-v1';
-export const REMOTE_CLAUDE_VERSION = '2.1.284';
-export const REMOTE_PROFILE = 'remote-litellm-cli-2.1.284-v2';
+export const REMOTE_CLAUDE_VERSION = '2.1.296';
+export const REMOTE_PROFILE = 'remote-litellm-cli-2.1.296-v1';
 export const PROBE_PROMPT = 'Reply exactly CCGC_READY.';
 export const PROBE_SYSTEM = 'This is an isolated connection probe. Reply with exactly CCGC_READY. Do not use tools.';
 
@@ -94,12 +94,12 @@ export function isModelCheck(body: ObjectValue): boolean {
     || object(message.content[0]).type !== 'text' || object(message.content[0]).text !== 'Hi') return false;
   if (!Array.isArray(body.system) || body.system.length !== 2) return false;
   return object(body.system[0]).type === 'text'
-    && /^x-anthropic-billing-header: cc_version=2\.1\.284\.[a-z0-9]+; cc_entrypoint=[a-z-]+;$/.test(String(object(body.system[0]).text))
+    && /^x-anthropic-billing-header: cc_version=2\.1\.296\.[a-z0-9]+; cc_entrypoint=[a-z-]+;$/.test(String(object(body.system[0]).text))
     && object(body.system[1]).type === 'text'
     && object(body.system[1]).text === "You are Claude Code, Anthropic's official CLI for Claude.";
 }
 
-// Claude 2.1.284 moves the same context between native system messages and
+// Claude 2.1.296 moves the same context between native system messages and
 // leading user reminders when switching to/from Haiku. Only the comparison
 // representation changes; the actual request is forwarded without role edits.
 export function clientHistory(messages: unknown[]): ObjectValue[] {

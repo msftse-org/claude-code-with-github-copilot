@@ -276,7 +276,7 @@ test('client persists no tokens in profile/settings; configure requires consent 
     assert.deepEqual(JSON.parse(await readFile(path, 'utf8')), current);
     await configure(profile, home, true, home, join(home, 'absent-managed'));
     const applied = parseJson(await readFile(path, 'utf8'));
-    assert.deepEqual(applied.permissions, current.permissions);
+    assert.deepEqual(applied.permissions, { ...current.permissions, defaultMode: 'manual' });
     assert.equal(object(applied.env).CUSTOM, 'preserved');
     assert.equal(object(applied.env).ANTHROPIC_BASE_URL, profile.gateway);
     assert.equal(object(applied.env).ANTHROPIC_AUTH_TOKEN, undefined);
@@ -379,7 +379,7 @@ test('native model validation consumes shared attempts without resetting convers
   const check = {
     model: clientModelId(opus), max_tokens: 1,
     system: [
-      { type: 'text', text: 'x-anthropic-billing-header: cc_version=2.1.284.abc; cc_entrypoint=sdk-cli;' },
+      { type: 'text', text: 'x-anthropic-billing-header: cc_version=2.1.296.abc; cc_entrypoint=sdk-cli;' },
       { type: 'text', text: "You are Claude Code, Anthropic's official CLI for Claude." },
     ],
     messages: [{ role: 'user', content: [{ type: 'text', text: 'Hi' }] }],
@@ -460,7 +460,7 @@ test('explicit legacy migration preserves account and credentials and removes on
     await assert.rejects(inspectRemoteSettings(home, upgraded, home, join(home, 'managed')), /conflicting/);
     await configure(upgraded, home, true, home, join(home, 'managed'));
     const updated = parseJson(await readFile(settings, 'utf8'));
-    assert.deepEqual(updated.permissions, { deny: ['Bash(rm *)'] });
+    assert.deepEqual(updated.permissions, { deny: ['Bash(rm *)'], defaultMode: 'manual' });
     assert.equal(object(updated.env).ANTHROPIC_MODEL, undefined);
     assert.equal(object(updated.env).ANTHROPIC_DEFAULT_OPUS_MODEL, undefined);
     assert.equal(object(updated.env).CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY, '1');
