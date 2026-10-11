@@ -1,0 +1,96 @@
+{
+  "operation": "images/edits",
+  "provider": "Azure OpenAI",
+  "resource": "foundry-llm-demo-resource",
+  "region": "Sweden Central",
+  "deployment": "gpt-image-2.5-flare",
+  "model": "gpt-image-2.5-flare",
+  "modelVersion": "2026-09-08",
+  "apiVersion": "2025-04-01-preview",
+  "authentication": "Microsoft Entra ID bearer token",
+  "createdAt": "2026-10-11T16:33:12Z",
+  "requestId": "7a808c39-00b8-45ad-b3b4-ba1881989da5",
+  "request": {
+    "quality": "high",
+    "size": "2560x1600",
+    "outputFormat": "png",
+    "prompt": {
+      "path": "docs/diagrams/ccgc-enterprise-runtime-multiuser-flare.prompt.txt",
+      "sha256": "22d7e306bba5f1a372a43a154474c70afbaad050874cc18bae03dfda52fab90f"
+    },
+    "references": [
+      {
+        "role": "authoritative topology",
+        "path": "docs/diagrams/ccgc-enterprise-runtime.visual-check.2048x1320.light.png",
+        "sha256": "4ed023d5b9c95eccbcbf17121ba524ee39353715afc0549e2b67bc2748a64362"
+      },
+      {
+        "role": "official Microsoft Entra ID icon",
+        "path": "session-artifact:azure-icons/references/entra-id.svg.png",
+        "sha256": "165615fc074473bf0aa2831db8696eb871c78b3d7d28b81fd1249b34f9b30a7d"
+      },
+      {
+        "role": "official Azure Container Apps icon",
+        "path": "session-artifact:azure-icons/references/container-apps.svg.png",
+        "sha256": "cfcaa8088b2e289918eceb683def7928cae1e235eba0398681c092f0148bf089"
+      },
+      {
+        "role": "official Azure Key Vault icon",
+        "path": "session-artifact:azure-icons/references/key-vault.svg.png",
+        "sha256": "9ce5c758bce3e809051652593ce0b866d02b6796c383daf6288620b6b036e3c6"
+      },
+      {
+        "role": "official Azure Monitor icon",
+        "path": "session-artifact:azure-icons/references/azure-monitor.svg.png",
+        "sha256": "774e57c084e7f2d1f17a621dda103d50e7ab01bf28ee4720d457f18e933d1155"
+      },
+      {
+        "role": "official Azure Database for PostgreSQL icon",
+        "path": "session-artifact:azure-icons/references/postgresql.svg.png",
+        "sha256": "290a587796d0a32c6dac91e4ca23bedca4ab31aa1d8d656633386cb8f44ce792"
+      },
+      {
+        "role": "official Azure Storage icon",
+        "path": "session-artifact:azure-icons/references/storage-accounts.svg.png",
+        "sha256": "c264be4c73ee9f766aacbfcce338014df7085c9492c8a37ff0819dd366a1b734"
+      }
+    ]
+  },
+  "response": {
+    "usage": {
+      "inputTokens": 8644,
+      "imageInputTokens": 7632,
+      "textInputTokens": 1012,
+      "outputTokens": 2195,
+      "imageOutputTokens": 2195,
+      "totalTokens": 10839
+    }
+  },
+  "output": {
+    "path": "docs/diagrams/ccgc-enterprise-runtime-multiuser-flare.png",
+    "desktopCopy": "/Users/shironbabi/Desktop/CCGC-Enterprise-Multiuser-Architecture-Poster.png",
+    "width": 2560,
+    "height": 1600,
+    "sha256": "9c01033a2fc51778db69d62e7e6ad77a8294b2cea0a8aa71edfb1d3c7d3851f9"
+  },
+  "visualReview": {
+    "status": "approved",
+    "inspectedAt": [
+      "native 2560x1600",
+      "presentation 1280x800"
+    ],
+    "currentMultiUserPathPresent": true,
+    "accountScopedConnectorsPresent": true,
+    "encryptedBlobCheckpointsPresent": true,
+    "officialMicrosoftIconReferencesUsed": true,
+    "implementedNotDeployedStatusPresent": true,
+    "forbiddenLegacyTermsAbsent": [
+      "Per-user Worker",
+      "LiteLLM Connector",
+      "API Management",
+      "APIM"
+    ],
+    "readability": "approved"
+  },
+  "infrastructureChanged": false
+}

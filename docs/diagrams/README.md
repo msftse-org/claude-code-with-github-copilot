@@ -8,7 +8,7 @@ Bicep/Terraform VM automation remain the single-user alpha documented below.
 
 | Enterprise diagram | Presentation PNG | Interactive HTML | Technical source |
 |---|---|---|---|
-| Runtime architecture | [Validated runtime image](ccgc-enterprise-runtime.png) | [Runtime viewer](ccgc-enterprise-runtime.html) | [Architecture JSON](ccgc-enterprise-runtime.architecture.json) |
+| Runtime architecture | [Multi-user presentation poster](ccgc-enterprise-runtime-multiuser-flare.png) | [Runtime viewer](ccgc-enterprise-runtime.html) | [Architecture JSON](ccgc-enterprise-runtime.architecture.json) |
 | Provisioning and rollout | [Provisioning poster](ccgc-enterprise-provisioning.png) | [Workflow viewer](ccgc-enterprise-provisioning.html) | [Workflow JSON](ccgc-enterprise-provisioning.workflow.json) |
 
 The [PRD enterprise target contract](../PRD.md#enterprise-target-revision-017)
@@ -17,7 +17,7 @@ and production gates. These diagrams do not certify enterprise readiness.
 
 ## Enterprise runtime
 
-![Proposed enterprise runtime architecture](ccgc-enterprise-runtime.png)
+![Enterprise multi-user runtime architecture](ccgc-enterprise-runtime-multiuser-flare.png)
 
 The primary request path is **Claude Code -> private enterprise broker ->
 shared multi-user worker fleet -> account-scoped native connector -> GitHub
@@ -72,27 +72,30 @@ PaaS modules, per-user services or acceptance gates.
 |---|---|---|
 | Frozen specification/HTML hashes and byte counts | [Delivery receipt](ccgc-enterprise-runtime.delivery.json) | [Delivery receipt](ccgc-enterprise-provisioning.delivery.json) |
 | Desktop light/dark evidence | [Contact sheet](ccgc-enterprise-runtime.visual-check.html) | [Contact sheet](ccgc-enterprise-provisioning.visual-check.html) |
-| Initial image brief | [Archify runtime prompt](ccgc-enterprise-runtime.prompt.txt), [Flare prompt](ccgc-enterprise-runtime.flare.prompt.txt), [Flare caption correction](ccgc-enterprise-runtime-flare-v2.prompt.txt) | [Provisioning prompt](ccgc-enterprise-provisioning.prompt.txt) |
-| Image generation provenance | [Initial receipt](ccgc-enterprise-runtime.receipt.json), [v2 receipt](ccgc-enterprise-runtime-v2.receipt.json), [Flare Azure-icon receipt](ccgc-enterprise-runtime-flare.receipt.json), [final Flare receipt](ccgc-enterprise-runtime-flare-v2.receipt.json) | [Selected-image receipt](ccgc-enterprise-provisioning.receipt.json) |
+| Initial image brief | [Archify runtime prompt](ccgc-enterprise-runtime.prompt.txt), [current multi-user Flare prompt](ccgc-enterprise-runtime-multiuser-flare.prompt.txt) | [Provisioning prompt](ccgc-enterprise-provisioning.prompt.txt) |
+| Image generation provenance | [Current multi-user Flare receipt](ccgc-enterprise-runtime-multiuser-flare.receipt.json), [historical Flare receipt](ccgc-enterprise-runtime-flare-v2.receipt.json) | [Selected-image receipt](ccgc-enterprise-provisioning.receipt.json) |
 
-The current runtime and provisioning PNGs are the validated Archify light-theme
-desktop captures, so their labels stay synchronized with the technical JSON and
-interactive HTML. The earlier
-[Azure-icon Flare poster](ccgc-enterprise-runtime-flare-v2.png) is retained as
-historical presentation artwork and is no longer the current-state diagram.
+The runtime presentation PNG was generated from the validated Archify
+light-theme capture and official Microsoft Entra/Azure icon references. It
+shows the current shared multi-user worker and account-scoped native connector
+design. The validated [technical runtime capture](ccgc-enterprise-runtime.png),
+reviewed JSON, and interactive HTML remain authoritative when presentation
+artwork and implementation details differ. The earlier
+[per-user/LiteLLM Flare poster](ccgc-enterprise-runtime-flare-v2.png) is retained
+only as historical presentation artwork.
 
 Inputs were sanitized Archify screenshots and architecture terminology, not
 repository source, credentials, account IDs or actual private endpoints.
-Authentication used the existing Azure CLI Entra identity. A new
-`gpt-image-2.5-flare` model deployment was created in the existing Foundry
-resource for this documentation render; no enterprise gateway/client resource
-was deployed and no Copilot inference was performed. Image token counts are not
-a cost quote or Copilot usage.
+Authentication used the existing Azure CLI Entra identity. The current poster
+used the existing `gpt-image-2.5-flare` deployment in the Foundry resource; no
+enterprise gateway/client resource was deployed and no Copilot inference was
+performed. Image token counts are not a cost quote or Copilot usage.
 
 Both enterprise HTML artifacts passed **9/9 showcase checks with 0 errors and 0 warnings**,
 with desktop containment at 1440 x 900, 1600 x 1000, 1920 x 1080 and 2048 x 1320.
-Both themes at the smallest and largest sizes were inspected. The selected
-posters were inspected at native resolution and 1280 x 800 presentation size.
+Both themes at the smallest and largest sizes were inspected. The current
+runtime poster was inspected at native resolution and 1280 x 800 presentation
+size.
 The [enterprise visual review](ccgc-enterprise.review.json) records the result
 and rubric scores separately; machine receipts retain their original
 `visualReview: "pending"` fields.

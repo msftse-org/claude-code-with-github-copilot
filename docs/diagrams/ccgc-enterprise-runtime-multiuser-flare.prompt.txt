@@ -1,0 +1,112 @@
+Create a presentation-quality 2560 x 1600 enterprise architecture poster by
+redrawing the FIRST reference image. Use the additional reference images as the
+official Microsoft service icons. Preserve the exact current multi-user runtime
+topology; do not preserve any older per-user-worker or LiteLLM design.
+
+TITLE
+"Claude Code with GitHub Copilot"
+
+SECTION
+"ENTERPRISE MULTI-USER RUNTIME"
+
+STATUS BADGE
+"IMPLEMENTED FOUNDATION - NOT DEPLOYED"
+
+STYLE
+Warm ivory canvas, dark navy typography, restrained cobalt request arrows,
+violet durable-state controls, amber identity/security controls, generous
+spacing, crisp flat enterprise diagram styling, and large readable labels.
+Remove viewer controls, grids, legends, export buttons, and screenshot chrome.
+Use official service icons from the supplied references; do not invent or
+approximate Azure icons.
+
+RUNTIME ONLY
+Do not include provisioning, CI/CD, Bicep, Terraform, setup, rollout stages,
+API Management, Kubernetes, Anthropic API keys, local inference, provider
+fallback, or a shared GitHub service account.
+
+MAIN PATH - EXACTLY FIVE CARDS, LEFT TO RIGHT
+1. "Claude Code"
+   "Official client / local tools"
+2. "Enterprise broker"
+   "Entra admission / dispatch fence"
+   Use the official Azure Container Apps icon.
+3. "Multi-user worker fleet"
+   "2-30 replicas / per-user fairness"
+   Use the official Azure Container Apps icon and visually imply horizontal
+   replica scale without drawing separate per-user containers.
+4. "Account-scoped connectors"
+   "Native Copilot auth / refresh"
+   Show several small identity-isolated connector contexts inside one shared
+   worker service. Each context belongs to one employee account.
+5. "GitHub Copilot"
+   "Each user's entitled Claude models"
+
+MAIN PATH ARROWS
+- Claude Code -> Enterprise broker: "Private TLS / Messages"
+- Enterprise broker -> Multi-user worker fleet: "Signed fenced dispatch"
+- Multi-user worker fleet -> Account-scoped connectors:
+  "Identity-bound Messages"
+- Account-scoped connectors -> GitHub Copilot: "TLS / SSE"
+
+SUPPORTING SERVICES
+Above Enterprise broker:
+- "Microsoft Entra ID"
+  "SSO / conditional access"
+  Use the official Entra ID icon.
+  Dashed amber connection from broker labeled "JWT trust".
+
+Above worker and connectors:
+- "Azure Key Vault"
+  "Account credentials / signing keys"
+  Use the official Key Vault icon.
+  Dashed amber connection from worker labeled "Managed identity".
+
+Below broker:
+- "Azure PostgreSQL HA"
+  "Bindings / branch fences / quotas / audit"
+  Use the official Azure Database for PostgreSQL icon.
+  Two distinct thin control arrows:
+  broker -> PostgreSQL, "Reserve / fence"
+  worker -> PostgreSQL, "Branch capacity"
+
+Below worker:
+- "Encrypted Blob checkpoints"
+  "Branch state / ETag compare-and-swap"
+  Use the official Azure Storage icon.
+  Violet connection from worker labeled "Encrypted CAS".
+
+Below broker on the left:
+- "Azure Monitor"
+  "Audit / alerts / no prompt bodies"
+  Use the official Azure Monitor icon.
+  Thin connection from broker labeled "Metadata only".
+
+BOUNDARY
+Draw a clean soft-blue boundary around the broker, worker fleet, connector
+contexts, PostgreSQL, encrypted Blob checkpoints, and Azure Monitor.
+Boundary label:
+"PRIVATE AZURE WORKLOAD"
+Secondary line:
+"Zone-redundant target / controlled egress"
+Claude Code and GitHub Copilot remain outside on opposite sides. Entra ID and
+Key Vault are managed Azure services above the boundary.
+
+CAPABILITY CALLOUTS
+- "Any turn can land on any healthy worker replica"
+- "Credentials, refresh locks, quotas, and checkpoints remain account scoped"
+- "One employee -> one authorized GitHub Copilot seat"
+- "No sticky session required"
+
+GUARDRAIL STRIP
+"No provider fallback. No uncertain inference replay."
+"No prompt-body logging."
+"Vendor approval and 10-15 minute SSE / failover proof still required."
+
+ACCURACY RULES
+This is an implemented and locally validated foundation, not evidence of a
+deployed, production-ready, vendor-endorsed, zero-downtime, or exactly-once
+system. Do not use the words "Per-user Worker", "LiteLLM Connector", or "APIM".
+Do not show one container per employee. Do not pool credentials or seats.
+Keep every label spelled exactly as provided and make all text readable at
+1280 x 800 presentation size.

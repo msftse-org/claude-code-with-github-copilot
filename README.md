@@ -227,14 +227,14 @@ The foundation must not be described as production-ready until these gates pass.
 
 ## Architecture poster
 
-![Enterprise architecture](docs/diagrams/ccgc-enterprise-runtime.png)
+![Enterprise multi-user architecture](docs/diagrams/ccgc-enterprise-runtime-multiuser-flare.png)
 
-The current diagram shows the enterprise broker, horizontally scaled multi-user
-worker fleet, account-scoped native connectors, private credential store, and
-encrypted checkpoint store. It also records the verified rich-input,
-adaptive-thinking, token-counting, agent-branch, background-task, and
-completed-turn resume state.
-Diagram sources and validation receipts are in
+The current poster shows the enterprise broker, horizontally scaled shared
+multi-user worker fleet, account-scoped native connectors, private credential
+store, and encrypted checkpoint store. The reviewed Archify JSON and
+interactive HTML remain the authoritative technical architecture; the
+GPT-image poster is its presentation companion. Diagram sources, model
+provenance, and validation receipts are in
 [docs/diagrams](docs/diagrams/README.md).
 
 ## Documentation
