@@ -82,29 +82,33 @@ Entra sign-in, configuration, Keychain behavior, verification, and daily use.
 
 ## Claude Code feature compatibility
 
-Core chat, streaming, Read, Edit, Bash, model discovery, model switching, and
-bounded admission renewal are covered by automated tests.
+### Validated features
+
+- Core chat and streaming
+- Read, Edit, and Bash
+- Model discovery and model switching
+- Bounded admission renewal
+- Image input and PDF document input
+- Adaptive thinking, effort metadata, and thinking-block handling
+- Exact token counting
+- Resume of completed turns across admission renewal and gateway restart
+- Agents/subagents with isolated branches
+- Background Bash tasks and result collection
+- Hooks
 
 | Feature | Status | Why |
 |---|---|---|
-| Image input | **Working** | Native base64 image blocks pass gateway validation and completed a live Claude inference through LiteLLM and Copilot. |
-| Document/PDF input | **Working** | Native base64 PDF blocks completed a live Claude inference through the full gateway route. |
-| Extended thinking | **Working with model limits** | Claude Code adaptive thinking, effort metadata, thinking cleanup, and thinking response blocks are supported. The current Sonnet model rejects explicit fixed-budget thinking and requires adaptive thinking instead. |
+| Explicit fixed-budget thinking | **Not supported by the current model** | The current Sonnet model requires adaptive thinking and rejects `thinking.type: enabled` with an explicit token budget. |
 | Automatic compaction | **Not fully verified** | Claude Code clear-thinking context management works, but a real context-limit compaction cycle has not completed the release gates. Arbitrary same-admission history replacement remains blocked. |
-| Resume across admissions | **Working for completed turns** | A persisted Claude conversation resumed successfully after closing one admission and creating another. Resume while a tool batch is pending remains unsupported. |
-| Resume after worker restart | **Working for completed turns** | A persisted conversation resumed after gateway restart, explicit profile refresh, and re-admission. Pending-tool recovery remains unsupported. |
-| Agents/subagents | **Working** | Agent IDs receive isolated history/replay state under one admission. A real Claude Code subagent completed through the live gateway. |
+| Resume with a pending tool batch | **Not working** | Completed turns resume across admissions and restarts, but the gateway cannot safely prove pending tool-result lineage after state replacement. |
 | Agent teams | **Partially verified** | The gateway supports the main branch plus eight isolated agent branches with one shared admission limit. A single live subagent passed; a coordinated multi-agent team has not completed release testing. |
-| Background tasks | **Working** | The Mac disable flag was removed, and a live Claude Code background Bash task completed and was collected successfully. |
-| Hooks | **Working** | The project no longer forces `disableAllHooks`; official-client integration tests verify a configured hook runs without entering model content. |
 | Cron | **Not available in this client** | The project no longer disables cron, but official Claude Code `2.1.284` does not expose a native cron command/tool that can be verified. |
 | Automatic memory | **Enabled, not fully verified** | The project no longer disables automatic memory, but a controlled write-and-reload lifecycle has not completed release testing. |
 | Advisor tool | **Not working in this client** | The project no longer disables Advisor, but live Claude Code `2.1.284` did not expose the `Advisor` tool even when explicitly allowed. |
-| Exact token counting | **Working** | `/v1/messages/count_tokens` is forwarded to LiteLLM/Copilot, validates the response, and returned an exact live count. |
 
-Statuses marked working have automated coverage and, where stated, a live
-gateway proof. “Not fully verified” means the feature is no longer deliberately
-disabled but has not passed its complete stateful release scenario.
+Validated features have automated coverage and, where applicable, a live
+gateway proof. The table contains only behavior that remains unavailable,
+model-limited, or short of its complete stateful release scenario.
 
 ## Developer validation
 
