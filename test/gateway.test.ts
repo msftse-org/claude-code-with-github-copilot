@@ -80,6 +80,7 @@ test('images, documents, extended thinking, and exact connector token counting p
   const supported = [
     request({ thinking: { type: 'enabled', budget_tokens: 64 } }),
     request({ thinking: { type: 'adaptive' } }),
+    request({ thinking: { type: 'between_tools' }, output_config: { effort: 'low' } }),
     request({ messages: [{ role: 'user', content: [{ type: 'image', source: { type: 'base64', media_type: 'image/png', data: 'AA==' } }] }] }),
     request({ messages: [{ role: 'user', content: [{ type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: 'AA==' } }] }] }),
   ];
@@ -139,6 +140,53 @@ test('images, documents, extended thinking, and exact connector token counting p
     assert.deepEqual(counted, request());
     assert.equal(gateway.stats.completed, 0);
   } finally { await gateway.close(); }
+});
+
+test('auto-mode safeguards validate the stable policy envelope and pass through unchanged', async () => {
+  const safeguards = [{
+    type: 'dangerous_tool_use',
+    classifier_context: {
+      v: 1,
+      permission_mode: 'auto',
+      platform: 'darwin',
+      live_cwd: '/synthetic',
+      policy: { allow: [], deny: [] },
+    },
+  }];
+  let received: ObjectValue | undefined;
+  const gateway = await startGateway({ model, backend: { async send(body) {
+    received = structuredClone(body);
+    return Response.json(message());
+  } } });
+  try {
+    const valid = request({ safeguards });
+    const response = await fetch(`${gateway.url}/v1/messages`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'x-api-key': gateway.token },
+      body: JSON.stringify(valid),
+    });
+    assert.equal(response.status, 200);
+    await response.json();
+    assert.deepEqual(received, valid);
+  } finally { await gateway.close(); }
+
+  for (const malformed of [
+    [], [{ type: 'other', classifier_context: { v: 1, permission_mode: 'auto' } }],
+    [{ type: 'dangerous_tool_use', classifier_context: { v: 2, permission_mode: 'auto' } }],
+    [{ type: 'dangerous_tool_use', classifier_context: { v: 1, permission_mode: 'manual' } }],
+    [{ type: 'dangerous_tool_use', classifier_context: { v: 1, permission_mode: 'auto' }, extra: true }],
+  ]) {
+    const rejected = await startGateway({ model, backend: { async send() { throw new Error('Unexpected inference'); } } });
+    try {
+      const response = await fetch(`${rejected.url}/v1/messages`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', 'x-api-key': rejected.token },
+        body: JSON.stringify(request({ safeguards: malformed })),
+      });
+      assert.equal(response.status, 400, JSON.stringify(malformed));
+      assert.equal(rejected.stats.attempts, 0);
+    } finally { await rejected.close(); }
+  }
 });
 
 test('thinking response blocks are preserved for native and streaming responses', async () => {

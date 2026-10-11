@@ -1,16 +1,22 @@
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
 import { timingSafeEqual } from 'node:crypto';
+import { join } from 'node:path';
+import { unlink } from 'node:fs/promises';
 import { createMessageSession } from './gateway.ts';
+import type { MessageSessionCheckpoint } from './gateway.ts';
 import { LiteLLMBackend } from './litellm.ts';
-import { BridgeError, envelope, safeError } from './protocol.ts';
+import { BridgeError, envelope, object, safeError } from './protocol.ts';
 import type { Model } from './protocol.ts';
 import { clientHistory, isModelCheck, resolveModel } from './remote.ts';
+import { readState, writePrivate } from './private-state.ts';
 
 interface WorkerSession {
   session: ReturnType<typeof createMessageSession>;
   lastFence: number;
   createdAt: number;
   lastAt: number;
+  checkpoints: Record<string, MessageSessionCheckpoint>;
+  save: Promise<void>;
 }
 
 export interface EnterpriseWorkerServerOptions {
@@ -27,6 +33,7 @@ export interface EnterpriseWorkerServerOptions {
   now?: () => number;
   fetcher?: typeof fetch;
   onError?: (error: BridgeError) => void;
+  stateDir?: string;
 }
 
 function equal(left: string, right: string): boolean {
@@ -43,6 +50,53 @@ function send(response: ServerResponse, status: number, value: unknown): void {
   response.end(JSON.stringify(value));
 }
 
+function messageCheckpoint(value: unknown): MessageSessionCheckpoint {
+  const checkpoint = object(value);
+  const stats = object(checkpoint.stats);
+  const usage = object(stats.usage);
+  const nonnegative = (candidate: unknown) => typeof candidate === 'number'
+    && Number.isSafeInteger(candidate) && candidate >= 0;
+  if (checkpoint.version !== 1
+    || !Array.isArray(checkpoint.prefix) || checkpoint.prefix.some(value => typeof value !== 'string')
+    || !Array.isArray(checkpoint.prefixFields) || checkpoint.prefixFields.some(value => {
+      const fields = object(value);
+      return Object.values(fields).some(field => typeof field !== 'string');
+    })
+    || !Array.isArray(checkpoint.prefixShapes)
+    || !Array.isArray(checkpoint.pending) || checkpoint.pending.some(value => typeof value !== 'string')
+    || !Array.isArray(checkpoint.seen) || checkpoint.seen.some(value => typeof value !== 'string')
+    || !nonnegative(checkpoint.pendingSince)
+    || !nonnegative(stats.attempts) || !nonnegative(stats.completed) || !nonnegative(stats.failed)
+    || Object.values(usage).some(value => !nonnegative(value))
+    || (checkpoint.semantics !== undefined && typeof checkpoint.semantics !== 'string')
+    || (checkpoint.compactionSummary !== undefined && typeof checkpoint.compactionSummary !== 'string')
+    || (checkpoint.selectedModel !== undefined && typeof checkpoint.selectedModel !== 'string')) {
+    throw new BridgeError('CREDENTIAL_STORE_UNSAFE', 'Durable conversation checkpoint is malformed.');
+  }
+  if (checkpoint.pendingAssistant !== undefined) object(checkpoint.pendingAssistant);
+  return {
+    version: 1,
+    prefix: checkpoint.prefix.map(String),
+    prefixFields: checkpoint.prefixFields.map(value => Object.fromEntries(
+      Object.entries(object(value)).map(([key, field]) => [key, String(field)]),
+    )),
+    prefixShapes: structuredClone(checkpoint.prefixShapes),
+    ...(typeof checkpoint.semantics === 'string' ? { semantics: checkpoint.semantics } : {}),
+    ...(typeof checkpoint.compactionSummary === 'string' ? { compactionSummary: checkpoint.compactionSummary } : {}),
+    ...(checkpoint.pendingAssistant === undefined ? {} : { pendingAssistant: structuredClone(object(checkpoint.pendingAssistant)) }),
+    ...(typeof checkpoint.selectedModel === 'string' ? { selectedModel: checkpoint.selectedModel } : {}),
+    pending: checkpoint.pending.map(String),
+    pendingSince: Number(checkpoint.pendingSince),
+    seen: checkpoint.seen.map(String),
+    stats: {
+      attempts: Number(stats.attempts),
+      completed: Number(stats.completed),
+      failed: Number(stats.failed),
+      usage: Object.fromEntries(Object.entries(usage).map(([key, value]) => [key, Number(value)])),
+    },
+  };
+}
+
 export async function startEnterpriseWorkerServer(options: EnterpriseWorkerServerOptions) {
   if (options.token.length < 32 || /[\r\n]/.test(options.token)
     || !/^[0-9a-f-]{36}$/i.test(options.principalId) || !Number.isSafeInteger(options.githubAccountId)
@@ -54,6 +108,25 @@ export async function startEnterpriseWorkerServer(options: EnterpriseWorkerServe
   const maxTurns = options.maxTurns ?? 50;
   const backend = new LiteLLMBackend(options.litellmUrl, options.litellmToken, options.fetcher);
   const sessions = new Map<string, WorkerSession>();
+  const checkpointPath = (admissionId: string) => options.stateDir ? join(options.stateDir, `${admissionId}.json`) : undefined;
+  const loadCheckpoints = async (admissionId: string): Promise<Record<string, MessageSessionCheckpoint>> => {
+    const path = checkpointPath(admissionId);
+    if (!path) return {};
+    const value = await readState(path);
+    if (!value) return {};
+    if (value.version !== 1 || value.principalId !== options.principalId || value.githubAccountId !== options.githubAccountId) {
+      throw new BridgeError('CREDENTIAL_STORE_UNSAFE', 'Durable conversation checkpoint identity is invalid.');
+    }
+    const branches = object(value.branches);
+    const restored: Record<string, MessageSessionCheckpoint> = {};
+    for (const [id, raw] of Object.entries(branches)) {
+      if (!/^[A-Za-z0-9._:-]{1,128}$/.test(id)) {
+        throw new BridgeError('CREDENTIAL_STORE_UNSAFE', 'Durable conversation checkpoint is malformed.');
+      }
+      restored[id] = messageCheckpoint(raw);
+    }
+    return restored;
+  };
   const expire = () => {
     for (const [id, record] of sessions) {
       if (now() - record.lastAt >= 15 * 60_000 || now() - record.createdAt >= 8 * 60 * 60_000) {
@@ -104,10 +177,13 @@ export async function startEnterpriseWorkerServer(options: EnterpriseWorkerServe
     if (!record) {
       if (sessions.size >= 4) throw new BridgeError('CONTEXT_CONFLICT', 'Worker admission capacity is exhausted.', 409);
       const createdAt = now();
+      const checkpoints = await loadCheckpoints(admissionId);
       const workerSession: WorkerSession = {
         lastFence: 0,
         createdAt,
         lastAt: createdAt,
+        checkpoints,
+        save: Promise.resolve(),
         session: undefined as never,
       };
       workerSession.session = createMessageSession({
@@ -118,6 +194,26 @@ export async function startEnterpriseWorkerServer(options: EnterpriseWorkerServe
         history: clientHistory,
         isModelCheck,
         onError: options.onError,
+        restoredBranches: checkpoints,
+        checkpoint(id, value) {
+          if (value) workerSession.checkpoints[id] = value;
+          else delete workerSession.checkpoints[id];
+          const path = checkpointPath(admissionId);
+          if (!path) return Promise.resolve();
+          workerSession.save = workerSession.save.then(async () => {
+            if (!Object.keys(workerSession.checkpoints).length) {
+              await unlink(path).catch(error => { if (error.code !== 'ENOENT') throw error; });
+              return;
+            }
+            await writePrivate(path, {
+              version: 1,
+              principalId: options.principalId,
+              githubAccountId: options.githubAccountId,
+              branches: workerSession.checkpoints,
+            });
+          });
+          return workerSession.save;
+        },
       }, options.token, `https://${options.expectedHost}`);
       sessions.set(admissionId, workerSession);
       record = workerSession;
@@ -146,7 +242,10 @@ export async function startEnterpriseWorkerServer(options: EnterpriseWorkerServe
     port: address.port,
     async close() {
       clearInterval(timer);
-      for (const record of sessions.values()) record.session.close();
+      for (const record of sessions.values()) {
+        record.session.close();
+        await record.save;
+      }
       sessions.clear();
       server.closeAllConnections();
       await new Promise<void>((resolve, reject) => server.close(error => error ? reject(error) : resolve()));

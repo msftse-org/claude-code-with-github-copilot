@@ -5,10 +5,11 @@ import { startEnterpriseServer } from '../src/enterprise-server.ts';
 import type { AccountBinding, DispatchReservation, EnterpriseStore } from '../src/enterprise-store.ts';
 import type { WorkerResolver } from '../src/enterprise-worker.ts';
 import { BridgeError } from '../src/protocol.ts';
+import type { ObjectValue } from '../src/protocol.ts';
 import { startEnterpriseWorkerServer } from '../src/enterprise-worker-server.ts';
-import { message, model, request } from './fixtures.ts';
+import { message, model, request, tools } from './fixtures.ts';
 import { createServer as createNetServer } from 'node:net';
-import { mkdtemp, readFile, rm } from 'node:fs/promises';
+import { access, mkdtemp, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { EnterpriseClient, configureEnterprise } from '../src/enterprise-client.ts';
@@ -88,6 +89,78 @@ test('enterprise bearer parsing fails closed', () => {
   assert.throws(() => bearerToken(undefined), /bearer token/i);
   assert.throws(() => bearerToken('Basic abc'), /bearer token/i);
   assert.throws(() => bearerToken('Bearer bad\nvalue'), /bearer token/i);
+});
+
+test('isolated enterprise worker restores an exact pending tool batch after restart', async () => {
+  const port = await freePort();
+  const stateDir = await mkdtemp(join(tmpdir(), 'ccgc-worker-state-'));
+  const token = 'w'.repeat(64);
+  const admissionId = '33333333-3333-3333-3333-333333333333';
+  const headers = (fence: number) => ({
+    authorization: 'Bearer ' + token,
+    'content-type': 'application/json',
+    'x-ccgc-principal-id': principal.objectId,
+    'x-ccgc-admission-id': admissionId,
+    'x-ccgc-dispatch-fence': String(fence),
+  });
+  const blocks = [{ type: 'tool_use', id: 'durable-read', name: 'Read', input: { file_path: 'synthetic.txt' } }];
+  const options = {
+    token,
+    principalId: principal.objectId,
+    githubAccountId: binding.githubAccountId,
+    models: [model],
+    litellmUrl: 'http://litellm.internal:4000',
+    litellmToken: 'l'.repeat(64),
+    expectedHost: `127.0.0.1:${port}`,
+    stateDir,
+    port,
+  };
+  let worker = await startEnterpriseWorkerServer({
+    ...options,
+    fetcher: async () => Response.json(message(blocks, 'tool_use')),
+  });
+  try {
+    const first = await fetch(`http://127.0.0.1:${port}/v1/messages`, {
+      method: 'POST',
+      headers: headers(1),
+      body: JSON.stringify(request({ tools })),
+    });
+    assert.equal(first.status, 200, await first.text());
+    await worker.close();
+    await access(join(stateDir, `${admissionId}.json`));
+
+    let restoredCalls = 0;
+    worker = await startEnterpriseWorkerServer({
+      ...options,
+      fetcher: async (_input, init) => {
+        restoredCalls++;
+        const raw = init?.body;
+        const payload = JSON.parse(typeof raw === 'string' ? raw : Buffer.from(raw as Uint8Array).toString('utf8')) as ObjectValue;
+        assert.match(JSON.stringify(payload.messages), /durable-read/);
+        return Response.json(message());
+      },
+    });
+    const continuation = request({
+      tools,
+      messages: [
+        { role: 'user', content: 'Hello' },
+        { role: 'assistant', content: blocks },
+        { role: 'user', content: [{ type: 'tool_result', tool_use_id: 'durable-read', content: 'synthetic file' }] },
+      ],
+    });
+    const second = await fetch(`http://127.0.0.1:${port}/v1/messages`, {
+      method: 'POST',
+      headers: headers(2),
+      body: JSON.stringify(continuation),
+    });
+    assert.equal(second.status, 200, await second.text());
+    assert.equal(restoredCalls, 1);
+    await worker.close();
+    await assert.rejects(access(join(stateDir, `${admissionId}.json`)));
+  } finally {
+    await worker.close().catch(() => undefined);
+    await rm(stateDir, { recursive: true });
+  }
 });
 
 test('enterprise broker binds principal, admission, dispatch fence and isolated worker', async () => {
@@ -302,6 +375,7 @@ test('enterprise client uses Entra for control and an opaque admission token for
     assert.equal((settings.env as Record<string, string>).CLAUDE_CODE_DISABLE_AUTO_MEMORY, undefined);
     assert.equal((settings.env as Record<string, string>).CLAUDE_CODE_DISABLE_CRON, undefined);
     assert.equal((settings.env as Record<string, string>).CLAUDE_CODE_DISABLE_ADVISOR_TOOL, undefined);
+    assert.equal((settings.env as Record<string, string>).CLAUDE_CODE_AUTO_MODE_SERVER, '0');
     assert.equal(settings.disableAllHooks, undefined);
     assert.deepEqual(settings.permissions, { defaultMode: 'manual' });
     assert.match(String(settings.apiKeyHelper), /enterprise-cli\.ts' token$/);

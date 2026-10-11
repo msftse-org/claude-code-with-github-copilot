@@ -21,6 +21,7 @@ const server = await startEnterpriseWorkerServer({
   litellmToken: required('CCGC_LITELLM_TOKEN'),
   expectedHost: required('CCGC_EXPECTED_HOST'),
   maxTurns: Number(process.env.CCGC_MAX_TURNS ?? '50'),
+  stateDir: process.env.CCGC_WORKER_STATE_DIR,
   host: process.env.CCGC_BIND_HOST ?? '0.0.0.0',
   port: Number(process.env.PORT ?? '8080'),
   onError(error) {

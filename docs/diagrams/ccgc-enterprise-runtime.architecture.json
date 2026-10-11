@@ -11,7 +11,7 @@
     {"id": "managed-client", "type": "frontend", "label": "Claude Code", "sublabel": "Rich input / agents / local tools", "brand": "claude", "pos": [25, 355], "size": [190, 90]},
     {"id": "enterprise-identity", "type": "security", "label": "Microsoft Entra ID", "sublabel": "SSO / conditional access", "pos": [310, 70], "size": [190, 90]},
     {"id": "principal-seat-broker", "type": "backend", "label": "Enterprise broker", "sublabel": "Entra admission / dispatch fence", "pos": [290, 355], "size": [210, 90]},
-    {"id": "isolated-user-worker", "type": "backend", "label": "Per-user worker", "sublabel": "Replay fence / agent branches", "pos": [590, 355], "size": [190, 90]},
+    {"id": "isolated-user-worker", "type": "backend", "label": "Per-user worker", "sublabel": "Replay fence / durable lineage", "pos": [590, 355], "size": [190, 90]},
     {"id": "isolated-copilot-connector", "type": "backend", "label": "LiteLLM connector", "sublabel": "Copilot auth / token count", "pos": [865, 355], "size": [185, 90]},
     {"id": "individual-copilot-seat", "type": "external", "label": "GitHub Copilot", "sublabel": "User's Anthropic models", "brand": "github", "pos": [1150, 355], "size": [210, 90]},
     {"id": "private-credential-store", "type": "security", "label": "Azure Key Vault", "sublabel": "Per-user secrets / private access", "pos": [760, 70], "size": [225, 90]},
@@ -34,7 +34,7 @@
   ],
   "cards": [
     {"dot": "cyan", "title": "Verified Claude compatibility", "items": ["Images, PDFs, adaptive thinking and token counts.", "Compaction, Cron and automatic memory complete native lifecycles."]},
-    {"dot": "violet", "title": "Isolated multi-branch control", "items": ["Coordinated agents use fenced branches per admission.", "Completed transcripts can resume after re-admission."]},
-    {"dot": "amber", "title": "Implemented foundation - not deployed", "items": ["Integration permission and streaming gates remain.", "Region, capacity and DR require approval."]}
+    {"dot": "violet", "title": "Isolated state control", "items": ["Coordinated agents use fenced branches per admission.", "Pending tool lineage survives worker restart on private state."]},
+    {"dot": "amber", "title": "Remaining provider boundary", "items": ["Advisor is available only on the Anthropic API.", "Fixed token thinking budgets are rejected by Sonnet 5.5."]}
   ]
 }

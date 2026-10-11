@@ -367,6 +367,77 @@ test('actual Claude CLI completes a real automatic compaction cycle', { timeout:
   } finally { await gateway.close(); await rm(files.directory, { recursive: true }); }
 });
 
+test('actual Claude CLI omits the Anthropic-only Advisor tool on a custom gateway', { timeout: 90000 }, async () => {
+  const files = await fixture();
+  const errors: string[] = [];
+  const calls: ObjectValue[] = [];
+  const sonnet = { ...model, id: 'claude-sonnet-5', responseIds: ['claude-sonnet-5'] };
+  const gateway = await startGateway({ model: sonnet,
+    onError: error => errors.push(`${error.code}: ${error.message}`),
+    backend: { async send(body) {
+      calls.push(structuredClone(body));
+      return stream([{ type: 'text', text: 'ADVISOR_ROUTE_OK' }], 'end_turn', 'msg_advisor', sonnet.id);
+    } },
+  });
+  try {
+    const result = await runClaude({
+      ...files, url: gateway.url, token: gateway.token, model: sonnet,
+      prompt: 'Consult the configured advisor, then reply ADVISOR_ROUTE_OK.',
+      capture: true, advisor: 'opus', safeMode: false, signal: AbortSignal.timeout(60000),
+    });
+    assert.equal(result.code, 0, `${result.stdout}\n${result.stderr}\n${errors.join('; ')}\n${JSON.stringify(calls)}`);
+    assert.equal(parseJson(result.stdout).result, 'ADVISOR_ROUTE_OK');
+    assert.doesNotMatch(JSON.stringify(calls), /advisor_20260301/);
+  } finally { await gateway.close(); await rm(files.directory, { recursive: true }); }
+});
+
+test('actual Claude CLI auto mode uses its local classifier through the custom gateway', { timeout: 90000 }, async () => {
+  const files = await fixture();
+  const errors: string[] = [];
+  const calls: ObjectValue[] = [];
+  const observed: ObjectValue[] = [];
+  let turn = 0;
+  const autoModel = { ...model, id: 'claude-sonnet-5.5', responseIds: ['claude-sonnet-5.5'] };
+  const resolveModel = (id: unknown) => {
+    const value = String(id);
+    return { ...autoModel, id: value, responseIds: [value] };
+  };
+  const gateway = await startGateway({ model: autoModel, resolveModel, history: clientHistory,
+    validate: body => observed.push(structuredClone(body)),
+    onError: error => errors.push(`${error.code}: ${error.message}`),
+    backend: { async send(body) {
+      calls.push(structuredClone(body));
+      if (turn++ === 0) return stream([{ type: 'tool_use', id: 'auto-bash', name: 'Bash', input: {
+        command: 'printf AUTO_MODE_OK > auto-mode-ran', description: 'Write the synthetic auto-mode marker',
+      } }], 'tool_use', 'msg_auto_tool', String(body.model));
+      return stream([{ type: 'text', text: 'AUTO_MODE_OK' }], 'end_turn', `msg_auto_${turn}`, String(body.model));
+    } },
+  });
+  try {
+    const result = await runClaude({
+      ...files, url: gateway.url, token: gateway.token, model: autoModel,
+      prompt: 'Create the synthetic marker with Bash, then reply AUTO_MODE_OK.',
+      capture: true, permissionMode: 'auto', safeMode: false, autoModeServer: false,
+      tools: ['Bash'], signal: AbortSignal.timeout(60000),
+    });
+    const requestSummary = observed.map(body => ({
+      model: body.model,
+      keys: Object.keys(body),
+      messages: Array.isArray(body.messages) ? body.messages.length : -1,
+      roles: Array.isArray(body.messages) ? body.messages.map(value => object(value).role) : [],
+      tools: Array.isArray(body.tools) ? body.tools.map(value => object(value).name) : [],
+      safeguards: body.safeguards,
+      system: JSON.stringify(body.system).slice(0, 500),
+      last: Array.isArray(body.messages) ? JSON.stringify(body.messages.at(-1)).slice(0, 1000) : '',
+    }));
+    assert.equal(result.code, 0, `${result.stdout}\n${result.stderr}\n${errors.join('; ')}\n${JSON.stringify(requestSummary)}`);
+    await access(join(files.project, 'auto-mode-ran'));
+    assert.equal(calls.length, 2, JSON.stringify(requestSummary));
+    assert.equal(observed.every(body => body.safeguards === undefined), true);
+    assert.doesNotMatch(result.stderr, /incompatible gateway|auto mode cannot determine/i);
+  } finally { await gateway.close(); await rm(files.directory, { recursive: true }); }
+});
+
 test('cancelling the actual Claude CLI stops its active synthetic shell tool', { timeout: 20000 }, async () => {
   const files = await fixture();
   await writeFile(join(files.project, 'long.mjs'), "import {writeFileSync} from 'node:fs'; writeFileSync('child.pid',String(process.pid)); setInterval(()=>{},1000);\n");

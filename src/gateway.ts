@@ -20,6 +20,23 @@ export interface GatewayOptions {
   resolveModel?: (id: unknown) => Model;
   history?: (messages: unknown[]) => ObjectValue[];
   isModelCheck?: (body: ObjectValue) => boolean;
+  restoredBranches?: Record<string, MessageSessionCheckpoint>;
+  checkpoint?: (branchId: string, value: MessageSessionCheckpoint | undefined) => Promise<void>;
+}
+
+export interface MessageSessionCheckpoint {
+  version: 1;
+  prefix: string[];
+  prefixFields: Record<string, string>[];
+  prefixShapes: unknown[];
+  semantics?: string;
+  compactionSummary?: string;
+  pendingAssistant?: ObjectValue;
+  selectedModel?: string;
+  pending: string[];
+  pendingSince: number;
+  seen: string[];
+  stats: { attempts: number; completed: number; failed: number; usage: Usage };
 }
 
 function digest(value: unknown): string {
@@ -167,11 +184,13 @@ async function write(response: ServerResponse, data: string): Promise<void> {
   });
 }
 
-async function streamResponse(upstream: Response, downstream: ServerResponse, tracker: MessageTracker, progress: () => void): Promise<void> {
+async function streamResponse(upstream: Response, downstream: ServerResponse, tracker: MessageTracker,
+  progress: () => void, commit: () => Promise<void>): Promise<void> {
   if (!upstream.body) throw new BridgeError('PROTOCOL_ERROR', 'Upstream stream has no body.', 502);
   const decoder = new TextDecoder('utf-8', { fatal: true });
   let buffer = '';
   let terminal = false;
+  let terminalFrame: string | undefined;
   for await (const bytes of upstream.body) {
     buffer = (buffer + decoder.decode(bytes, { stream: true })).replaceAll('\r\n', '\n');
     if (buffer.length > MAX_BODY) throw new BridgeError('LIMIT_REACHED', 'Upstream event exceeds 8 MiB.', 502);
@@ -179,6 +198,7 @@ async function streamResponse(upstream: Response, downstream: ServerResponse, tr
     while ((boundary = buffer.indexOf('\n\n')) >= 0) {
       const frame = buffer.slice(0, boundary);
       buffer = buffer.slice(boundary + 2);
+      let deferFrame = false;
       const data = frame.split('\n').filter(line => line.startsWith('data:')).map(line => line.slice(5).trimStart()).join('\n');
       if (data) {
         const event = frame.split('\n').find(line => line.startsWith('event:'))?.slice(6).trim();
@@ -192,30 +212,39 @@ async function streamResponse(upstream: Response, downstream: ServerResponse, tr
         const value = parseJson(data);
         if (event && event !== value.type) throw new BridgeError('PROTOCOL_ERROR', 'SSE event and payload type disagree.', 502);
         if (tracker.event(value)) progress();
+        if (value.type === 'message_stop') {
+          terminalFrame = frame;
+          deferFrame = true;
+        }
       }
-      if (frame) await write(downstream, `${frame}\n\n`);
+      if (frame && !deferFrame) await write(downstream, `${frame}\n\n`);
     }
   }
   buffer += decoder.decode();
   if (buffer.trim()) throw new BridgeError('PROTOCOL_ERROR', 'Truncated upstream SSE frame.', 502);
   if (!tracker.stopped) throw new BridgeError('PROTOCOL_ERROR', 'Upstream ended before message_stop.', 502);
   tracker.finish();
+  await commit();
+  if (!terminalFrame) throw new BridgeError('PROTOCOL_ERROR', 'Upstream omitted the terminal message_stop frame.', 502);
+  await write(downstream, `${terminalFrame}\n\n`);
 }
 
-function createSingleMessageSession(options: GatewayOptions, token: string, origin: string) {
+function createSingleMessageSession(options: GatewayOptions, token: string, origin: string,
+  restored?: MessageSessionCheckpoint, save?: (value: MessageSessionCheckpoint | undefined) => Promise<void>) {
   const maxTurns = options.maxTurns ?? 50;
   if (!Number.isSafeInteger(maxTurns) || maxTurns <= 0) throw new BridgeError('INVALID_OPTIONS', 'max-upstream-turns must be a positive integer.');
-  const stats: { attempts: number; completed: number; failed: number; usage: Usage } = { attempts: 0, completed: 0, failed: 0, usage: {} };
-  const seen = new Set<string>();
-  let prefix: string[] = [];
-  let prefixFields: Record<string, string>[] = [];
-  let prefixShapes: unknown[] = [];
-  let semantics: string | undefined;
-  let compactionSummary: string | undefined;
-  let pendingAssistant: ObjectValue | undefined;
-  let selectedModel: string | undefined;
-  let pending: Set<string> = new Set();
-  let pendingSince = 0;
+  const stats: { attempts: number; completed: number; failed: number; usage: Usage } =
+    structuredClone(restored?.stats ?? { attempts: 0, completed: 0, failed: 0, usage: {} });
+  const seen = new Set(restored?.seen ?? []);
+  let prefix: string[] = structuredClone(restored?.prefix ?? []);
+  let prefixFields: Record<string, string>[] = structuredClone(restored?.prefixFields ?? []);
+  let prefixShapes: unknown[] = structuredClone(restored?.prefixShapes ?? []);
+  let semantics: string | undefined = restored?.semantics;
+  let compactionSummary: string | undefined = restored?.compactionSummary;
+  let pendingAssistant: ObjectValue | undefined = structuredClone(restored?.pendingAssistant);
+  let selectedModel: string | undefined = restored?.selectedModel;
+  let pending: Set<string> = new Set(restored?.pending ?? []);
+  let pendingSince = restored?.pendingSince ?? 0;
   let retired = false;
   let active: AbortController | undefined;
   const handle = (request: IncomingMessage, response: ServerResponse) => {
@@ -346,6 +375,34 @@ function createSingleMessageSession(options: GatewayOptions, token: string, orig
         throw statusError(upstream.status);
       }
       const tracker = new MessageTracker(model, body);
+      const commit = async () => {
+        if (title) {
+          if (tracker.pending.size || !tracker.text) throw new BridgeError('PROTOCOL_ERROR', 'Title generation must return non-empty text without tools.', 502);
+        } else if (compaction) {
+          if (tracker.pending.size || !tracker.text) throw new BridgeError('PROTOCOL_ERROR', 'Compaction must return a non-empty text summary.', 502);
+          compactionSummary = tracker.text;
+        } else if (!modelCheck) {
+          prefix = history;
+          prefixFields = fields;
+          prefixShapes = shapes;
+          semantics = currentSemantics;
+          selectedModel = model.id;
+          pending = tracker.pending;
+          pendingAssistant = pending.size ? { role: 'assistant', content: structuredClone(tracker.content) } : undefined;
+          pendingSince = Date.now();
+          if (approvedReplacement) compactionSummary = undefined;
+        }
+        for (const [key, count] of Object.entries(tracker.usage)) stats.usage[key] = (stats.usage[key] ?? 0) + count;
+        stats.completed++;
+        if (!title && !modelCheck) {
+          await save?.(pending.size ? {
+            version: 1, prefix: structuredClone(prefix), prefixFields: structuredClone(prefixFields),
+            prefixShapes: structuredClone(prefixShapes), semantics, compactionSummary,
+            pendingAssistant: structuredClone(pendingAssistant), selectedModel, pending: [...pending],
+            pendingSince, seen: [...seen], stats: structuredClone(stats),
+          } : undefined);
+        }
+      };
       if (body.stream === true) {
         if (!upstream.headers.get('content-type')?.includes('text/event-stream')) {
           await upstream.body?.cancel();
@@ -357,7 +414,7 @@ function createSingleMessageSession(options: GatewayOptions, token: string, orig
           if (!response.destroyed && !response.writableEnded && response.writableLength === 0) response.write('event: ping\ndata: {"type":"ping"}\n\n');
         }, 15_000);
         heartbeat.unref();
-        await streamResponse(upstream, response, tracker, progress);
+        await streamResponse(upstream, response, tracker, progress, commit);
         response.end();
       } else {
         if (!upstream.body) throw new BridgeError('PROTOCOL_ERROR', 'Empty upstream response.', 502);
@@ -371,26 +428,9 @@ function createSingleMessageSession(options: GatewayOptions, token: string, orig
         }
         const value = parseJson(Buffer.concat(chunks).toString('utf8'));
         tracker.complete(value);
+        await commit();
         json(response, 200, value);
       }
-      if (title) {
-        if (tracker.pending.size || !tracker.text) throw new BridgeError('PROTOCOL_ERROR', 'Title generation must return non-empty text without tools.', 502);
-      } else if (compaction) {
-        if (tracker.pending.size || !tracker.text) throw new BridgeError('PROTOCOL_ERROR', 'Compaction must return a non-empty text summary.', 502);
-        compactionSummary = tracker.text;
-      } else if (!modelCheck) {
-        prefix = history;
-        prefixFields = fields;
-        prefixShapes = shapes;
-        semantics = currentSemantics;
-        selectedModel = model.id;
-        pending = tracker.pending;
-        pendingAssistant = pending.size ? { role: 'assistant', content: structuredClone(tracker.content) } : undefined;
-        pendingSince = Date.now();
-        if (approvedReplacement) compactionSummary = undefined;
-      }
-      for (const [key, count] of Object.entries(tracker.usage)) stats.usage[key] = (stats.usage[key] ?? 0) + count;
-      stats.completed++;
     } catch (error) {
       stats.failed++;
       retired = true;
@@ -410,16 +450,17 @@ function createSingleMessageSession(options: GatewayOptions, token: string, orig
 export function createMessageSession(options: GatewayOptions, token: string, origin: string) {
   const branches = new Map<string, ReturnType<typeof createSingleMessageSession>>();
   const maxTurns = options.maxTurns ?? 50;
-  let totalAttempts = 0;
-  const create = () => createSingleMessageSession({
+  let totalAttempts = Object.values(options.restoredBranches ?? {})
+    .reduce((sum, checkpoint) => sum + checkpoint.stats.attempts, 0);
+  const create = (id: string) => createSingleMessageSession({
     ...options,
     admit() {
       if (totalAttempts >= maxTurns) throw new BridgeError('LIMIT_REACHED', 'Admission upstream-turn limit reached.', 429);
       options.admit?.();
       totalAttempts++;
     },
-  }, token, origin);
-  const main = create();
+  }, token, origin, options.restoredBranches?.[id], value => options.checkpoint?.(id, value) ?? Promise.resolve());
+  const main = create('main');
   branches.set('main', main);
   const handle = (request: IncomingMessage, response: ServerResponse) => {
     const header = request.headers['x-claude-code-agent-id'];
@@ -438,7 +479,7 @@ export function createMessageSession(options: GatewayOptions, token: string, ori
         json(response, 429, envelope(new BridgeError('LIMIT_REACHED', 'At most eight agent branches are allowed.', 429)));
         return;
       }
-      branch = create();
+      branch = create(id);
       branches.set(id, branch);
     }
     branch.handle(request, response);

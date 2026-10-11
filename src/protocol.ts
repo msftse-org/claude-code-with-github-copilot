@@ -106,6 +106,7 @@ export function claudeModels(payload: unknown): Model[] {
 const fields = new Set([
   'model', 'messages', 'system', 'tools', 'tool_choice', 'max_tokens', 'stream',
   'metadata', 'temperature', 'top_p', 'top_k', 'stop_sequences', 'thinking', 'output_config', 'context_management',
+  'safeguards',
 ]);
 
 export function validateRequest(body: ObjectValue, model: Model): void {
@@ -127,8 +128,22 @@ export function validateRequest(body: ObjectValue, model: Model): void {
       }
     } else if (thinking.type === 'adaptive') {
       if (Object.keys(thinking).some(key => key !== 'type')) throw new BridgeError('INVALID_REQUEST', 'Adaptive thinking accepts no additional fields.');
+    } else if (thinking.type === 'between_tools') {
+      if (Object.keys(thinking).some(key => key !== 'type')) throw new BridgeError('INVALID_REQUEST', 'Between-tools thinking accepts no additional fields.');
     } else if (thinking.type !== 'disabled' || Object.keys(thinking).some(key => key !== 'type')) {
-      throw new BridgeError('INVALID_REQUEST', 'thinking.type must be disabled, enabled, or adaptive.');
+      throw new BridgeError('INVALID_REQUEST', 'thinking.type must be disabled, enabled, adaptive, or between_tools.');
+    }
+  }
+  if (body.safeguards !== undefined) {
+    if (!Array.isArray(body.safeguards) || body.safeguards.length !== 1) {
+      throw new BridgeError('INVALID_REQUEST', 'Auto-mode safeguards must contain one dangerous-tool-use policy.');
+    }
+    const safeguard = object(body.safeguards[0]);
+    const context = object(safeguard.classifier_context);
+    if (Object.keys(safeguard).some(key => !['type', 'classifier_context'].includes(key))
+      || safeguard.type !== 'dangerous_tool_use'
+      || context.v !== 1 || context.permission_mode !== 'auto') {
+      throw new BridgeError('INVALID_REQUEST', 'Unsupported auto-mode safeguards policy.');
     }
   }
   if (body.output_config !== undefined) {

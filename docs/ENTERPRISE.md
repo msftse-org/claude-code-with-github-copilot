@@ -9,7 +9,7 @@ The historical single-user VM remains independent and unchanged.
 | Component | Responsibility | Required? |
 |---|---|---|
 | Enterprise broker | Validates Microsoft Entra identity, resolves the same user's GitHub binding, issues bounded Claude admission tokens, reserves attempts transactionally, fences dispatches and emits audit intent. | Yes |
-| Isolated worker wrapper | Enforces the broker token, immutable principal binding, admission ownership, strictly increasing dispatch fences, model catalog and one in-memory conversation state per admission. | Yes |
+| Isolated worker wrapper | Enforces the broker token, immutable principal binding, admission ownership, strictly increasing dispatch fences, model catalog and admission-bound conversation checkpoints. | Yes |
 | LiteLLM | Performs the current Copilot-specific authentication/token refresh and native Anthropic Messages transport inside one user's isolated worker. | Yes for the current proven connector; replaceable only after another connector passes the same live gates |
 
 The broker is the only enterprise ingress and validates Entra tokens itself.
@@ -31,6 +31,10 @@ verified Copilot connector leaves no provider authentication or transport.
 6. The per-user worker rejects a mismatched principal, stale/duplicate fence,
    wrong host, model drift or excess active admissions before forwarding to its
    private LiteLLM instance. Neither broker nor worker retries inference.
+7. If `CCGC_WORKER_STATE_DIR` points to a private persistent mount, the worker
+   durably records only server-authenticated pending tool lineage. An exact
+   continuation can resume after worker restart; forged or changed lineage is
+   still rejected before inference.
 
 The broker never logs or stores prompt/response bodies. PostgreSQL stores request
 digests, model IDs, dispatch outcomes and identity/binding metadata only.
@@ -154,9 +158,8 @@ token cache rather than relying on arbitrary developer credentials.
 - Automated creation/deletion of one private LiteLLM runtime and credential
   cache per user; the repository currently implements the wrapper and contract,
   not that lifecycle controller.
-- Durable conversation lineage across worker restarts. Broker dispatch fencing
-  is durable, but a restarted worker intentionally requires admission retirement
-  before continuing a prior conversation.
+- A private persistent `CCGC_WORKER_STATE_DIR` mount for every isolated worker;
+  without it, restart-safe pending-tool continuation is intentionally unavailable.
 - Real private deployment, Entra/Key Vault/PostgreSQL validation, two-user
   isolation tests, revoked-seat/model tests, SSE load/soak/failure tests,
   restore drills, signed release/rollback and cost approval.

@@ -222,6 +222,7 @@ export function settingsPatch(profile: ClientProfile): ObjectValue {
   }
   Object.assign(env, {
     CLAUDE_CODE_API_KEY_HELPER_TTL_MS: '60000',
+    CLAUDE_CODE_AUTO_MODE_SERVER: '0',
   });
   return {
     env,

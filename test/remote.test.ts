@@ -279,6 +279,7 @@ test('client persists no tokens in profile/settings; configure requires consent 
     assert.deepEqual(applied.permissions, { ...current.permissions, defaultMode: 'manual' });
     assert.equal(object(applied.env).CUSTOM, 'preserved');
     assert.equal(object(applied.env).ANTHROPIC_BASE_URL, profile.gateway);
+    assert.equal(object(applied.env).CLAUDE_CODE_AUTO_MODE_SERVER, '0');
     assert.equal(object(applied.env).ANTHROPIC_AUTH_TOKEN, undefined);
     assert.equal(object(applied.env).CLAUDE_CODE_DISABLE_BACKGROUND_TASKS, undefined);
     assert.equal(object(applied.env).CLAUDE_CODE_DISABLE_AUTO_MEMORY, undefined);

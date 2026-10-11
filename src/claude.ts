@@ -88,6 +88,10 @@ export interface ClaudeOptions {
   signal?: AbortSignal;
   environment?: NodeJS.ProcessEnv;
   autocompact?: 'auto' | `${number}k` | number;
+  advisor?: string;
+  autoModeServer?: boolean;
+  permissionMode?: 'acceptEdits' | 'auto' | 'bypassPermissions' | 'manual' | 'dontAsk' | 'plan';
+  safeMode?: boolean;
   tools?: string[];
   allowedTools?: string[];
   disallowedTools?: string[];
@@ -97,11 +101,12 @@ export async function runClaude(options: ClaudeOptions): Promise<{ code: number;
   if (options.model.context < 200000) throw new BridgeError('CONTEXT_UNSUPPORTED', 'This initial client profile requires at least a catalog-reported 200K context window.');
   const print = options.prompt !== undefined;
   const args = [
-    '--safe-mode', '--permission-mode', 'manual', '--disable-slash-commands',
+    '--permission-mode', options.permissionMode ?? 'manual', '--disable-slash-commands',
     '--strict-mcp-config', '--mcp-config', '{"mcpServers":{}}', '--no-chrome',
     '--model', options.model.id, '--session-id', randomUUID(),
     '--tools', options.probe ? '' : (options.tools ?? ['Read', 'Edit', 'Write', 'Bash', 'Glob', 'Grep']).join(','),
   ];
+  if (options.safeMode !== false) args.unshift('--safe-mode');
   if (options.probe) {
     args.push('--system-prompt', 'This is an isolated connection probe. Reply with exactly CCGC_READY. Do not use tools.');
     // Configured user env takes precedence over the shell, including the probe's output cap.
@@ -110,9 +115,11 @@ export async function runClaude(options: ClaudeOptions): Promise<{ code: number;
   if (print) args.push('--print', '--no-session-persistence');
   if (options.capture) args.push('--output-format', 'json');
   if (options.autocompact !== undefined) args.push('--autocompact', String(options.autocompact));
+  if (options.advisor !== undefined) args.push('--advisor', options.advisor);
   if (options.allowedTools?.length) args.push('--allowedTools', options.allowedTools.join(','));
   if (options.disallowedTools?.length) args.push('--disallowedTools', options.disallowedTools.join(','));
   const env = childEnvironment(options.url, options.token, options.model, options.environment);
+  if (options.autoModeServer !== undefined) env.CLAUDE_CODE_AUTO_MODE_SERVER = options.autoModeServer ? '1' : '0';
   if (options.probe) env.CLAUDE_CODE_MAX_OUTPUT_TOKENS = String(Math.min(options.model.output, 128));
   return new Promise((resolve, reject) => {
     const child = spawn('claude', args, {

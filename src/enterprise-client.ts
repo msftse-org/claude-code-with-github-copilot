@@ -136,6 +136,7 @@ export function enterpriseSettingsPatch(value: EnterpriseProfile): ObjectValue {
       ANTHROPIC_DEFAULT_MODEL: defaultModel,
       CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY: '1',
       CLAUDE_CODE_API_KEY_HELPER_TTL_MS: '60000',
+      CLAUDE_CODE_AUTO_MODE_SERVER: '0',
     },
     apiKeyHelper: enterpriseHelperCommand(),
     permissions: { defaultMode: 'manual' },

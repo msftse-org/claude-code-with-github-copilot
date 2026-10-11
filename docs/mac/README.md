@@ -128,8 +128,9 @@ This updates `~/.claude/settings.json` and:
 - enables gateway model discovery
 - installs the enterprise `apiKeyHelper`
 - sets a one-minute helper cache
-- selects `manual` permission mode because Claude Code auto mode depends on an
-  Anthropic safety classifier that is unavailable through this custom route
+- keeps `manual` as the default permission mode
+- sets `CLAUDE_CODE_AUTO_MODE_SERVER=0`, allowing opt-in auto mode to use
+  Claude Code's local classifier instead of Anthropic-only server safeguards
 - removes obsolete project-owned feature-disable flags
 - preserves unrelated Claude settings and existing allow/deny rules
 
@@ -184,21 +185,27 @@ provider keys or override the broker URL.
 - Bounded admission renewal
 - Image and PDF input
 - Adaptive thinking
+- Low-effort between-tools thinking
 - Exact token counting
 - Completed-turn resume after admission renewal or gateway restart
+- Exact pending-tool resume after an enterprise worker restart
 - Coordinated agents/subagents
 - Background Bash tasks
 - Hooks
 - Automatic compaction through a real context-limit continuation cycle
 - Cron create/list/delete, durable restart, and timed one-shot firing
 - Automatic-memory write, persistence, and fresh-session reload
+- Auto permission mode through Claude Code's local classifier
 
 | Feature | Status | Employee impact |
 |---|---|---|
 | Explicit fixed-budget thinking | Not supported by the current model | Use adaptive thinking; the current Sonnet model rejects explicit thinking budgets. |
-| Resume with a pending tool batch | Not working | Completed turns resume, but a conversation paused inside a tool batch cannot yet resume safely. |
-| Advisor | Not available in Claude Code 2.1.296 | The disable flag is gone, but the client does not expose an Advisor tool. |
-| Auto permission mode | Not supported through this route | The custom route cannot reach Claude Code's Anthropic safety classifier. The generated profile uses manual mode and preserves explicit allow/deny rules. |
+| Advisor | Anthropic API only | Claude Code omits the Advisor server tool when configured with this custom Copilot gateway. |
+
+Auto mode is not the default. Start or select it only under the organization's
+normal Claude Code permission policy; the local classifier path has official
+client coverage through this gateway and does not require LiteLLM to emulate
+Anthropic safeguard results.
 
 The detailed reasons and enforcement points are in the root
 [feature compatibility table](../../README.md#claude-code-feature-compatibility).

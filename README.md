@@ -90,25 +90,31 @@ Entra sign-in, configuration, Keychain behavior, verification, and daily use.
 - Bounded admission renewal
 - Image input and PDF document input
 - Adaptive thinking, effort metadata, and thinking-block handling
+- Low-effort between-tools thinking
 - Exact token counting
 - Resume of completed turns across admission renewal and gateway restart
+- Resume of an exact pending tool batch after an enterprise worker restart
 - Coordinated agents/subagents with isolated branches
 - Background Bash tasks and result collection
 - Hooks
 - Automatic compaction through a real context-limit continuation cycle
 - Cron create/list/delete, durable restart, and timed one-shot firing
 - Automatic-memory write, persistence, and fresh-session reload
+- Auto permission mode through Claude Code's local classifier
 
 | Feature | Status | Why |
 |---|---|---|
 | Explicit fixed-budget thinking | **Not supported by the current model** | The current Sonnet model requires adaptive thinking and rejects `thinking.type: enabled` with an explicit token budget. |
-| Resume with a pending tool batch | **Not working** | Completed turns resume across admissions and restarts, but the gateway cannot safely prove pending tool-result lineage after state replacement. |
-| Advisor tool | **Not available in this client** | The project no longer disables Advisor, but Claude Code `2.1.296` does not expose an `Advisor` tool in its native tool catalog. |
-| Auto permission mode | **Not supported through this route** | Auto mode depends on an Anthropic safety-classifier model that is unavailable through the custom Copilot gateway. The generated profile selects Claude Code's `manual` mode, preserves allow/deny rules, and still honors explicit approvals such as `--allowedTools`. |
+| Advisor tool | **Anthropic API only** | Claude Code `2.1.296` supports Advisor, but deliberately omits the `advisor_20260301` server tool when `ANTHROPIC_BASE_URL` points to this custom Copilot gateway. |
 
 Validated features have automated coverage and, where applicable, a live
 gateway proof. The table contains only behavior that remains unavailable,
 model-limited, or short of its complete stateful release scenario.
+
+Auto mode remains opt-in: the generated profile sets
+`CLAUDE_CODE_AUTO_MODE_SERVER=0` so Claude Code uses its reviewed local
+classifier instead of requesting Anthropic-only server safeguard verdicts.
+Normal allow/deny rules and explicit approvals remain authoritative.
 
 ## Developer validation
 
