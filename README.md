@@ -1,262 +1,201 @@
-# Claude Code with GitHub Copilot
+# Enterprise Claude Code with GitHub Copilot
 
-Run the **official Claude Code CLI** with Claude models provided by **your own
-GitHub Copilot seat**.
-
-```text
-Claude Code on your Mac
-        |
-        | HTTPS
-        v
-Admission gateway -> LiteLLM -> GitHub Copilot -> Anthropic Models
-```
-
-Claude Code remains unchanged. It reads and edits files and runs commands on
-your Mac. The remote services only authenticate the session and carry model
-requests to GitHub Copilot.
-
-Core chat, streaming, Read, Edit, Bash, and model switching work. Features that
-are not currently supported or fully verified through this method include image
-and document input, extended thinking, automatic compaction, resuming across
-admissions, agents/teams, background tasks, hooks, cron, automatic memory, the
-advisor tool, and exact token counting. Use one foreground Claude session per
-admission.
-
-> [!WARNING]
-> This is an experimental, unofficial integration. It uses GitHub Copilot
-> endpoints through LiteLLM and is not endorsed by GitHub or Anthropic. Confirm
-> that your account and organization permit this use.
-
-## What is available
-
-| Part | Status |
-|---|---|
-| Single-user Azure setup | Deployed and tested |
-| Claude Code on macOS | Configured and tested |
-| Model discovery and switching | Tested with the current Copilot catalog |
-| Automated deployment and recovery | Implemented and tested locally |
-| Multi-user enterprise foundation | Implemented, but not deployed |
-
-The current Azure test gateway is:
-
-`https://ccgc-dev-87b7.swedencentral.cloudapp.azure.com`
-
-The Azure VM continues to incur charges while it is running.
-
-## Why both the gateway and LiteLLM are needed
-
-They have different jobs:
-
-- **Admission gateway:** protects the public endpoint, checks credentials,
-  limits sessions, prevents replay, validates conversation continuity, and
-  enforces the approved model catalog.
-- **LiteLLM:** signs in to GitHub Copilot, refreshes Copilot tokens, discovers
-  entitled Claude models, and translates Anthropic Messages traffic to the
-  Copilot service.
-
-API Management is not used. It was removed because it did not replace either
-of these required functions.
-
-## Current deployed components
-
-### On Azure
-
-- One Linux VM
-- Defender JIT access for temporary, source-restricted SSH
-
-| Component | What it is | Why we need it |
-|---|---|---|
-| [Caddy](https://github.com/caddyserver/caddy) | Third-party open-source HTTPS server and reverse proxy. | Provides automatic TLS and exposes one secure public endpoint without publishing the internal services. |
-| Node.js admission gateway | Project-developed TypeScript/Node.js service. | Authenticates the Mac client, creates bounded sessions, enforces the approved model catalog, and protects request history from replay or divergence. |
-| [LiteLLM Copilot connector](https://github.com/BerriAI/litellm) | Third-party open-source model gateway. | Handles GitHub device authorization, Copilot token refresh, model discovery, and Anthropic Messages transport to the user's Copilot seat. |
-| Private Docker state | Deployment-owned private Docker volume, not an external hosted service. | Keeps the account binding, Copilot token cache, gateway credentials, and approved model catalog across container restarts without storing them in Git or images. |
-
-Only Caddy exposes public ports. The gateway and LiteLLM stay on private Docker
-networks.
-
-### On the Mac
-
-- Official Claude Code `2.1.284`
-- The `ccgc` command-line helper
-- A gateway renewal credential stored in macOS Keychain
-- `~/.claude/settings.json` pointing Claude Code to the Azure gateway
-- A non-secret local profile containing the approved account and model metadata
-
-GitHub and Copilot credentials remain on the Azure host.
-
-## Models
-
-The latest verified Copilot catalog contains:
-
-- Claude Haiku 4.5
-- Claude Haiku 5.5
-- Claude Sonnet 5
-- Claude Sonnet 5.5
-
-Claude Sonnet 5.5 is the default.
-
-List the models currently approved by the gateway:
-
-```bash
-node src/cli.ts models
-```
-
-Start Claude normally:
-
-```bash
-claude
-```
-
-Use Claude Code's `/model` command to switch models. Do not use a command-line
-`--model` override because the credential helper intentionally rejects routing
-that conflicts with the approved gateway configuration.
-
-If Claude reports `ADMISSION_REQUIRED` with HTTP 410, the previous bounded
-session expired or was lost. Create and verify a fresh admission:
-
-```bash
-node src/cli.ts doctor --live --accept-unofficial
-```
-
-## Install the development tools
-
-Requirements:
-
-- macOS
-- Node.js 24
-- npm
-- Official Claude Code `2.1.284`
-
-```bash
-npm ci
-npm run check
-npm test
-node src/cli.ts version
-```
-
-## Connect a Mac to a gateway
-
-The operator provides a gateway renewal key. Pass it through standard input;
-do not place it in source code, command arguments, shell history, or chat.
-
-```bash
-node src/cli.ts login \
-  --gateway https://gateway.example.com \
-  --accept-unofficial < /protected/owner-key
-
-node src/cli.ts configure
-node src/cli.ts configure --apply
-node src/cli.ts doctor --remote
-node src/cli.ts doctor --live --accept-unofficial
-claude
-```
-
-What these commands do:
-
-- `login` verifies the gateway and stores its renewal key in macOS Keychain.
-- `configure` previews the Claude settings change.
-- `configure --apply` applies the reviewed settings.
-- `doctor --remote` checks the gateway without inference.
-- `doctor --live` runs a small isolated Claude probe and may consume Copilot
-  allowance.
-
-## Automated Azure deployment
-
-The deployment coordinator supports Bicep and Terraform:
-
-```bash
-python3 server/deploy.py plan \
-  --config "$HOME/.config/ccgc/deployment.json"
-```
-
-After reviewing the generated plan and cost impact:
-
-```bash
-python3 server/deploy.py up \
-  --config "$HOME/.config/ccgc/deployment.json" \
-  --approve-plan REPLACE_WITH_PLAN_SHA256 \
-  --approve-access \
-  --accept-unofficial \
-  --approve-client \
-  --approve-live
-```
-
-Automation covers:
-
-1. Azure infrastructure provisioning
-2. Defender JIT SSH access and host identity verification
-3. Container build and startup
-4. GitHub account and Copilot catalog binding
-5. Mac enrollment and Claude settings
-6. Live Read/Edit/Bash checks through every approved model
-7. Creation of a clean foreground admission
-
-Human approval is still required for infrastructure cost, GitHub browser
-authorization, client changes, catalog changes, and live inference.
-
-See [docs/AUTOMATION.md](docs/AUTOMATION.md) for the complete runbook.
-
-## Recover a stopped deployment
-
-```bash
-python3 server/deploy.py recover \
-  --config "$HOME/.config/ccgc/deployment.json" \
-  --approve-access \
-  --approve-start \
-  --accept-unofficial \
-  --approve-client \
-  --approve-live
-```
-
-Recovery can start the VM, renew JIT access, restart services, synchronize the
-Mac, and create a fresh admission.
-
-If the Copilot model catalog changed, recovery stops and writes
-`catalog-preview.json`. Review it, then rerun recovery with the exact displayed
-hash:
-
-```bash
---approve-catalog REPLACE_WITH_CATALOG_SHA256
-```
-
-The coordinator never silently changes account identity or chooses a fallback
-model.
-
-## Enterprise solution
-
-The repository also contains a multi-user enterprise foundation:
+This repository implements an enterprise architecture that lets employees use
+the **official Claude Code CLI** with Anthropic models provided through **each
+employee's own GitHub Copilot seat**.
 
 ```text
 Employee Claude Code
         |
+        | Microsoft Entra identity
         v
-Entra-authenticated broker
+Enterprise admission broker
         |
         v
 Isolated per-user worker
         |
         v
-LiteLLM -> employee's own Copilot seat -> Claude
+LiteLLM -> Employee's GitHub Copilot seat -> Anthropic Models
 ```
 
-Each employee uses their own Copilot seat. Credentials, sessions, quotas, and
-worker state are not shared.
+Each employee has a separate identity binding, worker, Copilot authorization,
+credential cache, model catalog, admission, limits, and conversation state.
+Seats and credentials are never pooled.
 
-The foundation includes:
+> [!IMPORTANT]
+> The enterprise foundation is implemented and locally validated, but it is not
+> deployed or approved for production use. The remaining release gates are
+> documented in [docs/ENTERPRISE.md](docs/ENTERPRISE.md).
 
-- Microsoft Entra authentication
-- Azure Container Apps
-- PostgreSQL admission and dispatch fencing
-- Key Vault worker records
-- Private Azure Container Registry
-- Per-user worker isolation
-- Azure Monitor and Application Insights metadata
+> [!WARNING]
+> The Copilot connector is unofficial and is not endorsed by GitHub or
+> Anthropic. The organization must approve this use before onboarding employees.
 
-It is implemented and locally validated, but **not deployed**. Deployment still
-requires Entra registration, PostgreSQL setup, private signed images, user
-onboarding, isolation/load/revocation testing, and cost approval.
+## Why both the broker and LiteLLM are needed
 
-See [docs/ENTERPRISE.md](docs/ENTERPRISE.md) for the release gates.
+They perform different required jobs:
+
+| Component | What it is | Why it is required |
+|---|---|---|
+| Enterprise admission broker | Project-developed TypeScript/Node.js service. | Validates Entra identity, resolves the employee binding, issues bounded admissions, reserves attempts, fences dispatches, and records audit metadata. |
+| Isolated per-user worker | Project-developed TypeScript/Node.js service. | Enforces one employee's identity, admission, model catalog, dispatch order, and conversation state before inference. |
+| [LiteLLM](https://github.com/BerriAI/litellm) | Third-party open-source model gateway. | Handles the employee's GitHub Copilot authorization, token refresh, model discovery, and Anthropic Messages transport. |
+
+The broker cannot replace LiteLLM's Copilot authentication and transport.
+LiteLLM cannot replace the broker's enterprise identity, admission, isolation,
+fencing, and audit controls.
+
+API Management is not included because it does not replace either required
+component.
+
+## Enterprise Azure components
+
+| Component | Purpose |
+|---|---|
+| Azure Container Apps | Runs the internal broker and isolated per-user workers. |
+| Microsoft Entra ID | Authenticates employees and supplies immutable tenant/object identity. |
+| Azure Database for PostgreSQL | Stores user bindings, admission state, attempt reservations, dispatch fences, and audit intent. |
+| Azure Key Vault | Resolves each employee's private worker endpoint and broker credential. |
+| Azure Container Registry | Stores approved immutable broker and worker images. |
+| NAT Gateway | Gives the private workers controlled, stable outbound connectivity. |
+| Azure Monitor and Application Insights | Records operational metadata without prompt or response bodies. |
+
+The broker is the only enterprise ingress. Workers, PostgreSQL, Key Vault, and
+the registry remain private.
+
+## On the Mac
+
+Each employee needs:
+
+- Official Claude Code `2.1.284`
+- The project-developed enterprise `ccgc` command-line helper
+- A bounded opaque admission credential stored in macOS Keychain
+- `~/.claude/settings.json` pointing Claude Code to the enterprise broker
+- A private, non-secret profile containing Entra, GitHub, model, and binding
+  metadata
+
+The Mac uses Microsoft Entra to request an admission. GitHub and Copilot
+credentials remain inside that employee's isolated worker.
+
+See [Mac enterprise setup and operation](docs/mac/README.md) for installation,
+Entra sign-in, configuration, Keychain behavior, verification, and daily use.
+
+## Supported Claude Code behavior
+
+The enterprise client configures the standard Claude Code gateway interface.
+The locally validated foundation covers:
+
+- Entra-authenticated enrollment
+- model discovery
+- bounded admission creation and renewal
+- native Anthropic Messages requests
+- streaming responses
+- Read, Edit, and Bash tools
+- per-user model restrictions
+- one foreground conversation per admission
+
+Not yet fully verified for enterprise release:
+
+- image and document input
+- extended thinking
+- automatic compaction
+- resume across worker restarts or admissions
+- agents, teams, and background tasks
+- hooks, cron, automatic memory, and advisor
+- exact token counting
+
+## Developer validation
+
+Requirements:
+
+- macOS for the enterprise client and Keychain integration
+- Node.js 24
+- npm
+- Docker
+- Azure CLI and Bicep for infrastructure validation
+
+```bash
+npm ci
+npm run check
+npm test
+npm run test:bootstrap
+npm run test:client
+
+docker build -f server/Dockerfile.enterprise -t ccgc-enterprise-broker:test .
+docker build -f server/Dockerfile.enterprise-worker -t ccgc-enterprise-worker:test .
+
+az bicep build --file infra/enterprise/main.bicep --stdout > enterprise.json
+checkov -f enterprise.json --framework arm --skip-download --compact
+```
+
+The PostgreSQL integration test runs when `CCGC_TEST_POSTGRES_URL` is set.
+
+## Employee onboarding
+
+Onboarding has two separate approvals.
+
+### 1. Operator links the employee
+
+The operator verifies that the Entra principal and GitHub account belong to the
+same employee, then writes the approved private binding:
+
+```bash
+export CCGC_POSTGRES_URL='postgresql://BROKER_ID@PRIVATE_HOST:5432/postgres?sslmode=require'
+export CCGC_KEY_VAULT_URL='https://PRIVATE_VAULT.vault.azure.net/'
+
+npm run enterprise:admin -- link --confirm-same-user \
+  < /private/path/link.json
+```
+
+The binding contains the immutable Entra and GitHub IDs, approved models, and
+that employee's private worker reference. Updating a binding increments its
+revision and revokes existing admissions.
+
+### 2. Employee configures the Mac
+
+```bash
+npm run enterprise:client -- login \
+  --gateway https://PRIVATE_GATEWAY \
+  --audience api://ENTRA-APPLICATION-ID
+
+npm run enterprise:client -- configure
+npm run enterprise:client -- configure --apply
+npm run enterprise:client -- models
+claude
+```
+
+`DefaultAzureCredential` must resolve to the intended employee. Production
+deployment must define the approved Entra credential source and local token
+cache policy.
+
+## Security properties
+
+- One immutable Entra principal maps to one immutable GitHub account.
+- Every employee uses their own Copilot seat.
+- Admission tokens are random, bounded, hashed server-side, and stored locally
+  only in macOS Keychain.
+- PostgreSQL atomically reserves attempts and creates monotonic dispatch fences.
+- Per-user workers reject wrong principals, stale fences, model drift, and
+  excess admissions.
+- Broker and worker do not retry inference.
+- Prompt and response bodies are not logged or stored by the broker.
+- No provider fallback, response cache, or shared credential pool is used.
+
+## Deployment status and remaining gates
+
+No enterprise Azure resources have been deployed from this repository.
+Production deployment still requires:
+
+1. Entra API registration, permissions, and Conditional Access approval
+2. Private PostgreSQL administrator/bootstrap flow
+3. Built, scanned, signed, and immutable broker/worker images
+4. Private employee worker lifecycle automation
+5. Two-user isolation, revocation, load, failure, and restore testing
+6. Monitoring privacy review
+7. Azure cost and change-plan approval
+8. Vendor and organization approval for the unofficial Copilot route
+
+The foundation must not be described as production-ready until these gates pass.
 
 ## Architecture poster
 
@@ -265,25 +204,11 @@ See [docs/ENTERPRISE.md](docs/ENTERPRISE.md) for the release gates.
 Diagram sources and generation receipts are in
 [docs/diagrams](docs/diagrams/README.md).
 
-## Important limits
-
-- One foreground Claude session per admission
-- No shared Copilot account or credential pooling
-- No provider fallback
-- No response cache
-- No automatic inference retry
-- No prompt or response body logging
-- No automatic acceptance of account or catalog changes
-- Images, documents, compaction, background agents, and cross-admission resume
-  are not yet fully verified
-
-## More documentation
+## Documentation
 
 | Document | Purpose |
 |---|---|
-| [docs/AUTOMATION.md](docs/AUTOMATION.md) | Automated deployment and recovery |
-| [docs/README.md](docs/README.md) | Detailed single-user operator runbook |
-| [docs/AZURE.md](docs/AZURE.md) | Current Azure proof deployment |
-| [docs/ENTERPRISE.md](docs/ENTERPRISE.md) | Enterprise architecture and release gates |
-| [docs/PRD.md](docs/PRD.md) | Detailed product and security contract |
+| [docs/ENTERPRISE.md](docs/ENTERPRISE.md) | Enterprise architecture, implementation, onboarding, and release gates |
+| [docs/mac/README.md](docs/mac/README.md) | Employee Mac setup and daily operation |
+| [docs/PRD.md](docs/PRD.md) | Product and security contract |
 | [docs/diagrams/README.md](docs/diagrams/README.md) | Diagram sources and provenance |
