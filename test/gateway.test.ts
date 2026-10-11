@@ -76,6 +76,31 @@ test('reviewed output effort is validated and forwarded unchanged without enabli
   }
 });
 
+test('images, documents, extended thinking, and token counting fail before inference', async () => {
+  const gateway = await startGateway({ model, backend: { async send() { throw new Error('Unexpected inference'); } } });
+  const headers = { 'content-type': 'application/json', 'x-api-key': gateway.token };
+  try {
+    const unsupported = [
+      request({ thinking: { type: 'enabled', budget_tokens: 1024 } }),
+      request({ messages: [{ role: 'user', content: [{ type: 'image', source: { type: 'base64', media_type: 'image/png', data: 'AA==' } }] }] }),
+      request({ messages: [{ role: 'user', content: [{ type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: 'AA==' } }] }] }),
+    ];
+    for (const body of unsupported) {
+      const response = await fetch(`${gateway.url}/v1/messages`, {
+        method: 'POST', headers, body: JSON.stringify(body),
+      });
+      assert.equal(response.status, 400);
+      assert.match(JSON.stringify(await response.json()), /FEATURE_UNSUPPORTED/);
+    }
+    const count = await fetch(`${gateway.url}/v1/messages/count_tokens`, {
+      method: 'POST', headers, body: JSON.stringify(request()),
+    });
+    assert.equal(count.status, 404);
+    assert.match(JSON.stringify(await count.json()), /FEATURE_UNSUPPORTED/);
+    assert.equal(gateway.stats.attempts, 0);
+  } finally { await gateway.close(); }
+});
+
 test('text system messages preserve their role, history and tool-result matching', async () => {
   const selected = { ...model, id: 'claude-sonnet-5.5', responseIds: ['claude-sonnet-5.5'] };
   const calls: ObjectValue[] = [];

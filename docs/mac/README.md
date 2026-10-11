@@ -174,26 +174,25 @@ provider keys or override the broker URL.
 
 ## 7. Supported and unsupported behavior
 
-Locally validated foundation:
+Chat, streaming, Read, Edit, Bash, model discovery, model switching, and bounded
+admission renewal are covered by automated tests.
 
-- Entra-authenticated control requests
-- bounded admission creation and renewal
-- native Anthropic Messages routing
-- model discovery
-- streaming
-- Read, Edit, and Bash tools
-- per-user model restrictions
-- one foreground conversation per admission
+| Feature | Status | Employee impact |
+|---|---|---|
+| Image and document input | Not working | Claude requests containing image or document blocks are rejected before inference. Use text input. |
+| Extended thinking | Not working | Thinking-enabled requests are rejected. Reviewed output effort levels remain available. |
+| Automatic compaction | Not fully verified | It is not explicitly blocked, but do not rely on it until a real context-limit cycle passes release testing. |
+| Resume across admissions/restarts | Not working | Start a new conversation after admission replacement or worker restart. |
+| Agents and teams | Not working | Agent branches are rejected; use the single foreground conversation. |
+| Background tasks | Disabled | Work must remain in the foreground Claude session. |
+| Hooks | Disabled | Custom hooks do not run under the enterprise settings. |
+| Cron | Disabled | Scheduled Claude tasks are unavailable. |
+| Automatic memory | Disabled | Claude does not write or use automatic memory through this profile. |
+| Advisor | Disabled | The advisor tool is unavailable. |
+| Exact token counting | Not working | The token-count endpoint is unavailable; Claude uses a local estimate. |
 
-Not yet fully verified for enterprise release:
-
-- image and document input
-- extended thinking
-- automatic compaction
-- resume across admissions or worker restarts
-- agents, teams, and background tasks
-- hooks, cron, automatic memory, and advisor
-- exact token counting
+The detailed reasons and enforcement points are in the root
+[feature compatibility table](../../README.md#claude-code-feature-compatibility).
 
 ## 8. Keychain behavior
 
@@ -260,4 +259,3 @@ npm run enterprise:client -- configure
 - Do not enable provider fallback, response caching, inference retries, hooks,
   or payload logging without a separate security review.
 - Treat unexpected identity, model, or binding changes as an operator event.
-

@@ -80,29 +80,31 @@ credentials remain inside that employee's isolated worker.
 See [Mac enterprise setup and operation](docs/mac/README.md) for installation,
 Entra sign-in, configuration, Keychain behavior, verification, and daily use.
 
-## Supported Claude Code behavior
+## Claude Code feature compatibility
 
-The enterprise client configures the standard Claude Code gateway interface.
-The locally validated foundation covers:
+Core chat, streaming, Read, Edit, Bash, model discovery, model switching, and
+bounded admission renewal are covered by automated tests.
 
-- Entra-authenticated enrollment
-- model discovery
-- bounded admission creation and renewal
-- native Anthropic Messages requests
-- streaming responses
-- Read, Edit, and Bash tools
-- per-user model restrictions
-- one foreground conversation per admission
+| Feature | Status | Why |
+|---|---|---|
+| Image input | **Not working** | Image content blocks are rejected with `FEATURE_UNSUPPORTED` before inference. Only text and client-owned tool blocks are accepted. |
+| Document/PDF input | **Not working** | Document content blocks are rejected with `FEATURE_UNSUPPORTED` before inference. |
+| Extended thinking | **Not working** | Requests are accepted only when `thinking.type` is `disabled`. Thinking budgets/blocks are intentionally rejected. `output_config.effort` is supported but is not extended thinking. |
+| Automatic compaction | **Not fully verified** | There is no explicit gateway block, and Claude Code can perform client-side compaction, but a real context-limit compaction cycle has not completed the enterprise release gates. |
+| Resume across admissions | **Not working** | Conversation continuity is held in memory by one worker admission and is not persisted for a new admission. |
+| Resume after worker restart | **Not working** | Worker conversation state is intentionally in memory; a restart requires a new admission and conversation. |
+| Agents/subagents | **Not working** | Requests carrying Claude Code's agent identifier are explicitly rejected before inference. |
+| Agent teams | **Not working** | Teams require multiple agent branches/concurrent sessions, while this profile permits one fenced foreground conversation per admission. |
+| Background tasks | **Disabled** | Mac configuration sets `CLAUDE_CODE_DISABLE_BACKGROUND_TASKS=1`. |
+| Hooks | **Disabled** | Mac configuration sets `disableAllHooks: true` to prevent unreviewed local extensions from changing the verified route. |
+| Cron | **Disabled** | Mac configuration sets `CLAUDE_CODE_DISABLE_CRON=1`. |
+| Automatic memory | **Disabled** | Mac configuration sets `CLAUDE_CODE_DISABLE_AUTO_MEMORY=1`. |
+| Advisor tool | **Disabled** | Mac configuration sets `CLAUDE_CODE_DISABLE_ADVISOR_TOOL=1`. |
+| Exact token counting | **Not working** | `/v1/messages/count_tokens` returns `FEATURE_UNSUPPORTED` (HTTP 404); Claude must use its local estimate. |
 
-Not yet fully verified for enterprise release:
-
-- image and document input
-- extended thinking
-- automatic compaction
-- resume across worker restarts or admissions
-- agents, teams, and background tasks
-- hooks, cron, automatic memory, and advisor
-- exact token counting
+These statuses are enforced by regression tests. “Not fully verified” means the
+feature is not deliberately blocked, but it has not passed a complete live
+enterprise test and must not yet be promised.
 
 ## Developer validation
 
