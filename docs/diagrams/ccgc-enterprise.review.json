@@ -9,18 +9,18 @@
     "liveGatewayModified": false,
     "clientSettingsModified": false,
     "copilotInferencePerformed": false,
-    "imageGenerationInvocations": 3
+    "imageGenerationInvocations": 5
   },
   "interactiveDiagrams": [
     {
       "diagram_type": "architecture",
       "file": "ccgc-enterprise-runtime.html",
-      "sha256": "062fe76cee7141daf8c079b5446dc4f853703e4da6dcca6d84095638867b3caa",
-      "bytes": 718096,
+      "sha256": "cc3e7ef47df9c710e60ec672b7fa1a8336a319d6caa60253a245daf666661043",
+      "bytes": 721734,
       "specification": {
         "file": "ccgc-enterprise-runtime.architecture.json",
-        "sha256": "0272bc6e641f7530ebdd7d2b0d268527590645fa4c50c197f7bbe447bd2e7a99",
-        "bytes": 4282
+        "sha256": "ffbe8d98c04dd8415c7cce8ab96ddb5e09eaa6b6f9049438dc4b3cec2edceb8d",
+        "bytes": 4970
       },
       "deliveryReceipt": "ccgc-enterprise-runtime.delivery.json",
       "visualEvidence": "ccgc-enterprise-runtime.visual-check.json",
@@ -37,9 +37,9 @@
         "ccgc-enterprise-runtime.visual-check.2048x1320.dark.png"
       ],
       "observations": [
-        "The five-component inference rail is separate from identity, secret, control-state and telemetry dependencies.",
+        "The worker Container App boundary visibly contains the worker request runtime and in-process account-scoped connector pool.",
         "Local tools and the upstream Copilot service remain outside the private workload boundary.",
-        "Entra, broker-only secret access, the per-user worker, and the LiteLLM connector are distinct; no shared Copilot seat is shown.",
+        "The connector pool is not represented as a separate Container App, worker service, or shared Copilot seat.",
         "Verified rich input, adaptive thinking, exact token counting, coordinated agent branches, compaction, Cron, automatic memory, background work and completed-turn resume are summarized.",
         "The two control-state writes have separate arrowheads; JWT trust text does not mask the boundary title.",
         "No provisioning pipeline, IaC stage or deployment flow appears.",
@@ -83,23 +83,24 @@
   "presentationImages": [
     {
       "diagram_type": "architecture",
-      "file": "ccgc-enterprise-runtime.png",
-      "sha256": "e22f4ee248f7aaa28861037b76c793e0e2cf71bc769f44b8fc9d80833cc8c482",
-      "bytes": 149088,
-      "width": 2048,
-      "height": 1320,
-      "generationReceipt": "ccgc-enterprise-runtime.visual-check.json",
-      "supersedesDraft": "ccgc-enterprise-runtime-flare-v2.png",
+      "file": "ccgc-enterprise-runtime-multiuser-flare-v2.png",
+      "sha256": "3e0581154ba03f10bdef732c019bf3735b4ba3f313f538f83767cc01b081cc27",
+      "bytes": 2295143,
+      "width": 2560,
+      "height": 1600,
+      "generationReceipt": "ccgc-enterprise-runtime-multiuser-flare-v2.receipt.json",
+      "supersedesDraft": "ccgc-enterprise-runtime-multiuser-flare.png",
       "visual_review": "passed",
       "correction_rounds": 1,
       "inspectedSizes": ["2560x1600", "1280x800"],
-      "correctedDefect": "The current technical image separates the per-user worker from LiteLLM and synchronizes feature labels with the validated implementation.",
+      "correctedDefect": "The connector pool is now nested inside the multi-user worker Container App instead of appearing as an independently deployed peer service.",
       "observations": [
-        "All nine components and four primary request arrows preserve the technical topology.",
+        "The outer worker Container App clearly contains both request-runtime and connector-pool inner areas.",
+        "The connector pool is explicitly labeled in-process and retains three account-isolated contexts.",
         "Managed-identity, JWT trust, database and telemetry paths terminate at their intended components without crossing text.",
-        "The proposed/not-deployed badge is prominent and all production caveats remain readable.",
+        "The implemented/not-deployed badge is prominent and all production caveats remain readable.",
         "The client remains unmodified with local tools; access remains per employee and entitled Claude model.",
-        "No provisioning flow, shared seat, direct Anthropic credential or image-generation service appears."
+        "No separate connector Container App, provisioning flow, shared seat, direct Anthropic credential or image-generation service appears."
       ],
       "rubric": {
         "scale": 5,

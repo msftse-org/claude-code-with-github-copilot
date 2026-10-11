@@ -12,16 +12,19 @@ Employee Claude Code
 Enterprise admission broker
         |
         v
-Shared multi-user worker fleet
-        |
-        v
-Account-scoped native connector -> Employee's GitHub Copilot seat -> Anthropic Models
+Multi-user worker Container App (2-30 shared replicas)
+        |-- Worker request runtime
+        `-- In-process account-scoped connector pool
+                    |
+                    v
+        Employee's GitHub Copilot seat -> Anthropic Models
 ```
 
 Each employee has a separate identity binding, Copilot authorization, connector
 context, model catalog, admission, limits, and encrypted conversation
-checkpoints. Worker replicas are shared for scale, but seats, credentials,
-token refresh state, checkpoints, and quotas remain account scoped.
+checkpoints. The connector pool runs inside every shared worker replica; it is
+not a separate Container App. Seats, credentials, token refresh state,
+checkpoints, and quotas remain account scoped.
 
 > [!IMPORTANT]
 > The enterprise foundation is implemented and locally validated, but it is not
@@ -39,9 +42,9 @@ The enterprise path has two required project components:
 | Component | What it is | Why it is required |
 |---|---|---|
 | Enterprise admission broker | Project-developed TypeScript/Node.js service. | Validates Entra identity, resolves the employee binding, issues bounded admissions, reserves attempts, fences dispatches, and records audit metadata. |
-| Shared multi-user worker | Project-developed TypeScript/Node.js service. | Verifies short-lived broker-signed dispatches, selects an account-scoped Copilot connector, enforces per-user fairness, and restores encrypted branch checkpoints on any replica. |
+| Shared multi-user worker | Project-developed TypeScript/Node.js service. | Verifies short-lived broker-signed dispatches, hosts the in-process account-scoped connector pool, enforces per-user fairness, and restores encrypted branch checkpoints on any replica. |
 
-The native connector in `src/copilot.ts` performs GitHub identity validation,
+The in-process native connector in `src/copilot.ts` performs GitHub identity validation,
 Copilot token refresh, model discovery, token counting, and Anthropic Messages
 transport independently for each account context. Unmodified LiteLLM is not used
 because its GitHub Copilot credential directory is process global and therefore
@@ -227,11 +230,12 @@ The foundation must not be described as production-ready until these gates pass.
 
 ## Architecture poster
 
-![Enterprise multi-user architecture](docs/diagrams/ccgc-enterprise-runtime-multiuser-flare.png)
+![Enterprise multi-user architecture](docs/diagrams/ccgc-enterprise-runtime-multiuser-flare-v2.png)
 
-The current poster shows the enterprise broker, horizontally scaled shared
-multi-user worker fleet, account-scoped native connectors, private credential
-store, and encrypted checkpoint store. The reviewed Archify JSON and
+The current poster shows the enterprise broker and a horizontally scaled
+multi-user worker Container App containing the worker runtime and in-process
+account-scoped connector pool, plus the private credential and encrypted
+checkpoint stores. The reviewed Archify JSON and
 interactive HTML remain the authoritative technical architecture; the
 GPT-image poster is its presentation companion. Diagram sources, model
 provenance, and validation receipts are in

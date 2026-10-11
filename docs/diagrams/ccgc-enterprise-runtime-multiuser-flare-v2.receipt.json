@@ -1,0 +1,71 @@
+{
+  "operation": "images/edits",
+  "provider": "Azure OpenAI",
+  "resource": "foundry-llm-demo-resource",
+  "region": "Sweden Central",
+  "deployment": "gpt-image-2.5-flare",
+  "model": "gpt-image-2.5-flare",
+  "modelVersion": "2026-09-08",
+  "apiVersion": "2025-04-01-preview",
+  "authentication": "Microsoft Entra ID bearer token",
+  "createdAt": "2026-10-11T16:52:57Z",
+  "requestId": "19f86eee-047f-41a1-a15b-c9ab3f9fc555",
+  "request": {
+    "quality": "high",
+    "size": "2560x1600",
+    "outputFormat": "png",
+    "prompt": {
+      "path": "docs/diagrams/ccgc-enterprise-runtime-multiuser-flare-v2.prompt.txt",
+      "sha256": "8bf4afa465a6e3906652b8136d60de4a61ea7471f332f7b1aa90484a249a262f"
+    },
+    "references": [
+      {
+        "role": "presentation style and content",
+        "path": "docs/diagrams/ccgc-enterprise-runtime-multiuser-flare.png",
+        "sha256": "9c01033a2fc51778db69d62e7e6ad77a8294b2cea0a8aa71edfb1d3c7d3851f9"
+      },
+      {
+        "role": "authoritative nested topology",
+        "path": "docs/diagrams/ccgc-enterprise-runtime.visual-check.2048x1320.light.png",
+        "sha256": "bb821d36a4e3a78f1128299b2fdb196db3faf59bc731d6643a4baee6994539a0"
+      },
+      {
+        "role": "official Azure Container Apps icon",
+        "path": "session-artifact:azure-icons/references/container-apps.svg.png",
+        "sha256": "cfcaa8088b2e289918eceb683def7928cae1e235eba0398681c092f0148bf089"
+      }
+    ]
+  },
+  "response": {
+    "usage": {
+      "inputTokens": 4447,
+      "imageInputTokens": 3952,
+      "textInputTokens": 495,
+      "outputTokens": 2195,
+      "imageOutputTokens": 2195,
+      "totalTokens": 6642
+    }
+  },
+  "output": {
+    "path": "docs/diagrams/ccgc-enterprise-runtime-multiuser-flare-v2.png",
+    "desktopCopy": "/Users/shironbabi/Desktop/CCGC-Enterprise-Multiuser-Architecture-Poster.png",
+    "width": 2560,
+    "height": 1600,
+    "sha256": "3e0581154ba03f10bdef732c019bf3735b4ba3f313f538f83767cc01b081cc27"
+  },
+  "visualReview": {
+    "status": "approved",
+    "inspectedAt": [
+      "native 2560x1600",
+      "presentation 1280x800"
+    ],
+    "workerContainerAppBoundaryPresent": true,
+    "workerRequestRuntimeNested": true,
+    "accountScopedConnectorPoolNested": true,
+    "connectorPoolShownAsInProcess": true,
+    "separateConnectorContainerAppAbsent": true,
+    "implementedNotDeployedStatusPresent": true,
+    "readability": "approved"
+  },
+  "infrastructureChanged": false
+}

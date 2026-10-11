@@ -10,8 +10,8 @@ LiteLLM connector remain independent and unchanged as rollback evidence.
 | Component | Responsibility |
 |---|---|
 | Enterprise broker | Validates Microsoft Entra identity, resolves the immutable GitHub binding, issues bounded admissions, reserves attempts transactionally, fences each branch dispatch, signs a 60-second worker assertion, and emits audit intent. |
-| Shared multi-user worker fleet | Verifies broker assertions, enforces per-user and global capacity, selects the exact account connector, restores durable branch state, and streams native Messages responses. |
-| Account-scoped native Copilot connector | Validates the effective GitHub login, maintains one OAuth credential, Copilot token cache, endpoint, and refresh lock per binding revision, then sends the exact Anthropic Messages request. |
+| Shared multi-user worker fleet | Runs as one Container App scaled across 2-30 replicas. Each replica verifies broker assertions, enforces per-user and global capacity, hosts the in-process connector pool, restores durable branch state, and streams native Messages responses. |
+| Account-scoped native Copilot connector | An in-process object inside a worker replica, not a separate Container App. It validates the effective GitHub login, maintains one OAuth credential, Copilot token cache, endpoint, and refresh lock per binding revision, then sends the exact Anthropic Messages request. |
 | PostgreSQL | Stores account bindings, admission budgets, active branch reservations, monotonic fences, outcomes, and the audit outbox. |
 | Encrypted Blob checkpoints | Stores pending tool lineage and other branch state encrypted by the worker. Blob ETags reject concurrent or stale writes. |
 
