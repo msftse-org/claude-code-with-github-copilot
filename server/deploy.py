@@ -435,6 +435,8 @@ class Deployment:
     def recover(self):
         self.require("accept_unofficial")
         self.require("approve_access")
+        if self.options.approve_live and not self.options.approve_client:
+            raise DeployError("Recovery live verification requires --approve-client so local routing is synchronized first.")
         outputs = self.state.get("outputs")
         if not outputs or "host" not in self.state["stages"]:
             raise DeployError("Complete host installation with up before requesting recovery.")
@@ -446,6 +448,11 @@ class Deployment:
                  "--resource-group", self.group, "--name", outputs["vmName"], "--only-show-errors"])
         self.access()
         self.gateway()
+        if self.options.approve_client:
+            self.preflight(client=True)
+            self.client()
+        if self.options.approve_live:
+            self.admit()
 
     def host(self, action, *args, **kwargs):
         return self.ssh(shlex.join(["sudo", "-n", "bash", "/opt/ccgc/server/deploy-host.sh", action, self.fqdn, *args]), **kwargs)
@@ -508,6 +515,7 @@ archive.unlink()
 
     def gateway(self):
         self.require("accept_unofficial")
+        self.catalog_changed = False
         status = json.loads(self.host("status"))
         if status["status"] != "initialized":
             # Device codes are terminal-only: do not capture or persist authorization output.
@@ -517,9 +525,29 @@ archive.unlink()
         if (status["login"] != self.config["githubLogin"] or status["accountId"] != self.config["githubAccountId"]
                 or status["model"] != self.config["model"] or status["publicUrl"] != "https://" + self.fqdn):
             raise DeployError("Existing protected account/model/URL differs from configuration. Nothing was replaced.")
-        info = json.loads(self.host("verify"))
+        try:
+            info = json.loads(self.host("verify"))
+        except DeployError:
+            preview = json.loads(self.host("catalog-preview"))
+            catalog = preview.get("info", {})
+            if (catalog.get("login") != self.config["githubLogin"]
+                    or catalog.get("accountId") != self.config["githubAccountId"]
+                    or catalog.get("model", {}).get("id") != self.config["model"]):
+                raise DeployError("Discovered catalog changed account identity or configured default; nothing was applied.")
+            approval = digest(catalog)
+            write_json(self.directory / "catalog-preview.json", {
+                "sha256": approval, "createdAt": now(), "catalog": catalog,
+            })
+            if self.options.approve_catalog != approval:
+                raise DeployError(f"Copilot catalog changed. Review catalog-preview.json, then pass exact --approve-catalog {approval}.")
+            applied = json.loads(self.host("catalog-apply"))
+            if digest(applied.get("info", {})) != approval:
+                raise DeployError("Applied catalog does not match the explicitly approved preview.")
+            self.catalog_changed = True
+            info = json.loads(self.host("verify"))
         if "models" not in info:
             raise DeployError("Legacy single-model metadata requires a separately approved catalog migration.")
+        self.catalog_info = info
         self.host("activate", interactive=True)
         health("https://" + self.fqdn)
         runtime = json.loads(self.host("inspect"))
@@ -547,10 +575,29 @@ archive.unlink()
             raise DeployError("Official Claude installation does not match the reviewed version.")
         cli = ["node", ROOT / "src/cli.ts"]
         profile_path = Path.home() / ".local/share/ccgc/remote/profile.json"
-        if profile_path.exists():
+        existing_profile = profile_path.exists()
+        client_catalog_changed = False
+        if existing_profile:
             profile = read_json(profile_path)
             if profile.get("gateway") != "https://" + self.fqdn:
                 raise DeployError("Mac is already enrolled in another gateway. Existing settings and Keychain were preserved.")
+            current = getattr(self, "catalog_info", None)
+            if current is not None and profile.get("info") != current:
+                approval = digest(current)
+                write_json(self.directory / "catalog-preview.json", {
+                    "sha256": approval, "createdAt": now(), "catalog": current,
+                })
+                if self.options.approve_catalog != approval:
+                    raise DeployError(f"Mac catalog is stale. Review catalog-preview.json, then pass exact --approve-catalog {approval}.")
+                client_catalog_changed = True
+        for name, path in (("claude-settings", Path.home() / ".claude/settings.json"), ("client-profile", profile_path)):
+            backup = self.directory / (name + ".before.json")
+            if path.exists() and not backup.exists():
+                if path.is_symlink():
+                    raise DeployError("Client settings/profile is a symlink; refusing backup or mutation.")
+                write_json(backup, read_json(path))
+        if existing_profile:
+            run([*cli, "refresh", "--accept-unofficial"])
         else:
             # Credential goes only through process pipes, never argv, logs, files or Terraform state.
             secret = self.host("owner-key").strip()
@@ -560,13 +607,10 @@ archive.unlink()
                 run([*cli, "login", "--gateway", "https://" + self.fqdn, "--accept-unofficial"], input=secret)
             finally:
                 secret = None
-        for name, path in (("claude-settings", Path.home() / ".claude/settings.json"), ("client-profile", profile_path)):
-            backup = self.directory / (name + ".before.json")
-            if path.exists() and not backup.exists():
-                if path.is_symlink():
-                    raise DeployError("Client settings/profile is a symlink; refusing backup or mutation.")
-                write_json(backup, read_json(path))
-        run([*cli, "configure", "--apply"])
+        configure = [*cli, "configure", "--apply"]
+        if getattr(self, "catalog_changed", False) or client_catalog_changed:
+            configure.append("--reset-unavailable-model")
+        run(configure)
         self.mark("client")
 
     def verify(self):
@@ -620,6 +664,7 @@ def main(argv=None):
     parser.add_argument("--state-dir", type=Path, help="Private local deployment state directory; never put this in Git or cloud sync.")
     parser.add_argument("--until", choices=STAGES, default="verified")
     parser.add_argument("--approve-plan", help="SHA256 emitted by plan; confirms reviewed changes and hosting costs.")
+    parser.add_argument("--approve-catalog", help="SHA256 emitted after catalog drift; approves exactly that same-account model catalog.")
     parser.add_argument("--approve-access", action="store_true")
     parser.add_argument("--accept-unofficial", action="store_true")
     parser.add_argument("--approve-client", action="store_true")

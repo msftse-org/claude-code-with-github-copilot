@@ -23,12 +23,6 @@ param postgresAdminName string
 @description('Immutable broker container image, preferably an ACR digest.')
 param brokerImage string
 
-@description('Optional APIM adds centralized private API governance. LiteLLM remains the Copilot protocol connector.')
-param enableApim bool = false
-
-@description('APIM publisher contact, required only when enableApim is true.')
-param apimPublisherEmail string = ''
-
 var resourceGroupName = 'rg-${prefix}-enterprise'
 
 resource resourceGroup 'Microsoft.Resources/resourceGroups@2024-03-01' = {
@@ -52,14 +46,11 @@ module platform 'modules/platform.bicep' = {
     postgresAdminObjectId: postgresAdminObjectId
     postgresAdminName: postgresAdminName
     brokerImage: brokerImage
-    enableApim: enableApim
-    apimPublisherEmail: apimPublisherEmail
   }
 }
 
 output resourceGroupName string = resourceGroup.name
 output brokerInternalFqdn string = platform.outputs.brokerInternalFqdn
-output apimGatewayUrl string = platform.outputs.apimGatewayUrl
 output keyVaultName string = platform.outputs.keyVaultName
 output postgresHost string = platform.outputs.postgresHost
 output registryName string = platform.outputs.registryName

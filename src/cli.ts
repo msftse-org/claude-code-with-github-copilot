@@ -12,7 +12,7 @@ import { installedPackageVersion } from './copilot.ts';
 const help = `ccgc - remote LiteLLM / Copilot configuration (experimental)
 
   ccgc login --gateway https://gateway.example --accept-unofficial < owner-key
-  ccgc configure [--apply] [--project PATH]
+  ccgc configure [--apply] [--reset-unavailable-model] [--project PATH]
   ccgc refresh --accept-unofficial  Approve same-account gateway catalog migration
   ccgc doctor [--remote | --live --accept-unofficial] [--project PATH]
   ccgc models
@@ -38,12 +38,13 @@ export async function main(argv = process.argv.slice(2)) {
       help: { type: 'boolean', short: 'h' }, gateway: { type: 'string' },
       apply: { type: 'boolean' }, remote: { type: 'boolean' }, live: { type: 'boolean' },
       project: { type: 'string' }, 'accept-unofficial': { type: 'boolean' },
+      'reset-unavailable-model': { type: 'boolean' },
     },
   });
   if (values.help || !positionals.length) { console.log(help); return; }
   const command = positionals[0];
   const allowed: Record<string, string[]> = {
-    login: ['gateway', 'accept-unofficial'], configure: ['apply', 'project'],
+    login: ['gateway', 'accept-unofficial'], configure: ['apply', 'project', 'reset-unavailable-model'],
     doctor: ['remote', 'live', 'project', 'accept-unofficial'], refresh: ['accept-unofficial'], models: [], token: [], close: [], logout: [], version: [],
   };
   if (!command || positionals.length !== 1 || !allowed[command]
@@ -82,7 +83,8 @@ export async function main(argv = process.argv.slice(2)) {
   const project = await realpath(values.project ?? process.cwd());
   if (command === 'configure') {
     const profile = await client.load();
-    const result = await configure(profile, project, values.apply ?? false);
+    if (values['reset-unavailable-model'] && !values.apply) throw new BridgeError('INVALID_OPTIONS', '--reset-unavailable-model requires --apply.');
+    const result = await configure(profile, project, values.apply ?? false, undefined, undefined, values['reset-unavailable-model'] ?? false);
     // Print only our patch, not unrelated settings that might contain user secrets.
     console.log(JSON.stringify({ path: result.path, applied: result.applied, patch: settingsPatch(profile), next: result.applied ? 'Run ccgc doctor --live --accept-unofficial, then claude.' : 'Use --apply to enable gateway model discovery, remove old gateway-owned pins, and disable hooks.' }, null, 2));
     return;

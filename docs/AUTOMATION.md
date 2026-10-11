@@ -131,6 +131,8 @@ This is not required if the reviewed version is already installed.
 1. Approve the exact infrastructure plan and costs.
 2. Personally complete GitHub's browser device authorization when shown.
 3. Explicitly approve client settings changes and allowance-consuming inference.
+4. If Copilot changes the entitled model catalog, review the exact generated
+   `catalog-preview.json` and approve its SHA256 before protected state changes.
 
 Do not record/share the device code or run this process with shell tracing.
 Authorization output is terminal-only, not captured in deployment evidence or
@@ -175,10 +177,12 @@ python3 server/deploy.py access \
   --config "$HOME/.config/ccgc/deployment.json" \
   --operator-ipv4-cidr YOUR_CURRENT_PUBLIC_IPV4/32 --approve-access
 
-# Recover services on the existing managed host, optionally starting a stopped VM.
+# Recover the complete managed path: start if approved, renew JIT, reconcile the
+# reviewed catalog, restart services, refresh/configure this Mac, and admit it.
 python3 server/deploy.py recover \
   --config "$HOME/.config/ccgc/deployment.json" \
-  --approve-access --approve-start --accept-unofficial
+  --approve-access --approve-start --accept-unofficial \
+  --approve-client --approve-live
 
 # Renew an expired admission without repeating the all-model workflow.
 python3 server/deploy.py admit \
@@ -190,6 +194,14 @@ python3 server/deploy.py admit \
 A fresh admission lasts eight hours at most and expires after fifteen idle minutes.
 After a gateway restart, an expired/lost grant is reconciled with the same
 account/catalog before a new isolated probe.
+
+If recovery reports catalog drift, inspect
+`~/.local/state/ccgc/deployments/<deploymentName>/catalog-preview.json`, then
+rerun the same command with `--approve-catalog REPLACE_WITH_CATALOG_SHA256`.
+Only that exact same-account catalog is applied. The client profile is refreshed,
+an unavailable gateway-owned user model selection is reset to the configured
+approved default, Claude settings are re-applied, and a fresh admission is
+created. Project or managed settings conflicts still fail closed.
 
 To explicitly repeat the full all-model proof:
 
@@ -215,6 +227,8 @@ or another shared/synchronized folder.
 This directory contains:
 
 - `state.json`: engine/config binding, original creation time, progress, outputs.
+- `catalog-preview.json`: exact same-account catalog and SHA256 requiring review
+  before entitlement changes are written to protected host state.
 - Running gateway/LiteLLM image identity is recorded in state; an image change
   invalidates the old verification stage instead of reusing its success.
 - `plan.json`, `iac/`: reviewed plan and frozen templates. Terraform's local state,

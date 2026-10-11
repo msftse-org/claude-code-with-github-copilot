@@ -3,8 +3,8 @@
 | Field | Value |
 |---|---|
 | Project | `claude-code-with-github-copilot` |
-| Revision | 0.18 - Enterprise broker, client, worker contract and private Bicep foundation implemented |
-| Created / revised | 2026-10-04 / 2026-10-10 |
+| Revision | 0.19 - Enterprise foundation reduced to required runtime components |
+| Created / revised | 2026-10-04 / 2026-10-11 |
 | Status | Single-user alpha live evidence retained; enterprise foundation locally validated but not deployed or production-approved |
 | Working name / command | Copilot Gateway for Claude Code / ordinary Claude client, with optional `ccgc` setup and diagnostics |
 | Initial platform | macOS on Apple silicon |
@@ -12,24 +12,23 @@
 
 ## 1. Product decision
 
-### Enterprise implementation (revision 0.18)
+### Enterprise implementation (revision 0.19)
 
-Revision 0.18 implements the first enterprise foundation described by the
-revision 0.17 diagrams. It adds Microsoft Entra JWT validation; immutable
+Revision 0.19 retains the enterprise foundation implemented in revision 0.18
+and removes the optional API Management branch so the topology contains only
+required runtime components. The foundation includes Microsoft Entra JWT
+validation; immutable
 tenant/object-to-GitHub bindings; opaque bounded admissions compatible with
 Claude's normal credential helper; PostgreSQL transactions for binding revision,
 attempt reservation, dispatch fencing and audit outbox; private Key Vault worker
 resolution; a per-user worker wrapper that rejects stale fences before LiteLLM;
 an Entra-aware Claude configuration helper; and secure Bicep for private,
 zone-redundant Container Apps, PostgreSQL, Key Vault, ACR, monitoring, NAT and
-optional internal APIM. The implementation and remaining gates are in
+private DNS. The internal Container Apps broker is the sole enterprise ingress.
+LiteLLM remains the current Copilot-specific authentication and native Messages
+connector inside each isolated worker; removing it requires a separately
+verified connector. The implementation and remaining gates are in
 [ENTERPRISE.md](ENTERPRISE.md).
-
-APIM and LiteLLM are explicitly not treated as equivalents. The broker itself
-validates Entra and is a functional private ingress, so APIM defaults off and is
-enabled only for centralized API governance. LiteLLM remains the current
-Copilot-specific authentication and native Messages connector inside each
-isolated worker; removing it requires a separately verified connector.
 
 This revision did not deploy Azure resources, publish images, create an Entra
 application, authorize another Copilot account or claim production readiness.
@@ -56,8 +55,8 @@ acceptance and rollout. Both have GPT-image presentation companions in the
 | Target boundary | Proposed design and required invariant |
 |---|---|
 | Developer machine | Actual unmodified Claude Code, ordinary gateway URL/model discovery and a credential helper. A new enterprise helper acquires gateway-audience Entra access tokens through a supported identity library and browser authorization-code/PKCE sign-in. Its local token cache uses OS-protected storage. Read/Edit/Bash and approvals remain in Claude; there is no local inference proxy or separate agent. This helper is not implemented by the alpha's existing Keychain renewal-key helper. |
-| Gateway identity | Entra tenant/issuer/audience/signature/expiry validation plus approved conditional-access policies. Bind immutable `(tenant ID, object ID)` to the same developer's verified immutable GitHub account ID through a short-lived, anti-replay linking transaction. Email matching, a client-supplied account header, or an APIM subscription key is insufficient. |
-| Private ingress | Proposed APIM Premium v2, private VNet injection and zone redundancy in a supported, approved region. Employees reach private DNS/ingress through approved corporate connectivity; there is no direct public connector. Strip spoofable identity headers and authenticate internal hops. APIM authenticates gateway access; it never supplies a Copilot entitlement. |
+| Gateway identity | Entra tenant/issuer/audience/signature/expiry validation plus approved conditional-access policies. Bind immutable `(tenant ID, object ID)` to the same developer's verified immutable GitHub account ID through a short-lived, anti-replay linking transaction. Email matching or a client-supplied account header is insufficient. |
+| Private ingress | Internal, zone-redundant Azure Container Apps broker in a private VNet. Employees reach its private DNS name through approved corporate connectivity; there is no direct public connector. The broker validates Entra identity and authenticates worker hops; ingress never supplies a Copilot entitlement. |
 | Admission and seat broker | Zone-redundant Azure Container Apps environment with multiple gateway replicas. Recheck principal, link revision, grant, model policy and revocation before dispatch. The gateway-owned catalog is the intersection of organizational policy and that user's live entitlement; no client-side per-model routing table. |
 | Copilot workers | One user's account/cache per isolated provider process and private ephemeral filesystem, with an authorized session owner. Do not run different users through LiteLLM's current single-account global token directory or mount one shared credential volume. Workers accept only broker-authorized, user-bound requests and cannot choose another account. Worker density, startup latency, per-app identities and platform quotas need scale proof. |
 | Credential custody | Broker-only managed identity and least-privilege Key Vault data-plane RBAC over private access. Store long-lived account authorization under the intended user binding; short-lived Copilot token caches stay isolated to that user's worker. Workers do not receive vault-wide read access. Refresh, revocation, unlinking, cache invalidation and deletion must be implemented and tested. Managed identity accesses Azure resources; it is not Copilot authorization. |
@@ -65,8 +64,8 @@ acceptance and rollout. Both have GPT-image presentation companions in the
 | Availability and recovery | Healthy replicas can accept new admissions, but an interrupted stream is not transparently resumed. A failed owner retires affected work; uncertain dispatches retain their accounting and are not replayed. Ownership leases require fencing and verified old-owner retirement; a lease alone cannot prevent an old process from making a late external call. Start with one foreground session per user and separately identified auxiliary requests. |
 | Operations and governance | Metadata-only Azure Monitor/Application Insights, restricted audit access and retention, alerts for denials, refresh failures, saturation and interrupted streams. Never log authorization headers, prompts, responses or tool bodies. Persist audit intent with control-state changes before export. Reconcile gateway counters with authorized provider reporting where available; counters are not a guaranteed billing cap or authoritative Copilot invoice. |
 
-**Why this baseline:** centralized policy justifies APIM; Container Apps is the
-first managed-compute candidate rather than assuming Kubernetes is necessary.
+**Why this baseline:** Container Apps provides the required private ingress and
+managed compute without introducing a second API gateway or assuming Kubernetes.
 PostgreSQL provides the transactional reservation/fencing model; a cache is not
 the source of authorization or accounting truth. This is a logical resource and
 trust-boundary diagram, not a claim that managed PaaS services physically execute
@@ -74,10 +73,9 @@ inside one subnet. Key Vault is a managed Azure service reached privately.
 The telemetry arrow summarizes collection; the body-log prohibition applies to
 every hop, not only the drawn gateway emitter.
 
-**Blocking streaming and replay gate:** APIM's SSE guidance excludes Consumption,
-requires immediate unbuffered forwarding, disables response caching/body logging,
-and requires idle keepalive handling. Audit inherited policies as well as local
-ones. Container Apps documents a 240-second HTTP request timeout; premium ingress
+**Blocking streaming and replay gate:** the Container Apps ingress and broker
+must forward SSE immediately, avoid response caching/body logging, and handle
+idle keepalives. Container Apps documents a 240-second HTTP request timeout; premium ingress
 has a separately configurable idle timeout of 4-30 minutes. Do not infer that
 the idle setting removes every total-request limit. Before accepting this compute
 choice, test the real pinned Claude native Messages/tool stream beyond the
@@ -92,7 +90,7 @@ truncating streams, replaying requests or switching providers.
 **Separate provisioning contract:** approve integration permission, SLO and costs;
 build/test/scan and sign immutable images; plan **one of Bicep or Terraform**;
 approve the exact changes; provision private network/DNS, HA data, Entra apps,
-managed identities, scoped RBAC and Key Vault; deploy APIM and application
+managed identities, scoped RBAC and Key Vault; deploy the broker and worker
 services; have each user complete their own approved GitHub linking; then perform
 isolated acceptance before pilot and release rings. Use federated CI identity,
 protected environment approvals, an authenticated private deployment runner and
@@ -114,16 +112,12 @@ redundancy cannot make an unsupported access route vendor-supported.
 **Open decisions, not assumptions:** user count and concurrency; acceptable
 first-token and stream durations; SLO/RTO/RPO; primary and recovery regions/data
 residency; corporate connectivity and device policy; retention; per-worker
-isolation/capacity; APIM and database sizing; budget; and approved account-linking
-permissions. Premium v2 supports zone redundancy but not an automatic multi-region
-service in the reviewed documentation. Regional DR and upstream inference
+isolation/capacity; Container Apps and database sizing; budget; and approved
+account-linking permissions. Regional DR and upstream inference
 residency are not established by this target drawing.
 
 Azure design references fetched on 2026-10-07:
 
-- [APIM SSE](https://learn.microsoft.com/en-us/azure/api-management/how-to-server-sent-events),
-  [private networking](https://learn.microsoft.com/en-us/azure/api-management/virtual-network-concepts)
-  and [reliability](https://learn.microsoft.com/en-us/azure/reliability/reliability-api-management).
 - [Container Apps ingress](https://learn.microsoft.com/en-us/azure/container-apps/ingress-overview),
   [premium ingress settings](https://learn.microsoft.com/en-us/azure/container-apps/ingress-environment-configuration)
   and [reliability](https://learn.microsoft.com/en-us/azure/reliability/reliability-container-apps).
@@ -187,7 +181,14 @@ Claude Code is the client and owns the coding workflow, repository tools, and pe
 
 **The primary product experience is configuration-first: the unmodified Claude client connects to a remote HTTPS AI gateway without a local inference proxy or an always-running project launcher.** CLI users configure Claude's supported gateway settings; Desktop users configure its separate third-party inference surface. A short-lived credential helper or sign-in callback is allowed; neither is a local model proxy.
 
-The preferred Azure topology, when centralized API governance is needed, is Azure API Management (APIM) in front of a Copilot connector. APIM is optional. **LiteLLM's native Copilot Messages provider is the first candidate to test for the remote gateway/connector role**, because its reviewed implementation already covers the core protocol and authentication path. It may combine both roles without custom protocol code, subject to the remaining controls in section 4.1. The connector still owns Copilot authentication, token exchange/refresh, endpoint discovery, and Claude model access. Moving this work off the developer's machine does not eliminate it or make an unofficial upstream supported. Azure hosting charges are separate from Copilot model entitlement.
+The preferred Azure topology uses the private Container Apps enterprise broker
+as the single gateway in front of one isolated LiteLLM connector per user.
+**LiteLLM's native Copilot Messages provider is the selected connector**, because
+its reviewed implementation covers the required protocol and authentication
+path. The connector still owns Copilot authentication, token exchange/refresh,
+endpoint discovery, and Claude model access. Moving this work off the developer's
+machine does not eliminate it or make an unofficial upstream supported. Azure
+hosting charges are separate from Copilot model entitlement.
 
 The existing local native Messages adapter remains a development/test harness and a possible source for the remote connector, not the target user deployment. A direct client-to-Copilot route with a credential helper is an optional feasibility alternative, not an established configuration-only solution. An SDK adapter remains a fallback candidate, not a requirement; it must additionally reconcile two agent/tool lifecycles. No candidate switch is an automatic runtime fallback.
 
@@ -204,7 +205,7 @@ Either a verified app path or a verified CLI path can satisfy the initial goal; 
 - An existing Copilot license does **not** mean unlimited usage, zero additional charges, or ownership of a general-purpose Anthropic API key.
 - Official, community-documented, and reverse-engineered integrations must be distinguished. Neither an official SDK nor a successful community proxy call establishes vendor support or organizational authorization for this use.
 - Gateway sign-in and Copilot authorization are separate. An Entra/OIDC identity or a gateway key authenticates access to the gateway; it does not confer a Copilot seat. Bind the authenticated gateway principal to the same developer's explicitly authorized GitHub account.
-- Pointing Claude at APIM, Anthropic's own gateway, Foundry, or Bedrock does not by itself meet this goal. The effective upstream must remain Copilot for every primary and auxiliary request; a separately entitled Claude model is not an acceptable fallback.
+- Pointing Claude at another gateway, Foundry, or Bedrock does not by itself meet this goal. The effective upstream must remain Copilot for every primary and auxiliary request; a separately entitled Claude model is not an acceptable fallback.
 
 ## 2. Users, needs, and success
 
@@ -255,8 +256,6 @@ The initial sources were reviewed on 2026-10-04. Gateway/client documentation, L
 | `copilot-api` describes itself as reverse-engineered and unsupported by GitHub, and advertises Anthropic-compatible endpoints. | [S19] | Evaluate as an explicitly unofficial candidate, including its credential/debug exposure and lifecycle controls; do not silently adopt its defaults. |
 | Claude Desktop documents third-party gateway configuration separately from CLI environment variables. | [S20] | An app path has documented configuration evidence, but project-specific interoperability and client access prerequisites remain unverified. |
 | Desktop gateway configuration supports static credentials, a credential helper, or OIDC sign-in, including Entra ID. | [S20] | Authenticate the user to the gateway independently of the linked Copilot account; assess exact app-version and deployment prerequisites. |
-| APIM documents Anthropic Messages AI API support in v2 tiers; its unified model API exposes an OpenAI-compatible format. | [S21] | Use a native Messages-facing route, not an unnecessary OpenAI conversion. APIM provides governance, not Copilot entitlement or a demonstrated Copilot connector. |
-| APIM SSE guidance requires a suitable tier, immediate event forwarding, no response caching, and no body logging/buffering. Consumption does not support the required long-running connections. | [S23] | Verify every ingress/policy hop; an ordinary successful HTTP request does not prove streaming compatibility. |
 | Anthropic's `claude gateway` supports documented Anthropic/cloud-provider upstreams, but does not document a built-in GitHub Copilot upstream. | [S22] | An existing first-party gateway does not remove the Copilot integration requirement; separately billed/provider-entitled inference does not meet the goal. |
 | The newly reviewed LiteLLM snapshot has native Copilot Messages dispatch, inherited Anthropic tools/streaming support, beta-header handling, and expiring Copilot-token refresh. | [S24], [S25], [S26], [S27] | Strong evidence for testing a combined gateway/connector before extending custom protocol code; not proof of this account's live tool workflow. |
 | That snapshot blocks interactive device login inside proxy/event-loop workers and uses environment-selected token files, not gateway-user-specific Copilot accounts. | [S25] | Bootstrap authorization separately and constrain the initial deployment to the linked developer. Generic proxy authentication does not implement per-seat routing. |
@@ -265,7 +264,11 @@ The initial sources were reviewed on 2026-10-04. Gateway/client documentation, L
 
 **Live demonstrated:** device-authorized account/model binding, public Azure HTTPS and ordinary configured Claude Code 2.1.220 using the real Keychain helper through deployed LiteLLM 1.104.0. The selected `claude-sonnet-5.5` passed its isolated probe and a four-turn Read/Edit/Bash workflow on 2026-10-07, with native model/usage/stop validation and file/shell evidence. The Mac still has no Docker daemon; image execution and installed-package checks run on Azure.
 
-**Not demonstrated:** APIM, Desktop interoperability, full managed-device isolation, cold/refresh fault behavior, comprehensive retry/logging guarantees, longer live conversations, performance targets or every P0 case. The successful live path does not upgrade synthetic error/permission/cancellation scenarios into live-provider evidence.
+**Not demonstrated:** Desktop interoperability, full managed-device isolation,
+cold/refresh fault behavior, comprehensive retry/logging guarantees, longer live
+conversations, performance targets or every P0 case. The successful live path
+does not upgrade synthetic error/permission/cancellation scenarios into
+live-provider evidence.
 
 Native Copilot Messages access has third-party implementation evidence. The reviewed sources do not establish that this is a vendor-supported public integration contract for the standalone Claude Code client. Endpoint existence, library support, applicable authorization, live account entitlement, and end-to-end compatibility are separate questions.
 
@@ -274,7 +277,6 @@ Native Copilot Messages access has third-party implementation evidence. The revi
 | Option | Actual Claude Code client? | Anthropic model access from Copilot seat? | Decision |
 |---|---|---|---|
 | Remotely hosted LiteLLM with its native Copilot Messages provider | Actual CLI route probe and Read/Edit/Bash verified on Azure | Verified for the linked seat's exact claude-sonnet-5.5 | Selected for the current remote alpha, with a small Node admission/control layer. Broader section 4.1 and release obligations remain; defaults are not adopted wholesale. |
-| Remote APIM gateway plus a Copilot connector | Supported client gateway mechanism; this deployment unverified | Intended through the linked user's Copilot authorization | Preferred Azure topology when governance requires APIM. Connector may be LiteLLM; retain a custom adapter only if reuse cannot meet the controls economically. |
 | Current local native Messages adapter and launcher | CLI verified against synthetic responses; live route pending | Requires device login and live model proof | Retain for G0 proof, development, and regression tests; not the target config-first deployment. Remote hosting requires a new security/session profile, not a wildcard bind change. |
 | Claude directly to Copilot with custom headers and a credential helper | Plausible native Messages route; unverified | Requires reviewed token handling and live proof | Optional no-proxy spike. Static URL/key configuration does not solve token refresh, endpoint selection, or per-request compatibility. |
 | `copilot-api` or another community compatibility proxy | Claimed; unverified here | Claimed; account/model access must be demonstrated | Eligible as a remote connector/gateway after explicit unofficial-access and credential review; unsafe defaults are not accepted. |
@@ -287,13 +289,26 @@ Native Copilot Messages access has third-party implementation evidence. The revi
 
 The earlier SDK-first and official-interface-only restrictions were design choices, not user requirements, and are superseded. Unofficial candidates are not automatically excluded or approved. Before any live use, review their authentication/access mechanism, credential handling, applicable terms, and organization policy with the project owner; unresolved authorization is a hold, not permission to bypass controls. Record any internal endpoints or emulated integration headers and their maintenance risks. [S13]
 
-G0 must compare a self-contained remote gateway against APIM plus a connector, using the minimum approved single-user harness for upstream proof. Evidence from the existing custom adapter does not establish LiteLLM interoperability, or vice versa. Record the chosen deployment roles, backend, client surface, exact versions, evidence, limitations, support status, and rejected alternatives, including direct-helper and SDK candidates. APIM is a deployment choice, not a mandatory dependency. This is a selection exercise, not a requirement to build multiple interchangeable backends or a general proxy framework.
+G0 must validate the self-contained broker and isolated LiteLLM connector using
+the minimum approved single-user harness for upstream proof. Evidence from the
+existing custom adapter does not establish LiteLLM interoperability, or vice
+versa. Record the deployment roles, backend, client surface, exact versions,
+evidence, limitations, support status, and rejected alternatives, including
+direct-helper and SDK candidates. This is not a requirement to build multiple
+interchangeable backends or a general proxy framework.
 
 ### 4.1 LiteLLM capability and fit assessment
 
 The supplied provider documentation [S16] was reviewed together with source and upstream unit-test definitions at commit `c13746c951811e9235e8bba7e4b078ce6a7c2ad5` on 2026-10-06. This is a source-reviewed snapshot, not a release/image selected or executed by this project. The earlier source pin in [S17]/[S18] remains historical implementation evidence.
 
-**Decision:** LiteLLM is selected for the scoped remote proof of **Claude client -> remote LiteLLM -> Copilot-provided Claude**, with Caddy ingress and Node admission controls; APIM remains optional and unimplemented. Use its native `github_copilot/<validated-claude-id>` Messages route, not OpenAI Chat Completions conversion or a Copilot agent runtime. It removes much of the need for a custom protocol/authentication connector, but does not establish all of this PRD's controls by itself.
+**Decision:** LiteLLM is selected for the scoped remote proof of **Claude client
+-> remote LiteLLM -> Copilot-provided Claude**, with Caddy ingress and Node
+admission controls in the alpha and the private Container Apps broker in the
+enterprise foundation. Use its native
+`github_copilot/<validated-claude-id>` Messages route, not OpenAI Chat
+Completions conversion or a Copilot agent runtime. It removes much of the need
+for a custom protocol/authentication connector, but does not establish all of
+this PRD's controls by itself.
 
 | Capability | Reviewed evidence | Fit and remaining work |
 |---|---|---|
@@ -303,7 +318,7 @@ The supplied provider documentation [S16] was reviewed together with source and 
 | Hosted login bootstrap | The authenticator at the reviewed commit rejects interactive device-code login inside an event loop or worker such as the proxy; its error directs operators to authorize separately and mount the resulting token file. [S25] | Do not generalize this guard to every release: the separately inspected `v1.104.0` tag lacks it. [S30] Use operator-controlled bootstrap outside request handling, initialize token/endpoint metadata before readiness, and stop services before unlinking. |
 | Account and endpoint selection | Token directory/file settings are deployment-level; endpoint metadata comes from the cached Copilot token. Native Messages ignores caller-supplied `api_base`. [S24], [S25] | One dedicated deployment/credential context is suitable for the initial single-user target. A different gateway key does not choose a different Copilot seat. Test cold startup and endpoint changes after refresh; client `ANTHROPIC_BASE_URL` points to LiteLLM, not a replacement upstream `api_base`. |
 | Beta and advanced capabilities | Copilot-specific logic preserves beta values rather than applying the provider filter; upstream tests cover context-management/structured-output header injection. The shared transformation also normalizes or removes some reasoning parameters and blocks. [S24], [S26], [S27] | Native format is not a guarantee of byte-for-byte transparency or full Claude feature support. Keep advanced features outside P0 unless separately proven; reject unsupported semantics before lossy adaptation. A passing header test does not prove Copilot accepts the feature. |
-| Gateway keys and model restrictions | LiteLLM documents virtual keys, user ownership, model/route permissions, expiry, and usage controls; that documented setup requires PostgreSQL. [S28] | May supply client-facing auth without APIM. Use a restricted inference credential, never the master/admin key in Claude. Cost estimates are not Copilot entitlement or authoritative AI-credit accounting; do not assume virtual-key budgets implement our per-grant turn/replay rules. |
+| Gateway keys and model restrictions | LiteLLM documents virtual keys, user ownership, model/route permissions, expiry, and usage controls; that documented setup requires PostgreSQL. [S28] | May supply client-facing auth. Use a restricted inference credential, never the master/admin key in Claude. Cost estimates are not Copilot entitlement or authoritative AI-credit accounting; do not assume virtual-key budgets implement our per-grant turn/replay rules. |
 | Search and other endpoints | The provider also documents Chat Completions, Responses, and embeddings; native Copilot Messages explicitly reports no native `web_search` execution. [S16], [S24], [S26] | These are not needed for the Claude-only MVP. Disable/reject server-side search interception, MCP execution, and other unverified tool/provider paths; ordinary repository tools stay in Claude Code. |
 
 The provider's file store is not a demonstrated Key Vault/OS-keychain integration: the reviewed code opens token files and creates its directory without itself enforcing this PRD's complete permission, encryption, identity, and revocation policy. Protect mounts/directories and runtime permissions, validate refresh-write/concurrent-read failure behavior, keep cached token metadata writable only by the connector, and never bake credentials into an image or put them in a repository/shared volume. Bootstrap credentials on approved operator-controlled infrastructure; do not copy another application's token cache.
@@ -337,7 +352,7 @@ deployed host is one `Standard_D2as_v5` Ubuntu 24.04 VM (2 vCPU / 8 GiB, AMD x64
 non-burstable) with a 64-GiB Azure-encrypted Standard SSD OS disk, Standard static IPv4,
 Trusted Launch and source-restricted Defender JIT SSH. It preserves the existing Compose
 topology and private UID 10001 state instead of adapting mutable token files to
-a shared PaaS mount. Only Caddy publishes service ports. No APIM, ACR, database,
+a shared PaaS mount. Only Caddy publishes service ports. No ACR, database,
 Key Vault or payload telemetry service is added. Disk encryption is not a
 managed credential-store integration or backup; single-host availability and
 restart invalidation are explicit proof-environment tradeoffs.
@@ -378,7 +393,7 @@ establish Copilot authorization or future exemption from governance automation.
 |---|---|---|
 | Actual Claude Code app or foreground CLI on macOS arm64 | P0 | At least one verified surface; one developer and their own Copilot seat; official, unmodified client. CLI remains the initial proof candidate. |
 | Configuration-first remote HTTPS inference | P0 | Ordinary client launch after explicit setup; no local inference proxy or always-running `ccgc` process. An on-demand credential helper or temporary sign-in callback is allowed. |
-| Authenticated remote gateway and Copilot connector | P0 | One operator-controlled deployment for the selected developer. APIM plus connector or a conforming combined gateway; no public anonymous inference or entitlement pooling. |
+| Authenticated remote gateway and Copilot connector | P0 | One operator-controlled deployment for the selected developer. Use the conforming broker and isolated connector; no public anonymous inference or entitlement pooling. |
 | Gateway identity, Copilot linking, and credential lifecycle | P0 | Separate credentials; explicit account binding, protected remote storage, refresh/revocation, and session-scoped authorization/admission. |
 | App/CLI feasibility and backend selection | P0 | Assess and record both surfaces independently; select one for the MVP. A blocked or untested second surface does not invalidate a working first surface. |
 | Text, multi-turn context, streamed and non-streamed Messages responses | P0 | Only the request profile covered by fixtures and the pinned clients. |
@@ -505,9 +520,14 @@ The model request path now crosses operator-controlled hosting as well as GitHub
 
 Prefer supported client configuration and an existing conforming remote gateway over unnecessary custom code. Reusing the current TypeScript connector or hosting LiteLLM are candidates, not requirements to support both. Pin actual dependencies at G0 and the deployment/policy revision at G1. If the SDK is selected, distinguish its remote owned runtime from any system `copilot` executable.
 
-If Azure is selected, a small container-hosted connector may sit behind APIM with a protected secret store. Normally select the region, compute, APIM tier, ingress authentication, and cost estimate after G0; section 4.3 permits the owner's separately approved infrastructure-only stage. Anthropic-specific APIM AI support is documented for v2 tiers; the selected tier must also support long-running SSE, which excludes Consumption for this route. Use a native `/v1/messages`-compatible API, not the unified OpenAI-facing API as an assumed substitute. [S21], [S23]
-
-APIM policies must disable response buffering (`buffer-response="false"`), response/semantic caching, body logging, automatic inference retries, and provider fallbacks for this route. Do not let inherited policies re-enable them. Preserve the supported Anthropic headers, body semantics, tool blocks, and SSE pings. A connector behind APIM must reject requests that bypass the trusted ingress and must not trust caller-supplied identity headers. A combined gateway must enforce equivalent controls itself.
+On Azure, the private Container Apps broker is the only ingress and resolves a
+protected per-user connector through Key Vault. Select the region, compute,
+ingress authentication, and cost estimate after G0; section 4.3 permits the
+owner's separately approved infrastructure-only stage. Use the native
+`/v1/messages`-compatible API. The broker and connector must disable response
+caching, body logging, automatic inference retries, and provider fallbacks;
+preserve supported Anthropic headers, body semantics, tool blocks, and SSE
+pings; reject bypass requests; and never trust caller-supplied identity headers.
 
 A direct Messages backend forwards one inference request at a time and does not require an SDK agent/session. Do not impose SDK-only persistence, history-delta, or pending-RPC machinery on it. Sections 9 and 10 distinguish backend-neutral behavior from SDK-specific implementation obligations.
 
@@ -533,7 +553,7 @@ All requirements in this section are P0. Their acceptance cases are specified in
 
 | ID | Requirement | Acceptance |
 |---|---|---|
-| ARCH-01 | Compare a self-contained remote native gateway with APIM plus a connector; assess direct-helper and SDK alternatives without requiring their implementation. Record reuse/custom work, authentication, support/authorization, deployment boundaries, costs, and selection evidence. Prove the live upstream before normal remote activation; the section 4.3 infrastructure-only exception cannot waive live evidence. | AT-21, AT-23 |
+| ARCH-01 | Validate the self-contained remote native broker with an isolated connector; assess direct-helper and SDK alternatives without requiring their implementation. Record reuse/custom work, authentication, support/authorization, deployment boundaries, costs, and selection evidence. Prove the live upstream before normal remote activation; the section 4.3 infrastructure-only exception cannot waive live evidence. | AT-21, AT-23 |
 | DEP-01 | Deliver a remote authenticated HTTPS Messages endpoint reachable by the ordinary selected Claude client without a local inference proxy or persistent launcher. Record host/region, service ownership, deployment revision, tier and cost approval. | AT-23, AT-25 |
 | DEP-02 | Apply section 7's ingress/connector controls across every hop: trusted identity, no bypass, immediate SSE, no response cache, body logging, uncontrolled retry, or alternate-provider route. A combined gateway must enforce the same invariants. | AT-07, AT-18, AT-25 |
 | SET-01 | Report the actual client surface, remote deployment/backend, required dependencies, OS, architecture, and profile status, distinguishing client from server facts. Include SDK/runtime/Node.js versions only when used. Validate setup/probe options. Unknown versions block supported admission; development overrides may not bypass known incompatibility or policy. | AT-01 |
@@ -689,7 +709,8 @@ Optional features may be rejected only if the pinned client's main workflow rema
 
 ### 11.1 Endpoints
 
-Paths below are relative to the configured gateway base URL. An APIM prefix such as `/copilot` must map `/copilot/v1/messages?beta=true` to the connector's native Messages route without dropping the query or adding a second `/v1`.
+Paths below are relative to the configured broker base URL. Preserve query
+parameters without adding or removing a `/v1` prefix.
 
 | Endpoint | P0 behavior |
 |---|---|
@@ -708,7 +729,7 @@ Authentication, account linking, admission, and logout form a separate control p
 The profile must identify the client surface, exact backend/version tuple, and vendor-support/authorization status, and classify every observed capability as `verified`, `partial-with-explicit-limit`, `disabled`, `rejected`, or `untested`. It must include:
 
 - actual app/CLI distribution and version, client sign-in/access requirements, persistent configuration/helper mechanism, and independent remote surface-routing evidence;
-- remote URL/prefix, hosting region, deployment/policy revision, trusted-ingress mechanism, selected APIM tier if used, stream timeouts/buffering behavior, and per-hop observation boundaries;
+- remote URL/prefix, hosting region, deployment/policy revision, trusted-ingress mechanism, stream timeouts/buffering behavior, and per-hop observation boundaries;
 - gateway authentication/issuer/audience or per-user key policy, stable Copilot account binding, control-plane authorization, probe-admission binding, token/lease lifetimes, revocation, and restart/replica behavior;
 - effective Copilot identity/entitlement evidence, authentication/token lifecycle, reviewed endpoint/header dependencies, and disabled fallback/retry paths;
 - incoming/effective model IDs, context/output limits, and all primary/auxiliary model aliases;
@@ -759,11 +780,11 @@ Gateway authentication, Copilot authentication, model policy denial, and quota e
 
 ### 12.1 Security boundaries
 
-**Remote ingress:** require HTTPS with certificate/hostname verification and an explicitly configured gateway origin. Do not permit plaintext remote inference, arbitrary upstream URLs, redirects to unreviewed origins, anonymous model/catalog access, or permissive CORS. Prefer a private endpoint/VPN when feasible; a publicly reachable gateway still requires the same authenticated, authorized per-user access. Container listeners may bind inside their deployment network, but the Copilot connector must not become an independently usable public endpoint behind APIM.
+**Remote ingress:** require HTTPS with certificate/hostname verification and an explicitly configured gateway origin. Do not permit plaintext remote inference, arbitrary upstream URLs, redirects to unreviewed origins, anonymous model/catalog access, or permissive CORS. Use the private enterprise broker through approved corporate connectivity. Container listeners may bind inside their deployment network, but the Copilot connector must not become an independently usable endpoint.
 
-**Gateway identity:** use verified per-user gateway credentials. For OIDC, validate the expected issuer, audience, expiry, and tenant where applicable, using an immutable principal claim rather than email. For opaque credentials, use cryptographically random values with at least 256 bits of entropy and equivalent owner/expiry/revocation checks. An APIM subscription key is not automatically an individual identity or a Copilot entitlement. Never trust raw client identity/account headers; any APIM-to-connector identity must be protected by authenticated ingress with client-spoofed values removed.
+**Gateway identity:** use verified per-user gateway credentials. For OIDC, validate the expected issuer, audience, expiry, and tenant where applicable, using an immutable principal claim rather than email. For opaque credentials, use cryptographically random values with at least 256 bits of entropy and equivalent owner/expiry/revocation checks. Never trust raw client identity/account headers; broker-to-connector identity must be protected by the authenticated internal hop.
 
-**Copilot linking and storage:** the remote connector owns its reviewed GitHub device/OAuth flow and resulting credentials. Bind each link transaction to the authenticated principal, expire it, prevent replay/session mix-ups, and require confirmation of the actual GitHub account before activation. Use a protected encrypted remote store with least-privilege access, such as Key Vault with managed identity on Azure; do not distribute Copilot credentials to Claude, APIM client subscription holders, or the local helper. Managed identity to storage does not substitute for the user's Copilot authorization. Document refresh, logout/unlink, upstream revocation limitations, and deletion. Never pool accounts, copy another client's tokens, or store secrets under the project or a synchronized/shared directory.
+**Copilot linking and storage:** the remote connector owns its reviewed GitHub device/OAuth flow and resulting credentials. Bind each link transaction to the authenticated principal, expire it, prevent replay/session mix-ups, and require confirmation of the actual GitHub account before activation. Use a protected encrypted remote store with least-privilege access, such as Key Vault with managed identity on Azure; do not distribute Copilot credentials to Claude or the local helper. Managed identity to storage does not substitute for the user's Copilot authorization. Document refresh, logout/unlink, upstream revocation limitations, and deletion. Never pool accounts, copy another client's tokens, or store secrets under the project or a synchronized/shared directory.
 
 **Client credential handling:** the CLI helper or app credential/SSO facility obtains only gateway credentials. Persist renewal material, if needed, in a protected OS credential store, not committed settings, shell profiles, arguments, or helper logs. Persist non-secret URL/model/profile settings only with explicit consent. The helper must print only its credential to stdout and sanitized errors to stderr. Same-user privileged processes can inspect client credentials; this is not a sandbox against a compromised developer account.
 
@@ -779,7 +800,7 @@ Preserve Claude Code's normal workspace trust and permission behavior. Resolve s
 
 Gateway, connector, ingress, and helper diagnostics contain only severity, generated correlation IDs, opaque access-controlled principal/binding references, lifecycle/permission-result categories, version/profile IDs, latency, and usage counters. Do not log prompt text, source content, tool arguments/results, full upstream bodies, credentials, local paths, or unnecessary identifying metadata. Verbose mode still redacts secrets.
 
-The bridge has no durable transcript store in P0. Disable response/semantic caching, payload capture, and request/response body logging in APIM (including inherited diagnostics), the connector, ingress, and attached telemetry. Provider prompt-cache hints are a distinct protocol feature and must not be confused with gateway response caching. If the SDK is used, include effects of custom session IDs and session-store settings. Credential and bounded authorization/admission metadata persistence follow sections 10 and 12.1; clearing bridge memory does not clear another product's data. [S14], [S23]
+The bridge has no durable transcript store in P0. Disable response/semantic caching, payload capture, and request/response body logging in the broker, connector, ingress, and attached telemetry. Provider prompt-cache hints are a distinct protocol feature and must not be confused with gateway response caching. If the SDK is used, include effects of custom session IDs and session-store settings. Credential and bounded authorization/admission metadata persistence follow sections 10 and 12.1; clearing bridge memory does not clear another product's data. [S14]
 
 Record the operator, hosting region, credential-store access policy, metadata fields and retention/deletion schedule before remote use. Do not add organizational observability or content-safety services that receive source payloads without a separate documented data-processing decision. Remote operation adds an operator-controlled data boundary; it does not establish vendor zero-retention.
 
@@ -812,8 +833,8 @@ These are proposed engineering targets, not measured results. Freeze or explicit
 | Pending tool-result deadline | 15 minutes | Excludes normal model latency; expiry retires the branch without a result. |
 | Idle/abandoned branch lease | At most 15 minutes without an active request or accepted continuation | Without an authenticated close signal, release transient state at expiry; no assumption that a closed HTTP response means the app exited. |
 | Remote readiness check | p95 under 2 seconds | 30 authenticated warm metadata/liveness checks from the reference client; exclude interactive login, cold deployment and model inference, reporting them separately. |
-| Connector event forwarding overhead | p95 under 50 ms | At least 1,000 synthetic events; measure upstream receipt to connector HTTP write. Also report end-to-end arrival/heartbeat timing through APIM/ingress; do not attribute network latency to this process-only target. |
-| Connector/gateway idle memory | Under 200 MiB RSS per warm self-hosted replica | Includes selected self-hosted process set; excludes Claude and managed APIM. Report runtime and managed-service boundaries separately; do not invent managed-service RSS. |
+| Connector event forwarding overhead | p95 under 50 ms | At least 1,000 synthetic events; measure upstream receipt to connector HTTP write. Also report end-to-end arrival/heartbeat timing through broker ingress; do not attribute network latency to this process-only target. |
+| Connector/gateway idle memory | Under 200 MiB RSS per warm self-hosted replica | Includes the selected self-hosted process set and excludes Claude. Report runtime and managed-service boundaries separately. |
 | Active-work cancellation | Complete within 15 seconds of detecting cancellation, connection failure, or service shutdown | Abort only affected upstream work, invalidate uncertain state, and prevent automatic replay. |
 | Gateway credential and admission expiry | At most 1 hour and 8 hours respectively | Refresh must retain the grant's original expiry, identity, and budget; an expired grant cannot admit inference. |
 | Revocation enforcement | Deny new work and initiate affected cancellation within 60 seconds of acknowledgement | Cover logout, Copilot unlink, account rebinding and operator revocation; report unavailable remote revocation explicitly. |
@@ -847,14 +868,14 @@ All backend-neutral P0 cases apply to the selected MVP surface/backend. Mark SDK
 | AT-15 | Policy/model denial, quota limit, rate limit, upstream timeout, partial stream failure | Correct verified category and retry advice; no provider fallback, false entitlement diagnosis, or success response. | Mocked upstream errors and safe live checks where available |
 | AT-16 | Repeated ordinary-client open/close, helper exit, connector crash, explicit session closure | 30 client cycles with no local model listener/persistent wrapper; remote service remains available, affected state is retired within bounds, and unrelated sessions/settings are unchanged. Local harness cleanup is tested separately. | Remote session/lease checks, local process/listener and file-state observations |
 | AT-17 | Probe, turns, continuations, retries, auxiliary calls, refresh/reconnect, admission boundary | Every attempt counted against its server grant, including pre-admission probe attempts; no new turn after the limit and no budget reset by refresh/session ID changes; usage/hosting estimates distinguished from authoritative accounting. | Intercepted attempts and grant counters; GitHub reconciliation when available, not required as entitlement proof |
-| AT-18 | Remote auth/origin attacks, secrets/logging, persistence, token/debug endpoints | Unauthorized requests cause zero inference; no payloads/secrets in any ingress/APIM/connector/helper diagnostics or durable transcripts; remote credential access is least-privilege and retention matches the profile. | Synthetic secret/payload canaries, policy and store-access checks, token-lifecycle tests |
+| AT-18 | Remote auth/origin attacks, secrets/logging, persistence, token/debug endpoints | Unauthorized requests cause zero inference; no payloads/secrets in any broker/ingress/connector/helper diagnostics or durable transcripts; remote credential access is least-privilege and retention matches the profile. | Synthetic secret/payload canaries, policy and store-access checks, token-lifecycle tests |
 | AT-19 | Client/backend upgrade regression | All applicable P0 cases pass for each advertised surface/backend tuple; unknown/broken tuples are not marked supported. | CI matrix and published compatibility evidence |
 | AT-20 | Performance/resource thresholds | Each section 12.4 target met using its stated sample and measurement boundary. | Reproducible benchmark output |
-| AT-21 | Remote-gateway/connector reuse comparison and access/deployment review | Compare combined gateway versus APIM plus connector, recording direct-helper/SDK alternatives. Select one with source-pinned support/authentication/endpoints/headers and approval evidence; live G0 proof precedes normal remote activation. Any infrastructure-only sequencing exception must be explicit, cost-approved and separate from inference authorization, as in section 4.3. | Selection record, applicable access approval, hosting estimate and deployment decision |
+| AT-21 | Remote-gateway/connector reuse and access/deployment review | Validate the broker plus isolated connector and record direct-helper/SDK alternatives. Require source-pinned support/authentication/endpoints/headers and approval evidence; live G0 proof precedes normal remote activation. Any infrastructure-only sequencing exception must be explicit, cost-approved and separate from inference authorization, as in section 4.3. | Selection record, applicable access approval, hosting estimate and deployment decision |
 | AT-22 | Independent app and CLI assessment and selected-surface routing/lifecycle | Both assessed; one official surface passes all applicable remote P0 cases. Desktop uses its actual third-party inference configuration, not inferred CLI inheritance; client-access prerequisites and unsupported features disclosed. | Per-surface configuration/access evidence, actual-client remote route and lifecycle fixtures, separate support statuses |
 | AT-23 | Configuration-first ordinary client use and gateway model metadata | After approved setup, end `ccgc` and use ordinary Claude on the remote URL with no local inference proxy; helper exits after credential retrieval. Primary/auxiliary mappings remain seat-backed, model metadata is authenticated, and secrets are absent from committed settings. | Actual-client remote tool workflow, process/listener inventory, effective settings, helper stdout/stderr and model-catalog fixtures |
 | AT-24 | Gateway/Copilot identity separation and credential boundary | Wrong issuer/audience, expired/revoked credentials, forged identity headers, absent/mismatched link, and account-link replay fail before inference. Another synthetic principal cannot access a binding/catalog/session. Copilot tokens stay server-side; gateway tokens never reach Copilot. | Auth/linking fixtures, synthetic credential canaries, ingress-bypass tests and scoped store-access evidence |
-| AT-25 | Full remote HTTPS/APIM or combined-gateway data path | Validate TLS, URL-prefix/query mapping, selected tier, unbuffered SSE/pings/tool blocks, and errors. Connector bypass fails; inherited body logging/cache/retry/fallback policies cannot alter the route. Network failure never switches to localhost or another provider. | Deployment/policy snapshot, invalid-certificate fixtures, first-event timing, streaming trace and captured outbound-attempt counts |
+| AT-25 | Full remote broker and connector data path | Validate TLS, URL-prefix/query mapping, unbuffered SSE/pings/tool blocks, and errors. Connector bypass fails; body logging/cache/retry/fallback configuration cannot alter the route. Network failure never switches to localhost or another provider. | Deployment/policy snapshot, invalid-certificate fixtures, first-event timing, streaming trace and captured outbound-attempt counts |
 | AT-26 | Grant/profile change, restart, credential rotation, unknown replica, uncertain delivery | Rotation preserves binding/budget; stale or materially changed admission blocks; restart/lost state invalidates grants rather than replaying or resetting counts. No client-supplied session/account ID can create fresh allowance. | Fault injection with grant/counter assertions and zero unexpected upstream submissions |
 | AT-27 | Disconnect during streaming, normal tool handoff, abandoned app, remote shutdown | Active-work cancellation meets the 15-second bound; normal completed tool-use response permits continuation; abandoned state expires within 15 minutes. Shutdown/drain causes explicit failure without replay or unrelated client termination. | Timed remote lifecycle tests with client and upstream cancellation observations |
 | AT-28 | Gateway logout, Copilot unlink/rebind, token/grant expiry, unavailable revocation service | Token/grant lifetimes meet one/eight-hour bounds; acknowledged revocation denies new work and initiates cancellation within 60 seconds; failed remote revocation is reported. Unlink/rebind invalidates old admission without altering unrelated logins. | Controlled-clock expiry tests, timed revocation fixtures, protected-store deletion/access checks and distinct gateway/Copilot statuses |
@@ -900,14 +921,14 @@ The blocker report must identify the failing requirement/test, surface/backend a
 | R-04 | Probe and selected client session resolve different settings | Demonstrate routing equivalence for that surface; do not infer app configuration from CLI behavior. | G1 |
 | R-05 | Auxiliary requests or model aliases are required by ordinary startup | Capture synthetic startup traffic; support faithfully or fail the profile, rather than hiding failures. | G1 |
 | R-06 | Missing per-response usage/stop details or hidden proxy retries/SDK turns | Validate response fidelity and admission control against the pinned backend; separate protocol-required usage from optional billing reconciliation. | G1 |
-| R-07 | Memory-only bridge still leaves ingress/APIM/proxy/SDK/client artifacts | Verify per-hop body logging/cache/persistence, protected remote credentials and token/debug routes; disclose separate client/provider behavior. | G1/G2 |
+| R-07 | Memory-only bridge still leaves ingress/proxy/SDK/client artifacts | Verify per-hop body logging/cache/persistence, protected remote credentials and token/debug routes; disclose separate client/provider behavior. | G1/G2 |
 | R-08 | Upstream releases break protocol, models, or credentials | Pin supported tuples; regression-test upgrades; fail clearly without automatic fallback. | G2/G3 |
 | R-09 | Terms, organization policy, or product naming prevent use/distribution | Obtain applicable approval; neither official SDK licensing nor an unofficial working proxy alone establishes authorization. | Before affected use/distribution |
 | R-10 | Native Messages access relies on internal endpoints or unstable client-identifying conventions | Pin implementation evidence, disclose vendor-support status, assess maintenance and permitted use, and fail visibly when the route changes. | G0/G3 |
 | R-11 | App has distinct sign-in, gateway, background-host, or session-lifecycle constraints | Assess the actual app independently; retain a verified CLI path if the app is blocked. Do not claim a Copilot seat unlocks the app itself. | G0/G2 |
 | R-12 | Successful login or a Claude label is mistaken for Copilot-seat model access | Correlate authenticated identity/model authorization with an actual Copilot-routed response and coding tool round trip; block unknown or alternative-provider routes. | G0/G1 |
 | R-13 | Gateway/Entra authentication is confused with Copilot authorization, or one account becomes a shared upstream | Explicit immutable principal/account binding, reviewed link flow, wrong-principal tests, per-user grants, and no seat pooling. Remote MVP serves one developer only. | G1 |
-| R-14 | APIM/ingress buffers SSE, logs payloads, caches replies, or retries inference | Choose a compatible tier and audit inherited policies; verify event timing, error propagation, body-log absence, and actual submission counts at every hop. | G1/G2 |
+| R-14 | Broker ingress buffers SSE, logs payloads, caches replies, or retries inference | Verify event timing, error propagation, body-log absence, and actual submission counts at every hop. | G1/G2 |
 | R-15 | Remote restarts/replicas/credential refresh lose state or reopen turn budgets | One state-owning replica is acceptable; invalidate lost sessions/grants, preserve or fail closed on accounting, and reject unknown-state continuation. | G1 |
 | R-16 | Configuration-first operation lacks a persistent launcher to gate routing or detect app exit | Bind probe evidence to remote admission, enforce server-side expiry/revocation, and use explicit closure or bounded idle leases. Re-test each surface's persistent configuration and isolated probe. | G1/G2 |
 | R-17 | Hosting introduces cost, secret custody, public exposure, or an unapproved data region | Approve topology/cost/region and operator responsibilities; protect remote secrets, disable anonymous/bypass paths and payload telemetry, and document deletion/retention. | Before remote deployment |
@@ -937,9 +958,7 @@ These are investigation questions, not already-solved implementation details. No
 [S18]: https://github.com/BerriAI/litellm/blob/461a58c40a76d62cf402609f46921d7aa8a9998b/litellm/llms/github_copilot/authenticator.py
 [S19]: https://github.com/ericc-ch/copilot-api
 [S20]: https://claude.com/docs/third-party/claude-desktop/gateway
-[S21]: https://learn.microsoft.com/en-us/azure/api-management/genai-gateway-capabilities
 [S22]: https://code.claude.com/docs/en/claude-apps-gateway
-[S23]: https://learn.microsoft.com/en-us/azure/api-management/how-to-server-sent-events
 [S24]: https://github.com/BerriAI/litellm/blob/c13746c951811e9235e8bba7e4b078ce6a7c2ad5/litellm/llms/github_copilot/messages/transformation.py
 [S25]: https://github.com/BerriAI/litellm/blob/c13746c951811e9235e8bba7e4b078ce6a7c2ad5/litellm/llms/github_copilot/authenticator.py
 [S26]: https://github.com/BerriAI/litellm/blob/c13746c951811e9235e8bba7e4b078ce6a7c2ad5/tests/unit/llms/github_copilot/messages/test_github_copilot_messages_transformation.py
@@ -973,9 +992,7 @@ These are investigation questions, not already-solved implementation details. No
 | [S18] | LiteLLM pinned source: device authentication, internal token exchange, and credential storage at the same commit |
 | [S19] | `copilot-api`: Anthropic-compatible proxy, explicit reverse-engineering/vendor-support warning, and credential/debug features |
 | [S20] | Anthropic: Claude Desktop third-party inference through an Anthropic Messages gateway |
-| [S21] | Microsoft: APIM AI gateway formats, Anthropic Messages tier support, and unified OpenAI-facing model API |
 | [S22] | Anthropic: first-party Claude apps gateway and its documented Anthropic/cloud-provider upstreams |
-| [S23] | Microsoft: APIM SSE tier constraints, unbuffered forwarding, body-logging restrictions, caching, and connection lifetime |
 | [S24] | LiteLLM newly reviewed source pin: native Copilot Messages routing, header handling, provider identity, and non-native web search |
 | [S25] | LiteLLM same source pin: device-login bootstrap restriction, file-backed Copilot credentials, token refresh, and endpoint metadata |
 | [S26] | LiteLLM same source pin: upstream unit-test definitions for native Claude dispatch, header behavior, endpoint selection, and capability flags; inspected, not executed |
@@ -997,7 +1014,7 @@ Revision 0.3 incorporates the project owner's clarification: the real Claude Cod
 
 Revision 0.4 records the initial implementation: a dependency-light TypeScript/Node native Messages adapter, dedicated device authentication and protected credential store, local HTTP/SSE gateway, and a launcher pinned to Claude Code 2.1.220 in safe/manual mode. Existing full proxies were not adopted because their extra routes, retry/logging behavior, and credential handling would require additional control layers. No Azure resources were needed.
 
-Revision 0.5 makes remote, configuration-first inference the primary target. It replaces mandatory localhost/per-launcher operation with ordinary CLI or Desktop gateway configuration, separates gateway identity from the linked Copilot seat, defines remote credential/admission/revocation and service lifecycles, and adds APIM/combined-gateway streaming, deployment, restart, and acceptance requirements. APIM remains optional; the connector remains necessary for the preferred route. A direct-helper approach is an unverified alternative, not a delivered feature. The local alpha remains a development harness. No application code, client settings, credentials, or Azure resources are changed by this documentation revision.
+Revision 0.5 makes remote, configuration-first inference the primary target. It replaces mandatory localhost/per-launcher operation with ordinary CLI or Desktop gateway configuration, separates gateway identity from the linked Copilot seat, and defines remote credential/admission/revocation, streaming, deployment, restart, and acceptance requirements. A direct-helper approach is an unverified alternative, not a delivered feature. The local alpha remains a development harness. No application code, client settings, credentials, or Azure resources are changed by this documentation revision.
 
 The same revision incorporates the project owner's LiteLLM capability-review request: section 4.1 selects its native Copilot Messages provider as the first candidate to test, records a newer source pin, and distinguishes existing protocol/authentication capabilities from bootstrap, credential isolation, semantic adaptation, admission, and operational gaps. This changes the evaluation order, not the unverified live status or P0 requirements.
 

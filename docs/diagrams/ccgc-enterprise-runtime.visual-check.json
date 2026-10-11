@@ -5,9 +5,9 @@
   "status": "pass",
   "visualReview": "pending",
   "artifact": {
-    "path": "/Users/shironbabi/Library/CloudStorage/OneDrive-Microsoft/Desktop/microsoft/claude-code-with-github-copilot/docs/diagrams/ccgc-enterprise-runtime.html",
-    "sha256": "2ce3b932715444332fe9acb758f22d9e15a2186f9bb5657b2fcae56eb33eba7c",
-    "bytes": 716586
+    "path": "/Users/shironbabi/Desktop/OneDrive - Microsoft/Desktop/microsoft/claude-code-with-github-copilot/docs/diagrams/ccgc-enterprise-runtime.html",
+    "sha256": "549785ac5f1420e4b2f8d2f7a34567769a7365575b995044c95ac2fe15a42849",
+    "bytes": 716094
   },
   "state": {
     "detail": "read",

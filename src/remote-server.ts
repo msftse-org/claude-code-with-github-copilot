@@ -158,7 +158,8 @@ export async function startRemoteServer(options: RemoteServerOptions) {
                   || !Array.isArray(messages) || messages.length !== 1) throw new BridgeError('INVALID_REQUEST', 'Only the isolated probe is permitted.');
                 const content = object(messages[0]).content;
                 const context = object(messages[0]).clientContext;
-                if (context !== undefined && (typeof context !== 'string' || !/^# Environment\nYou have been invoked in the following environment: \n - Primary working directory: \/[^\n]*\/ccgc-probe-[A-Za-z0-9]+\n - Is a git repository: false\n - Platform: darwin\n - Shell: [^\n]+\n - OS Version: [^\n]+\n\nYou are powered by the model named [^\n]+\. The exact model ID is claude-[a-z0-9.-]+\. Assistant knowledge cutoff is [A-Za-z]+ \d{4}\.\n\n<total_tokens>\d+ tokens left<\/total_tokens>\n\nToday's date is \d{4}-\d{2}-\d{2}\.$/.test(context))) {
+                const isolatedContext = /^# Environment\nYou have been invoked in the following environment: \n - Primary working directory: \/[^\n]*\/ccgc-probe-[A-Za-z0-9]+\n - Is a git repository: false\n - Platform: darwin\n - Shell: [^\n]+\n - OS Version: [^\n]+(?=[\s\S]*<ccgc-model-(?:context|identity)>)(?=[\s\S]*Today's date is \d{4}-\d{2}-\d{2}\.$)(?:\n\n(?:<ccgc-model-(?:context|identity)>|<total_tokens>MODEL_BUDGET tokens left<\/total_tokens>|Today's date is \d{4}-\d{2}-\d{2}\.))*$/;
+                if (context !== undefined && (typeof context !== 'string' || !isolatedContext.test(context))) {
                   throw new BridgeError('INVALID_REQUEST', 'Probe environment must be isolated and contain only client-generated context.');
                 }
                 const prompt = typeof content === 'string' ? content

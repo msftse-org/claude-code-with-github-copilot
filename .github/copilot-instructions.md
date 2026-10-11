@@ -33,7 +33,7 @@ node --test --test-name-pattern="<test name>" test/gateway.test.ts
 - `src/litellm.ts` represents the preferred first connector candidate: LiteLLM's native GitHub Copilot Anthropic Messages provider.
 - `src/enterprise-auth.ts`, `src/enterprise-store.ts`, and `src/enterprise-server.ts` implement the Entra-authenticated, PostgreSQL-fenced enterprise broker.
 - `src/enterprise-worker-server.ts` is the isolated per-user LiteLLM wrapper; `src/enterprise-client.ts` supplies Claude with opaque bounded admission tokens.
-- `infra/enterprise/` is additive private Bicep. APIM is optional governance ingress, not a LiteLLM replacement.
+- `infra/enterprise/` is additive private Bicep. The internal Container Apps broker is the only enterprise ingress.
 - `src/local-cli.ts`, `src/gateway.ts`, `src/copilot.ts`, and `src/claude.ts` retain the local native Messages adapter as an experimental development and regression harness, not the target deployment.
 - `src/protocol.ts` owns strict parsing and explicit bridge errors. Unsupported or ambiguous input must fail closed rather than be silently removed, retried, or routed to another provider.
 - `test/claude.integration.ts` exercises the pinned real Claude Code CLI with fake upstreams and disposable repositories; the other test files cover CLI, Copilot, gateway, and protocol behavior.
@@ -41,7 +41,7 @@ node --test --test-name-pattern="<test name>" test/gateway.test.ts
 The target decision order is:
 
 1. Evaluate ordinary Claude client gateway configuration with a remote LiteLLM native Copilot Messages provider.
-2. Add Azure API Management only when centralized governance requires it; APIM does not provide Copilot entitlement.
+2. Keep LiteLLM as the per-user Copilot connector unless a replacement passes the same live gates.
 3. Use custom remote connector code only for controls LiteLLM cannot satisfy economically.
 4. Retain the local adapter as a proof/regression fallback, not the default product experience.
 

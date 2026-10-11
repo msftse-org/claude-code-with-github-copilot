@@ -2,12 +2,13 @@
 
 The enterprise target is split into **two separate diagrams**. Runtime contains
 no CI/CD, IaC or setup flow; provisioning contains no inference topology.
-Both are **proposed, not implemented or deployed**. The existing gateway and
+The runtime foundation is **implemented and validated but not deployed**; the
+full provisioning/lifecycle workflow remains proposed. The existing gateway and
 Bicep/Terraform VM automation remain the single-user alpha documented below.
 
 | Enterprise diagram | Presentation PNG | Interactive HTML | Technical source |
 |---|---|---|---|
-| Runtime architecture | [Runtime poster](ccgc-enterprise-runtime-v2.png) | [Runtime viewer](ccgc-enterprise-runtime.html) | [Architecture JSON](ccgc-enterprise-runtime.architecture.json) |
+| Runtime architecture | [Azure-icon runtime poster](ccgc-enterprise-runtime-flare-v2.png) | [Runtime viewer](ccgc-enterprise-runtime.html) | [Architecture JSON](ccgc-enterprise-runtime.architecture.json) |
 | Provisioning and rollout | [Provisioning poster](ccgc-enterprise-provisioning.png) | [Workflow viewer](ccgc-enterprise-provisioning.html) | [Workflow JSON](ccgc-enterprise-provisioning.workflow.json) |
 
 The [PRD enterprise target contract](../PRD.md#enterprise-target-revision-017)
@@ -16,15 +17,15 @@ and production gates. These diagrams do not certify enterprise readiness.
 
 ## Enterprise runtime
 
-![Proposed enterprise runtime architecture](ccgc-enterprise-runtime-v2.png)
+![Proposed enterprise runtime architecture with official Azure service icons](ccgc-enterprise-runtime-flare-v2.png)
 
-The primary request path is **Claude Code -> private API Management -> gateway
-and seat broker -> isolated per-user LiteLLM -> GitHub Copilot**. Native Messages
+The primary request path is **Claude Code -> private enterprise broker ->
+isolated per-user LiteLLM -> GitHub Copilot**. Native Messages
 and streamed responses follow this route; Claude's Read/Edit/Bash and permission
 decisions remain local. Ordinary endpoint and credential-helper configuration
 is still necessary; no client modification or per-model mapping table is proposed.
 
-Entra authenticates gateway access, not Copilot entitlement. Each immutable
+Entra authenticates broker access, not Copilot entitlement. Each immutable
 enterprise principal must be linked to that same employee's authorized GitHub
 account. The broker uses managed identity to access user-bound secrets in Key
 Vault; workers do not share account caches or receive vault-wide access.
@@ -61,22 +62,22 @@ PaaS modules, per-user services or acceptance gates.
 |---|---|---|
 | Frozen specification/HTML hashes and byte counts | [Delivery receipt](ccgc-enterprise-runtime.delivery.json) | [Delivery receipt](ccgc-enterprise-provisioning.delivery.json) |
 | Desktop light/dark evidence | [Contact sheet](ccgc-enterprise-runtime.visual-check.html) | [Contact sheet](ccgc-enterprise-provisioning.visual-check.html) |
-| Initial image brief | [Runtime prompt](ccgc-enterprise-runtime.prompt.txt) | [Provisioning prompt](ccgc-enterprise-provisioning.prompt.txt) |
-| Image generation provenance | [Initial receipt](ccgc-enterprise-runtime.receipt.json), [selected v2 receipt](ccgc-enterprise-runtime-v2.receipt.json) | [Selected-image receipt](ccgc-enterprise-provisioning.receipt.json) |
+| Initial image brief | [Archify runtime prompt](ccgc-enterprise-runtime.prompt.txt), [Flare prompt](ccgc-enterprise-runtime.flare.prompt.txt), [Flare caption correction](ccgc-enterprise-runtime-flare-v2.prompt.txt) | [Provisioning prompt](ccgc-enterprise-provisioning.prompt.txt) |
+| Image generation provenance | [Initial receipt](ccgc-enterprise-runtime.receipt.json), [v2 receipt](ccgc-enterprise-runtime-v2.receipt.json), [Flare Azure-icon receipt](ccgc-enterprise-runtime-flare.receipt.json), [final Flare receipt](ccgc-enterprise-runtime-flare-v2.receipt.json) | [Selected-image receipt](ccgc-enterprise-provisioning.receipt.json) |
 
-The existing Azure **`gpt-image-2`**, version **`2026-04-21`**, produced both
-2560 x 1600 presentation posters. Three image-edit invocations were made for
-this enterprise pair: one per diagram and one
-[focused runtime correction](ccgc-enterprise-runtime-v2.prompt.txt).
-That correction connects the broker's managed-identity path continuously to
-Key Vault without crossing the workload heading. The initial runtime PNG is
-retained only as the correction input; **runtime v2 is the selected image**.
+The provisioning PNG is exported from the validated Archify HTML. The runtime
+presentation PNG was generated with Azure OpenAI `gpt-image-2.5-flare` from the
+validated required-only Archify screenshot plus official Microsoft Entra and
+Azure Architecture Center service-icon references. The reviewed JSON and
+interactive HTML remain the technical sources of truth.
 
 Inputs were sanitized Archify screenshots and architecture terminology, not
 repository source, credentials, account IDs or actual private endpoints.
-Authentication used the existing Azure CLI Entra identity. No new model
-deployment, live gateway/client change, infrastructure change or Copilot
-inference was performed. Image token counts are not a cost quote or Copilot usage.
+Authentication used the existing Azure CLI Entra identity. A new
+`gpt-image-2.5-flare` model deployment was created in the existing Foundry
+resource for this documentation render; no enterprise gateway/client resource
+was deployed and no Copilot inference was performed. Image token counts are not
+a cost quote or Copilot usage.
 
 Both HTML artifacts passed **9/9 showcase checks with 0 errors and 0 warnings**,
 with desktop containment at 1440 x 900, 1600 x 1000, 1920 x 1080 and 2048 x 1320.

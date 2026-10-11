@@ -5,8 +5,6 @@ param entraAudience string
 param postgresAdminObjectId string
 param postgresAdminName string
 param brokerImage string
-param enableApim bool
-param apimPublisherEmail string
 
 var compact = replace(prefix, '-', '')
 var unique = toLower(uniqueString(subscription().id, resourceGroup().id, prefix))
@@ -19,7 +17,6 @@ var environmentName = 'cae-${prefix}-enterprise'
 var brokerName = 'ca-${prefix}-broker'
 var workspaceName = 'log-${prefix}-enterprise'
 var insightsName = 'appi-${prefix}-enterprise'
-var apimName = take('apim-${compact}-${unique}', 50)
 var postgresDnsZoneName = '${compact}.postgres.database.azure.com'
 var tags = {
   project: 'claude-code-with-github-copilot'
@@ -128,68 +125,6 @@ resource workloadNsg 'Microsoft.Network/networkSecurityGroups@2024-07-01' = {
   }
 }
 
-resource apimNsg 'Microsoft.Network/networkSecurityGroups@2024-07-01' = {
-  name: 'nsg-${prefix}-apim'
-  location: location
-  tags: tags
-  properties: {
-    securityRules: [
-      {
-        name: 'allow-apim-management'
-        properties: {
-          access: 'Allow'
-          direction: 'Inbound'
-          priority: 100
-          protocol: 'Tcp'
-          sourceAddressPrefix: 'ApiManagement'
-          sourcePortRange: '*'
-          destinationAddressPrefix: 'VirtualNetwork'
-          destinationPortRange: '3443'
-        }
-      }
-      {
-        name: 'allow-vnet-https'
-        properties: {
-          access: 'Allow'
-          direction: 'Inbound'
-          priority: 110
-          protocol: 'Tcp'
-          sourceAddressPrefix: 'VirtualNetwork'
-          sourcePortRange: '*'
-          destinationAddressPrefix: 'VirtualNetwork'
-          destinationPortRange: '443'
-        }
-      }
-      {
-        name: 'allow-load-balancer'
-        properties: {
-          access: 'Allow'
-          direction: 'Inbound'
-          priority: 120
-          protocol: '*'
-          sourceAddressPrefix: 'AzureLoadBalancer'
-          sourcePortRange: '*'
-          destinationAddressPrefix: '*'
-          destinationPortRange: '*'
-        }
-      }
-      {
-        name: 'deny-other-inbound'
-        properties: {
-          access: 'Deny'
-          direction: 'Inbound'
-          priority: 4096
-          protocol: '*'
-          sourceAddressPrefix: '*'
-          sourcePortRange: '*'
-          destinationAddressPrefix: '*'
-          destinationPortRange: '*'
-        }
-      }
-    ]
-  }
-}
-
 resource vnet 'Microsoft.Network/virtualNetworks@2024-07-01' = {
   name: vnetName
   location: location
@@ -249,15 +184,6 @@ resource vnet 'Microsoft.Network/virtualNetworks@2024-07-01' = {
           privateEndpointNetworkPolicies: 'Enabled'
         }
       }
-      {
-        name: 'snet-apim'
-        properties: {
-          addressPrefix: '10.80.3.0/27'
-          networkSecurityGroup: {
-            id: apimNsg.id
-          }
-        }
-      }
     ]
   }
 }
@@ -275,11 +201,6 @@ resource postgresSubnet 'Microsoft.Network/virtualNetworks/subnets@2024-07-01' e
 resource privateEndpointSubnet 'Microsoft.Network/virtualNetworks/subnets@2024-07-01' existing = {
   parent: vnet
   name: 'snet-private-endpoints'
-}
-
-resource apimSubnet 'Microsoft.Network/virtualNetworks/subnets@2024-07-01' existing = {
-  parent: vnet
-  name: 'snet-apim'
 }
 
 resource postgresDns 'Microsoft.Network/privateDnsZones@2024-06-01' = {
@@ -675,69 +596,7 @@ resource registryPull 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
   }
 }
 
-resource apim 'Microsoft.ApiManagement/service@2024-05-01' = if (enableApim) {
-  name: apimName
-  location: location
-  tags: tags
-  identity: {
-    type: 'SystemAssigned'
-  }
-  sku: {
-    name: 'PremiumV2'
-    capacity: 1
-  }
-  properties: {
-    disableGateway: false
-    publicNetworkAccess: 'Disabled'
-    publisherEmail: apimPublisherEmail
-    publisherName: 'CCGC platform'
-    virtualNetworkType: 'Internal'
-    virtualNetworkConfiguration: {
-      subnetResourceId: apimSubnet.id
-    }
-  }
-}
-
-module apimDns 'apim-dns.bicep' = if (enableApim) {
-  name: 'apim-private-dns'
-  params: {
-    apimName: apim!.name
-    privateIp: apim!.properties.privateIPAddresses[0]
-    vnetId: vnet.id
-    vnetName: vnet.name
-    tags: tags
-  }
-}
-
-resource apimApi 'Microsoft.ApiManagement/service/apis@2024-05-01' = if (enableApim) {
-  parent: apim
-  name: 'ccgc-enterprise'
-  properties: {
-    displayName: 'CCGC Enterprise Native Messages'
-    path: 'ccgc'
-    protocols: [
-      'https'
-    ]
-    serviceUrl: 'https://${broker.properties.configuration.ingress.fqdn}'
-    subscriptionRequired: false
-    type: 'http'
-  }
-  dependsOn: [
-    apimDns
-  ]
-}
-
-resource apimPolicy 'Microsoft.ApiManagement/service/apis/policies@2024-05-01' = if (enableApim) {
-  parent: apimApi
-  name: 'policy'
-  properties: {
-    format: 'rawxml'
-    value: '<policies><inbound><base /><set-header name="X-Forwarded-Host" exists-action="delete" /></inbound><backend><forward-request timeout="120" buffer-response="false" fail-on-error-status-code="true" /></backend><outbound><base /></outbound><on-error><base /></on-error></policies>'
-  }
-}
-
 output brokerInternalFqdn string = broker.properties.configuration.ingress.fqdn
-output apimGatewayUrl string = enableApim ? apim!.properties.gatewayUrl : ''
 output keyVaultName string = vault.name
 output postgresHost string = postgres.properties.fullyQualifiedDomainName
 output registryName string = registry.name

@@ -247,7 +247,7 @@ async function readSettings(path: string): Promise<ObjectValue> {
   }
 }
 
-export async function inspectRemoteSettings(project: string, profile: ClientProfile, home = homedir(), managed = '/Library/Application Support/ClaudeCode/managed-settings.json', environment = process.env, migratePins = false) {
+export async function inspectRemoteSettings(project: string, profile: ClientProfile, home = homedir(), managed = '/Library/Application Support/ClaudeCode/managed-settings.json', environment = process.env, migratePins = false, migrateUnavailableModel = false) {
   const expected = object(settingsPatch(profile).env);
   const controlsRouting = (key: string) => key in expected || /^(ANTHROPIC_|CLAUDE_CODE_(USE_|OAUTH|PROVIDER|API_KEY|CUSTOM|MODEL)|CLAUDE_CONFIG_DIR)/.test(key);
   for (const [key, value] of Object.entries(environment)) {
@@ -266,7 +266,12 @@ export async function inspectRemoteSettings(project: string, profile: ClientProf
       }
     }
     if (settings.model !== undefined && !['sonnet', 'opus', 'haiku', 'default'].includes(String(settings.model))) {
-      resolveModel(profile.info.models, settings.model);
+      try {
+        resolveModel(profile.info.models, settings.model);
+      } catch (error) {
+        if (!(migrateUnavailableModel && path === join(home, '.claude', 'settings.json')
+          && settings.apiKeyHelper === helperCommand())) throw error;
+      }
     }
     if ((settings.apiKeyHelper !== undefined && settings.apiKeyHelper !== helperCommand())
       || ['forceLoginMethod', 'forceLoginOrgUUID', 'modelOverrides', 'allowedProviders'].some(key => settings[key] !== undefined)) {
@@ -275,16 +280,20 @@ export async function inspectRemoteSettings(project: string, profile: ClientProf
   }
 }
 
-export async function configure(profile: ClientProfile, project: string, apply: boolean, home = homedir(), managed?: string) {
+export async function configure(profile: ClientProfile, project: string, apply: boolean, home = homedir(), managed?: string, resetUnavailableModel = false) {
   if (profile.revoked) throw new BridgeError('GATEWAY_AUTH_REQUIRED', 'Finish revoked profile cleanup with ccgc logout before configuring another deployment.', 401);
   if (profile.info.profile === LEGACY_REMOTE_PROFILE) throw new BridgeError('VERSION_UNSUPPORTED', 'Upgrade the gateway catalog, then run ccgc refresh --accept-unofficial before configuring.');
-  await inspectRemoteSettings(project, profile, home, managed, process.env, true);
+  await inspectRemoteSettings(project, profile, home, managed, process.env, true, resetUnavailableModel);
   const path = join(home, '.claude', 'settings.json');
   const current = await readSettings(path);
   const patch = settingsPatch(profile);
   const currentEnv = { ...(current.env === undefined ? {} : object(current.env)) };
   for (const key of legacyPins) delete currentEnv[key];
-  const next = { ...current, ...patch, env: { ...currentEnv, ...object(patch.env) } };
+  const next: ObjectValue = { ...current, ...patch, env: { ...currentEnv, ...object(patch.env) } };
+  if (resetUnavailableModel && current.model !== undefined && !['sonnet', 'opus', 'haiku', 'default'].includes(String(current.model))) {
+    try { resolveModel(profile.info.models, current.model); }
+    catch { next.model = profile.info.model.id; }
+  }
   if (apply) {
     await mkdir(dirname(path), { recursive: true, mode: 0o700 });
     const dir = await lstat(dirname(path));

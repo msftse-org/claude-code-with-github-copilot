@@ -37,6 +37,34 @@ function historyDigest(value: unknown): string {
   return digest({ ...message, content });
 }
 
+function historyFields(value: unknown): Record<string, string> {
+  return Object.fromEntries(Object.entries(object(value)).map(([key, field]) => [key, digest(field)]));
+}
+
+function historyShape(value: unknown): unknown {
+  const message = object(value);
+  const classify = (text: string) => ({
+    length: text.length,
+    reminder: text.startsWith('<system-reminder>\n'),
+    category: text.includes('# Environment') ? 'environment'
+      : text.includes('You are powered by the model named') ? 'model-identity'
+        : text.includes('<total_tokens>') ? 'token-budget'
+          : text.includes("Today's date is") ? 'date'
+            : 'other',
+  });
+  return {
+    role: message.role,
+    keys: Object.keys(message).sort(),
+    content: Array.isArray(message.content)
+      ? message.content.map(block => {
+        const item = object(block);
+        return { type: item.type, keys: Object.keys(item).sort(), ...(typeof item.text === 'string' ? classify(item.text) : {}) };
+      })
+      : typeof message.content === 'string' ? classify(message.content) : typeof message.content,
+    clientContext: typeof message.clientContext === 'string' ? classify(message.clientContext) : typeof message.clientContext,
+  };
+}
+
 async function requestBody(request: IncomingMessage): Promise<ObjectValue> {
   const chunks: Buffer[] = [];
   let size = 0;
@@ -102,6 +130,8 @@ export function createMessageSession(options: GatewayOptions, token: string, ori
   const stats: { attempts: number; completed: number; failed: number; usage: Usage } = { attempts: 0, completed: 0, failed: 0, usage: {} };
   const seen = new Set<string>();
   let prefix: string[] = [];
+  let prefixFields: Record<string, string>[] = [];
+  let prefixShapes: unknown[] = [];
   let semantics: string | undefined;
   let selectedModel: string | undefined;
   let pending: Set<string> = new Set();
@@ -159,8 +189,21 @@ export function createMessageSession(options: GatewayOptions, token: string, ori
       throw new BridgeError('CONTEXT_CONFLICT', `Tool-result batch mismatch: expected ${pending.size}, received ${results.length}, matched ${results.filter(id => pending.has(id)).length}.`, 409);
     }
     if (!Array.isArray(body.messages)) throw new BridgeError('INVALID_REQUEST', 'Invalid messages.');
-    const history = (options.history?.(body.messages) ?? body.messages).map(historyDigest);
-    if (!modelCheck && prefix.some((hash, index) => history[index] !== hash)) throw new BridgeError('CONTEXT_CONFLICT', 'Conversation history diverged or was compacted.', 409);
+    const normalizedHistory = options.history?.(body.messages) ?? body.messages;
+    const history = normalizedHistory.map(historyDigest);
+    const fields = normalizedHistory.map(historyFields);
+    const shapes = normalizedHistory.map(historyShape);
+    const mismatch = prefix.findIndex((hash, index) => history[index] !== hash);
+    if (!modelCheck && mismatch >= 0) {
+      const previous = prefixFields[mismatch] ?? {};
+      const current = fields[mismatch] ?? {};
+      const changed = [...new Set([...Object.keys(previous), ...Object.keys(current)])]
+        .filter(key => previous[key] !== current[key]).sort();
+      throw new BridgeError('CONTEXT_CONFLICT',
+        `Conversation history diverged or was compacted at message ${mismatch + 1}; changed fields: ${changed.join(', ') || 'unknown'} ` +
+        `(${prefix.length} previous, ${history.length} current); shapes: ` +
+        `${JSON.stringify(prefixShapes[mismatch])} -> ${JSON.stringify(shapes[mismatch])}.`, 409);
+    }
     if (!modelCheck && switching && history.length <= prefix.length) throw new BridgeError('CONTEXT_CONFLICT', 'A model switch requires a new user turn, not a retry of the previous turn.', 409);
     const currentSemantics = digest({ system: body.system, tools: body.tools, tool_choice: body.tool_choice });
     if (!modelCheck && semantics !== undefined && semantics !== currentSemantics) throw new BridgeError('CONTEXT_CONFLICT', 'System prompt or tool semantics changed.', 409);
@@ -225,6 +268,8 @@ export function createMessageSession(options: GatewayOptions, token: string, ori
       }
       if (!modelCheck) {
         prefix = history;
+        prefixFields = fields;
+        prefixShapes = shapes;
         semantics = currentSemantics;
         selectedModel = model.id;
         pending = tracker.pending;

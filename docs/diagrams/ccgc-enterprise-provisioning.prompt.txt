@@ -18,7 +18,7 @@ Exact main-card content:
 04 "Private foundation"
    "Network; DNS; HA data; identities"
 05 "Deploy services"
-   "APIM; Container Apps; isolated workers"
+   "Broker; Container Apps; isolated workers"
 06 "Link each user"
    "Entra SSO; own GitHub account"
 07 "Acceptance gates"
@@ -45,4 +45,4 @@ Under the main flow or in a compact footer, add these exact principles:
 
 Private foundation includes private DNS, network isolation, zone-redundant database configuration, Entra application registration, managed identities, scoped RBAC and Key Vault. Do not try to draw those as a runtime network: they are a single provisioning stage. Build includes tests, scans, SBOM and pinned image signatures. If useful, show those as very short secondary notes, not additional nodes.
 
-Do not draw a Claude Code -> APIM -> LiteLLM -> Copilot inference chain, model catalog, runtime account-secret flows, or developer tool execution here. This poster is exclusively the proposed provisioning and rollout procedure. Do not imply it is implemented, deployed, approved or vendor-supported. Do not show automatic cost approval, bypassed sign-in, two IaC engines applying to the same environment, destructive rollback, or inference retries.
+Do not draw a Claude Code -> broker -> LiteLLM -> Copilot inference chain, model catalog, runtime account-secret flows, or developer tool execution here. This poster is exclusively the proposed provisioning and rollout procedure. Do not imply it is deployed, approved or vendor-supported. Do not show automatic cost approval, bypassed sign-in, two IaC engines applying to the same environment, destructive rollback, or inference retries.

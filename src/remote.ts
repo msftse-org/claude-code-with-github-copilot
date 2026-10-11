@@ -105,13 +105,38 @@ export function isModelCheck(body: ObjectValue): boolean {
 export function clientHistory(messages: unknown[]): ObjectValue[] {
   const result: ObjectValue[] = [];
   const unwrap = (text: string) => text.replace(/<system-reminder>\n([\s\S]*?)\n<\/system-reminder>/g, '$1');
+  const modelIdentity = /You are powered by the model named [^\n]+\. The exact model ID is claude-[a-z0-9.-]+\. Assistant knowledge cutoff is [A-Za-z]+ \d{4}\./g;
+  const modelChange = /^<system-reminder>The model for this session has been changed to [^<\n]*\.<\/system-reminder>$/;
+  const normalizeDynamicContext = (text: string) => {
+    const identity = text.replace(modelIdentity, '<ccgc-model-identity>')
+      .replace(/You are powered by the model[^\n]*/g, '<ccgc-model-identity>')
+      .replace(/claude-(?:sonnet|haiku)-[a-z0-9.-]+/gi, '<ccgc-model-id>')
+      .replace(/\b(?:Claude )?(?:Sonnet|Haiku)(?: [0-9.]+)?\b/g, '<ccgc-model>');
+    if (!identity.includes('# Environment')) return identity;
+    const date = /Today's date is \d{4}-\d{2}-\d{2}\./.exec(identity)?.[0];
+    const os = /\n - OS Version: [^\n]+/.exec(identity);
+    if (date && os) return `${identity.slice(0, os.index + os[0].length)}\n\n<ccgc-model-context>\n\n${date}`;
+    return identity.replace(/<total_tokens>(?:\d+|Infinite) tokens left<\/total_tokens>/g,
+      '<total_tokens>MODEL_BUDGET tokens left</total_tokens>');
+  };
+  const contextValue = (text: string) => {
+    const unwrapped = unwrap(text);
+    return normalizeDynamicContext(unwrapped);
+  };
   const reminder = /^<system-reminder>\n(# Environment\n[\s\S]*|You are powered by the model named [^\n]+|<total_tokens>\d+ tokens left<\/total_tokens>|Today's date is \d{4}-\d{2}-\d{2}\.)\n<\/system-reminder>$/;
   for (const value of messages) {
     const message = object(value);
     if ('clientContext' in message) throw new BridgeError('FEATURE_UNSUPPORTED', 'clientContext is reserved for internal history comparison.');
     if (message.role === 'system' && typeof message.content === 'string' && result.at(-1)?.role === 'user') {
       const previous = result.at(-1)!;
-      previous.clientContext = [previous.clientContext, unwrap(message.content)].filter(Boolean).join('\n\n');
+      const next = contextValue(message.content);
+      const existing = next.includes('<ccgc-model-context>') && previous.clientContext === '<ccgc-model-identity>'
+        ? undefined : previous.clientContext;
+      previous.clientContext = [existing, next].filter(Boolean).join('\n\n');
+      continue;
+    }
+    if ((message.role === 'user' || message.role === 'assistant') && typeof message.content === 'string') {
+      result.push({ ...message, content: [{ type: 'text', text: message.content }] });
       continue;
     }
     if (message.role === 'user' && Array.isArray(message.content)) {
@@ -120,15 +145,34 @@ export function clientHistory(messages: unknown[]): ObjectValue[] {
       let index = 0;
       while (index < content.length) {
         const block = object(content[index]);
-        if (block.type !== 'text' || typeof block.text !== 'string'
-          || !block.text.startsWith('<system-reminder>\n') || !block.text.trimEnd().endsWith('\n</system-reminder>')) break;
-        if (reminder.test(block.text.trimEnd())) {
-          context.push(unwrap(block.text.trimEnd()));
+        if (block.type !== 'text' || typeof block.text !== 'string') break;
+        const text = block.text.trimEnd();
+        const normalizedText = normalizeDynamicContext(text);
+        if (modelChange.test(text) || text.includes('The model for this session has been changed to')) {
           content.splice(index, 1);
-        } else index++;
+          continue;
+        }
+        if (/^<system-reminder>(?:\n)?<ccgc-model-(?:identity|id)>(?:\n)?<\/system-reminder>$/.test(normalizedText)) {
+          context.push('<ccgc-model-identity>');
+          content.splice(index, 1);
+          continue;
+        }
+        if (!text.startsWith('<system-reminder>\n') || !text.endsWith('\n</system-reminder>')) break;
+        if (reminder.test(text)) {
+          context.push(contextValue(text));
+          content.splice(index, 1);
+        } else {
+          content[index] = { ...block, text: normalizedText };
+          index++;
+        }
       }
       result.push({ ...message, content, ...(context.length ? { clientContext: context.join('\n\n') } : {}) });
     } else result.push({ ...message });
+  }
+  for (const message of result) {
+    if (typeof message.clientContext === 'string' && message.clientContext.includes('# Environment')) {
+      message.clientContext = normalizeDynamicContext(message.clientContext);
+    }
   }
   for (const message of result) {
     if (message.role !== 'user' || !Array.isArray(message.content)) continue;

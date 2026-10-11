@@ -2,7 +2,7 @@
   "schema_version": 1,
   "diagram_type": "architecture",
   "meta": {
-    "title": "Enterprise Claude Code - runtime target",
+    "title": "Enterprise Claude Code - runtime foundation",
     "locale": "en",
     "quality_profile": "showcase",
     "viewBox": [1390, 770]
@@ -10,31 +10,29 @@
   "components": [
     {"id": "managed-client", "type": "frontend", "label": "Claude Code", "sublabel": "SSO helper / local tools", "brand": "claude", "pos": [35, 355], "size": [190, 90]},
     {"id": "enterprise-identity", "type": "security", "label": "Microsoft Entra ID", "sublabel": "SSO / conditional access", "pos": [310, 70], "size": [190, 90]},
-    {"id": "private-api-ingress", "type": "cloud", "label": "API Management", "sublabel": "Premium v2 / private ingress", "pos": [310, 355], "size": [190, 90]},
-    {"id": "principal-seat-broker", "type": "backend", "label": "Gateway + seat broker", "sublabel": "Container Apps / per-user policy", "pos": [600, 355], "size": [220, 90]},
-    {"id": "isolated-copilot-workers", "type": "backend", "label": "Per-user LiteLLM", "sublabel": "Isolated account caches", "pos": [920, 355], "size": [195, 90]},
-    {"id": "individual-copilot-seat", "type": "external", "label": "GitHub Copilot", "sublabel": "Each user's Claude access", "pos": [1210, 355], "size": [175, 90]},
-    {"id": "private-credential-store", "type": "security", "label": "Azure Key Vault", "sublabel": "Per-user secrets / private access", "pos": [920, 70], "size": [225, 90]},
-    {"id": "durable-admission-ledger", "type": "database", "label": "Azure PostgreSQL HA", "sublabel": "Bindings / leases / quotas / audit outbox", "pos": [655, 615], "size": [385, 90]},
-    {"id": "restricted-observability", "type": "cloud", "label": "Azure Monitor", "sublabel": "Audit / alerts / no prompt bodies", "pos": [310, 615], "size": [230, 90]}
+    {"id": "principal-seat-broker", "type": "backend", "label": "Enterprise broker", "sublabel": "Container Apps / Entra policy", "pos": [340, 355], "size": [220, 90]},
+    {"id": "isolated-copilot-workers", "type": "backend", "label": "Per-user LiteLLM", "sublabel": "Isolated account caches", "pos": [720, 355], "size": [195, 90]},
+    {"id": "individual-copilot-seat", "type": "external", "label": "GitHub Copilot", "sublabel": "Each user's Claude access", "brand": "github", "pos": [1090, 355], "size": [190, 90]},
+    {"id": "private-credential-store", "type": "security", "label": "Azure Key Vault", "sublabel": "Per-user secrets / private access", "pos": [720, 70], "size": [225, 90]},
+    {"id": "durable-admission-ledger", "type": "database", "label": "Azure PostgreSQL HA", "sublabel": "Bindings / leases / quotas / audit outbox", "pos": [610, 615], "size": [385, 90]},
+    {"id": "restricted-observability", "type": "cloud", "label": "Azure Monitor", "sublabel": "Audit / alerts / no prompt bodies", "pos": [300, 615], "size": [230, 90]}
   ],
   "boundaries": [
-    {"kind": "region", "label": "Private Azure workload / zone-redundant target", "wraps": ["private-api-ingress", "principal-seat-broker", "isolated-copilot-workers", "durable-admission-ledger", "restricted-observability"], "pad": 28}
+    {"kind": "region", "label": "Private Azure workload / zone-redundant target", "wraps": ["principal-seat-broker", "isolated-copilot-workers", "durable-admission-ledger", "restricted-observability"], "pad": 28}
   ],
   "connections": [
-    {"id": "private-client-access", "from": "managed-client", "to": "private-api-ingress", "label": "VPN / TLS", "variant": "emphasis"},
-    {"id": "native-messages-ingress", "from": "private-api-ingress", "to": "principal-seat-broker", "label": "Messages", "variant": "emphasis"},
+    {"id": "private-client-access", "from": "managed-client", "to": "principal-seat-broker", "label": "VPN / TLS / Messages", "variant": "emphasis"},
     {"id": "user-bound-dispatch", "from": "principal-seat-broker", "to": "isolated-copilot-workers", "label": "bound user", "variant": "emphasis"},
     {"id": "copilot-native-stream", "from": "isolated-copilot-workers", "to": "individual-copilot-seat", "label": "TLS / SSE", "variant": "emphasis"},
-    {"id": "trusted-token-validation", "from": "private-api-ingress", "to": "enterprise-identity", "label": "JWT trust", "variant": "security", "fromSide": "top", "toSide": "bottom", "labelDy": -75},
+    {"id": "trusted-token-validation", "from": "principal-seat-broker", "to": "enterprise-identity", "label": "JWT trust", "variant": "security", "fromSide": "top", "toSide": "bottom", "labelDy": -75},
     {"id": "broker-secret-access", "from": "principal-seat-broker", "to": "private-credential-store", "label": "MI / secrets", "variant": "security", "fromSide": "top", "toSide": "bottom"},
     {"id": "atomic-admission-reservation", "from": "principal-seat-broker", "to": "durable-admission-ledger", "label": "reserve / fence", "fromSide": "bottom", "toSide": "top"},
-    {"id": "durable-attempt-outcome", "from": "isolated-copilot-workers", "to": "durable-admission-ledger", "label": "record outcome", "fromSide": "bottom", "toSide": "top"},
-    {"id": "metadata-only-telemetry", "from": "principal-seat-broker", "to": "restricted-observability", "label": "metadata only", "fromSide": "bottom", "toSide": "top"}
+    {"id": "durable-attempt-outcome", "from": "isolated-copilot-workers", "to": "durable-admission-ledger", "label": "record outcome", "fromSide": "bottom", "toSide": "top", "labelAt": [810, 475]},
+    {"id": "metadata-only-telemetry", "from": "principal-seat-broker", "to": "restricted-observability", "label": "metadata only", "fromSide": "bottom", "toSide": "top", "labelAt": [375, 540]}
   ],
   "cards": [
     {"dot": "cyan", "title": "One employee, one authorized seat", "items": ["Immutable Entra-to-GitHub account binding.", "Claude keeps Read/Edit/Bash and permissions."]},
     {"dot": "violet", "title": "Durable, fail-closed controls", "items": ["Fenced ownership, quotas and revocation.", "No fallback, uncertain replay or body logging."]},
-    {"dot": "amber", "title": "Proposed architecture - not deployed", "items": ["Integration permission and streaming gates remain.", "Region, capacity and DR require approval."]}
+    {"dot": "amber", "title": "Implemented foundation - not deployed", "items": ["Integration permission and streaming gates remain.", "Region, capacity and DR require approval."]}
   ]
 }

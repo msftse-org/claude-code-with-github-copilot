@@ -28,7 +28,8 @@ class DeploymentTests(unittest.TestCase):
         }
         self.options = argparse.Namespace(approve_plan=None, approve_access=False, accept_unofficial=False,
                                           approve_client=False, approve_live=False, install_client=False,
-                                          until="verified", operator_ipv4_cidr=None)
+                                          until="verified", operator_ipv4_cidr=None, approve_start=False,
+                                          approve_catalog=None)
         self.state = self.directory / "deployment"
         self.state.mkdir(mode=0o700)
         self.deployment = deploy.Deployment(self.config, self.state, self.options)
@@ -179,6 +180,60 @@ class DeploymentTests(unittest.TestCase):
                 patch.object(deploy, "health"):
             self.deployment.gateway()
         self.assertNotIn("verified", self.deployment.state["stages"])
+
+    def test_catalog_drift_requires_exact_preview_approval_then_applies(self):
+        self.options.accept_unofficial = True
+        status = {"status": "initialized", "login": "synthetic-user", "accountId": 42,
+                  "model": self.config["model"], "publicUrl": "https://" + self.deployment.fqdn}
+        catalog = {"login": "synthetic-user", "accountId": 42, "model": {"id": self.config["model"]},
+                   "models": [{"id": self.config["model"]}]}
+        preview = {"status": "catalog-preview", "info": catalog, "liveInference": "not-tested"}
+        applied = {"status": "catalog-applied", "info": catalog, "liveInference": "not-tested"}
+        calls = [json.dumps(status), deploy.DeployError("catalog changed"), json.dumps(preview)]
+        with patch.object(self.deployment, "host", side_effect=calls) as host, self.assertRaises(deploy.DeployError) as error:
+            self.deployment.gateway()
+        approval = deploy.digest(catalog)
+        self.assertIn(approval, str(error.exception))
+        self.assertEqual(host.call_args_list[-1].args[0], "catalog-preview")
+        self.options.approve_catalog = approval
+        calls = [json.dumps(status), deploy.DeployError("catalog changed"), json.dumps(preview),
+                 json.dumps(applied), json.dumps(catalog), "", json.dumps({"imageId": "sha256:" + "a" * 64})]
+        with patch.object(self.deployment, "host", side_effect=calls) as host, patch.object(deploy, "health"):
+            self.deployment.gateway()
+        self.assertEqual([call.args[0] for call in host.call_args_list],
+                         ["status", "verify", "catalog-preview", "catalog-apply", "verify", "activate", "inspect"])
+        self.assertTrue(self.deployment.catalog_changed)
+
+    def test_recovery_can_sync_client_then_create_clean_admission(self):
+        self.options.accept_unofficial = self.options.approve_access = True
+        self.options.approve_client = self.options.approve_live = True
+        self.deployment.state["outputs"] = {"vmName": "vm-ccgc-synthetic"}
+        self.deployment.state["stages"]["host"] = {}
+        calls = []
+        with patch.object(self.deployment, "az", return_value={"instanceView": {"statuses": [{"code": "PowerState/running"}]}}), \
+                patch.object(self.deployment, "access", side_effect=lambda: calls.append("access")), \
+                patch.object(self.deployment, "gateway", side_effect=lambda: calls.append("gateway")), \
+                patch.object(self.deployment, "preflight", side_effect=lambda **kwargs: calls.append("preflight-client")), \
+                patch.object(self.deployment, "client", side_effect=lambda: calls.append("client")), \
+                patch.object(self.deployment, "admit", side_effect=lambda: calls.append("admit")):
+            self.deployment.recover()
+        self.assertEqual(calls, ["access", "gateway", "preflight-client", "client", "admit"])
+
+    def test_stale_mac_catalog_requires_exact_approval_before_refresh(self):
+        self.options.approve_client = True
+        home = self.directory / "home"
+        profile_path = home / ".local/share/ccgc/remote/profile.json"
+        profile_path.parent.mkdir(parents=True)
+        deploy.write_json(profile_path, {"gateway": "https://" + self.deployment.fqdn,
+                                         "info": {"instance": "old", "models": []}})
+        self.deployment.catalog_info = {"instance": "new", "models": [{"id": self.config["model"]}],
+                                        "model": {"id": self.config["model"]}}
+        approval = deploy.digest(self.deployment.catalog_info)
+        with patch.object(deploy.Path, "home", return_value=home), patch.object(deploy.shutil, "which", return_value="/usr/bin/claude"), \
+                patch.object(deploy, "run", return_value=deploy.CLIENT_VERSION + "\n") as run, self.assertRaises(deploy.DeployError) as error:
+            self.deployment.client()
+        self.assertIn(approval, str(error.exception))
+        self.assertEqual(run.call_count, 1)
 
     def test_gateway_refuses_account_mismatch_without_starting_service(self):
         self.options.accept_unofficial = True

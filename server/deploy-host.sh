@@ -22,6 +22,13 @@ case "$action" in
   status|verify|owner-key)
     "${compose[@]}" run --rm -T setup "$action" </dev/null
     ;;
+  catalog-preview)
+    "${compose[@]}" run --rm -T setup catalog --accept-unofficial </dev/null
+    ;;
+  catalog-apply)
+    "${compose[@]}" stop ingress gateway litellm
+    "${compose[@]}" run --rm -T setup catalog --accept-unofficial --apply </dev/null
+    ;;
   inspect)
     docker inspect ccgc-gateway-1 ccgc-litellm-1 --format '{{.Image}}' | \
       python3 -c 'import json,sys; ids=sys.stdin.read().splitlines(); assert len(ids)==2 and ids[0]==ids[1]; print(json.dumps({"imageId":ids[0]}))'

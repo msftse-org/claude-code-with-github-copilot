@@ -1,0 +1,56 @@
+{
+  "operation": "images/edits",
+  "provider": "Azure OpenAI",
+  "resource": "foundry-llm-demo-resource",
+  "region": "Sweden Central",
+  "deployment": "gpt-image-2.5-flare",
+  "model": "gpt-image-2.5-flare",
+  "modelVersion": "2026-09-08",
+  "apiVersion": "2025-04-01-preview",
+  "authentication": "Microsoft Entra ID bearer token",
+  "createdAt": "2026-10-11T06:12:50Z",
+  "requestId": "fbac6bf3-f704-45dc-b91b-39254e98d0f4",
+  "request": {
+    "quality": "high",
+    "size": "2560x1600",
+    "outputFormat": "png",
+    "prompt": {
+      "path": "docs/diagrams/ccgc-enterprise-runtime-flare-v2.prompt.txt",
+      "sha256": "3cdb77eed4be60639d2a15abd3e1bd6f075f58bb7f08031ced93cf33839c0d09"
+    },
+    "reference": {
+      "path": "docs/diagrams/ccgc-enterprise-runtime-flare.png",
+      "sha256": "03d8f7350861d200ff557e64efcdc3de773f3c30ac243f2b32df311faec98dda"
+    }
+  },
+  "response": {
+    "usage": {
+      "inputTokens": 1638,
+      "imageInputTokens": 1440,
+      "textInputTokens": 198,
+      "outputTokens": 2195,
+      "imageOutputTokens": 2195,
+      "totalTokens": 3833
+    }
+  },
+  "output": {
+    "path": "docs/diagrams/ccgc-enterprise-runtime-flare-v2.png",
+    "desktopCopy": "/Users/shironbabi/Desktop/CCGC-Enterprise-Solution-Poster-Flare.png",
+    "width": 2560,
+    "height": 1600,
+    "sha256": "7f18f2540c0cf126059be45a44ce529f6a84743bdb76a0a5644fc653f77f2c68"
+  },
+  "visualReview": {
+    "status": "approved",
+    "greenBoxDescriptions": {
+      "Enterprise broker": "Authenticates, fences, and routes requests",
+      "Per-user Worker": "Runs one isolated session per employee",
+      "LiteLLM Connector": "Authenticates Copilot and transports Messages"
+    },
+    "officialAzureIconsPreserved": true,
+    "apiManagementAbsent": true,
+    "requiredOnlyTopologyPreserved": true,
+    "readability": "approved at native 2560x1600"
+  },
+  "infrastructureChanged": false
+}

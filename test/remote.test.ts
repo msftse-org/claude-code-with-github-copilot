@@ -9,7 +9,7 @@ import { startRemoteServer } from '../src/remote-server.ts';
 import type { RemoteServerOptions } from '../src/remote-server.ts';
 import { clientHistory, clientModelId, gatewayUrl, credential, LEGACY_REMOTE_PROFILE, remoteInfo, remoteModel, remoteRequest, REMOTE_PROFILE, PROBE_PROMPT, resolveModel } from '../src/remote.ts';
 import { LiteLLMBackend } from '../src/litellm.ts';
-import { RemoteClient, configure, settingsPatch, inspectRemoteSettings } from '../src/remote-client.ts';
+import { RemoteClient, configure, helperCommand, settingsPatch, inspectRemoteSettings } from '../src/remote-client.ts';
 import type { Secrets } from '../src/remote-client.ts';
 import { readPrivate, readState, writePrivate } from '../src/private-state.ts';
 import { object, parseJson, text } from '../src/protocol.ts';
@@ -315,6 +315,20 @@ test('unsafe private state and conflicting/symlinked Claude settings are rejecte
   } finally { await rm(home, { recursive: true }); }
 });
 
+test('approved catalog migration resets only an unavailable owned user model', async () => {
+  const home = await mkdtemp(join(tmpdir(), 'ccgc-remote-model-reset-'));
+  const profile = { gateway: 'https://gateway.test', info: { ...identity, profile: REMOTE_PROFILE, instance: 'test' } };
+  try {
+    await mkdir(join(home, '.claude'));
+    const path = join(home, '.claude', 'settings.json');
+    await writeFile(path, JSON.stringify({ apiKeyHelper: helperCommand(), model: 'claude-opus-removed' }));
+    await assert.rejects(configure(profile, home, true, home, join(home, 'managed')), /model/i);
+    await configure(profile, home, true, home, join(home, 'managed'), true);
+    const applied = parseJson(await readFile(path, 'utf8'));
+    assert.equal(applied.model, profile.info.model.id);
+  } finally { await rm(home, { recursive: true }); }
+});
+
 test('catalog discovery uses native spellings and exact deterministic Copilot routes', async () => {
   const opus = { ...model, id: 'claude-opus-5.5', name: 'Claude Opus 5.5', output: 256, responseIds: ['claude-opus-5.5'] };
   const haiku = { ...model, id: 'claude-haiku-4.5', responseIds: ['claude-haiku-4.5'] };
@@ -389,8 +403,16 @@ test('model-switch history normalization preserves every context value and user/
     { type: 'text', text: `<system-reminder>\n${identity}\n</system-reminder>` }, { type: 'text', text: 'Do not rewrite me' },
   ] }];
   assert.deepEqual(clientHistory(native), clientHistory(legacy));
+  assert.deepEqual(clientHistory([{ role: 'user', content: 'Do not rewrite me' }]), clientHistory([native[0]]));
   assert.notDeepEqual(clientHistory(native), clientHistory([{ ...native[0], content: [{ type: 'text', text: 'rewritten' }] }, native[1]]));
-  assert.notDeepEqual(clientHistory(native), clientHistory([native[0], { role: 'system', content: identity.replace('5.5', '5') }]));
+  const switchedIdentity = 'You are powered by the model named Haiku 4.5. The exact model ID is claude-haiku-4-5-20251001. Assistant knowledge cutoff is January 2025.';
+  assert.deepEqual(clientHistory(native), clientHistory([native[0], { role: 'system', content: switchedIdentity }]));
+  const environment = '# Environment\nSynthetic\n\n' + identity + '\n\n<total_tokens>999999 tokens left</total_tokens>';
+  const switchedEnvironment = '# Environment\nSynthetic\n\n' + switchedIdentity + '\n\n<total_tokens>199999 tokens left</total_tokens>';
+  assert.deepEqual(clientHistory([native[0], { role: 'system', content: environment }]),
+    clientHistory([native[0], { role: 'system', content: switchedEnvironment }]));
+  const changed = '<system-reminder>The model for this session has been changed to claude-haiku-4-5-20251001.</system-reminder>';
+  assert.deepEqual(clientHistory([{ role: 'user', content: [{ type: 'text', text: changed }, ...(native[0]!.content as ObjectValue[])] }]), clientHistory([native[0]]));
   const unexpected = [{ role: 'user', content: [{ type: 'text', text: '<system-reminder>\narbitrary instructions\n</system-reminder>' }] }];
   assert.deepEqual(clientHistory(unexpected), unexpected);
 });

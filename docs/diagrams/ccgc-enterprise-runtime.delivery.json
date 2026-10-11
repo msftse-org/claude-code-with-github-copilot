@@ -3,15 +3,15 @@
   "ok": true,
   "command": "deliver",
   "type": "architecture",
-  "input": "/Users/shironbabi/Library/CloudStorage/OneDrive-Microsoft/Desktop/microsoft/claude-code-with-github-copilot/docs/diagrams/ccgc-enterprise-runtime.architecture.json",
-  "output": "/Users/shironbabi/Library/CloudStorage/OneDrive-Microsoft/Desktop/microsoft/claude-code-with-github-copilot/docs/diagrams/ccgc-enterprise-runtime.html",
+  "input": "/Users/shironbabi/Desktop/OneDrive - Microsoft/Desktop/microsoft/claude-code-with-github-copilot/docs/diagrams/ccgc-enterprise-runtime.architecture.json",
+  "output": "/Users/shironbabi/Desktop/OneDrive - Microsoft/Desktop/microsoft/claude-code-with-github-copilot/docs/diagrams/ccgc-enterprise-runtime.html",
   "specification": {
-    "sha256": "f7f0d536b85c7c5395597010a17b37ddaf6d3f450bc81e5b087d4a97dace512b",
-    "bytes": 4086
+    "sha256": "7377aa96105a12b3df298feed596b38b66874603f18fbd9fcbdfc625bcf614f2",
+    "bytes": 3835
   },
   "artifact": {
-    "sha256": "2ce3b932715444332fe9acb758f22d9e15a2186f9bb5657b2fcae56eb33eba7c",
-    "bytes": 716586
+    "sha256": "549785ac5f1420e4b2f8d2f7a34567769a7365575b995044c95ac2fe15a42849",
+    "bytes": 716094
   },
   "validation": {
     "checksPassed": 9,

@@ -4,20 +4,17 @@ The repository now contains an **implemented, locally validated enterprise
 foundation**. It is not deployed and is not yet approved for production use.
 The historical single-user VM remains independent and unchanged.
 
-## Why APIM and LiteLLM are not equivalent
+## Required runtime components
 
 | Component | Responsibility | Required? |
 |---|---|---|
 | Enterprise broker | Validates Microsoft Entra identity, resolves the same user's GitHub binding, issues bounded Claude admission tokens, reserves attempts transactionally, fences dispatches and emits audit intent. | Yes |
 | Isolated worker wrapper | Enforces the broker token, immutable principal binding, admission ownership, strictly increasing dispatch fences, model catalog and one in-memory conversation state per admission. | Yes |
 | LiteLLM | Performs the current Copilot-specific authentication/token refresh and native Anthropic Messages transport inside one user's isolated worker. | Yes for the current proven connector; replaceable only after another connector passes the same live gates |
-| API Management | Adds centralized private API publication, organization-level policy, diagnostics and API lifecycle governance. It does not authenticate to Copilot or replace the connector. | No; disabled by default |
 
-APIM and LiteLLM therefore have no protocol parity. Removing LiteLLM without
-another Copilot connector leaves no provider transport. Removing APIM still
-leaves a functional private gateway because the broker validates Entra tokens
-itself. Set `enableApim` only when the organization needs the additional API
-governance layer and has validated its SSE behavior and cost.
+The broker is the only enterprise ingress and validates Entra tokens itself.
+LiteLLM remains inside each isolated worker because removing it without another
+verified Copilot connector leaves no provider authentication or transport.
 
 ## Implemented request path
 
@@ -48,7 +45,7 @@ digests, model IDs, dispatch outcomes and identity/binding metadata only.
 | `src/enterprise-worker-server.ts` | Isolated worker authorization, conversation guard and LiteLLM forwarding |
 | `src/enterprise-client.ts` | Entra enrollment, admission renewal, Keychain and Claude settings patch |
 | `src/enterprise-admin.ts` | Explicit operator same-user link/revoke operations |
-| `infra/enterprise/` | Private, zone-redundant Bicep foundation and optional internal APIM |
+| `infra/enterprise/` | Private, zone-redundant Bicep foundation |
 | `server/Dockerfile.enterprise*` | Non-root locked broker and worker images |
 
 ## Infrastructure
@@ -57,7 +54,7 @@ digests, model IDs, dispatch outcomes and identity/binding metadata only.
 modify or adopt `rg-ccgc-dev-87b7`. The default topology includes:
 
 - Internal zone-redundant Container Apps workload-profile environment.
-- Separate Container Apps, PostgreSQL, private-endpoint and optional APIM subnets.
+- Separate Container Apps, PostgreSQL and private-endpoint subnets.
 - NAT Gateway for stable connector egress.
 - Entra-only, zone-redundant PostgreSQL Flexible Server.
 - Private Key Vault with RBAC, soft delete and purge protection.
@@ -66,7 +63,6 @@ modify or adopt `rg-ccgc-dev-87b7`. The default topology includes:
 - User-assigned broker identity with scoped Key Vault Secrets User and AcrPull.
 - Log Analytics and workspace-based Application Insights. Application payload
   logging remains prohibited.
-- Optional internal Premium v2 APIM with private DNS and unbuffered forwarding.
 
 The generated infrastructure contains no GitHub, Copilot, worker or database
 credential. `brokerImage` must be an approved immutable digest. Worker instances
@@ -104,8 +100,8 @@ Before deployment:
    principal and grant only schema/table/sequence access required by the broker.
 3. Build, scan, sign and push immutable broker and worker image digests through
    a private runner that can reach ACR.
-4. Run subscription `what-if` with a private parameter file, review APIM and
-   PostgreSQL costs, and confirm that changes are create-only.
+4. Run subscription `what-if` with a private parameter file, review Container
+   Apps and PostgreSQL costs, and confirm that changes are create-only.
 5. Deploy only after explicit risk/cost approval.
 
 Example preview:

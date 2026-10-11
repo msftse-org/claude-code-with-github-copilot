@@ -9,15 +9,20 @@ proxy is part of the target workflow.
 an Entra-authenticated multi-user broker, PostgreSQL admission/dispatch fencing
 and audit outbox, Key Vault worker resolution, an isolated per-user worker
 wrapper, an Entra/admission-based Claude credential helper, private Container
-Apps/PostgreSQL/Key Vault/ACR Bicep, and optional internal APIM. APIM is not a
-LiteLLM replacement: APIM is an optional governance ingress, while LiteLLM
-remains the current Copilot/Anthropic connector inside each isolated user worker.
+Apps/PostgreSQL/Key Vault/ACR Bicep, and metadata-only monitoring. The enterprise
+broker is the private ingress, while LiteLLM remains the required current
+Copilot/Anthropic connector inside each isolated user worker.
 See [the enterprise implementation and deployment gates](docs/ENTERPRISE.md).
 
 **Deployment automation:** [the end-to-end runbook](docs/AUTOMATION.md) supports
 both **Bicep and Terraform** through `python3 server/deploy.py`. It covers a new
 host, verified JIT/SSH, account binding, HTTPS activation, Mac configuration,
-all-model tool verification, admission renewal and restart recovery. Browser
+all-model tool verification, admission renewal and complete restart recovery.
+Recovery starts a stopped VM only with approval, renews JIT access, requires an
+exact catalog-preview hash before applying entitlement changes, restarts the
+containers, refreshes and configures the Mac client, resets only an unavailable
+gateway-owned user model to the approved default, and creates a fresh admission.
+Browser
 authorization and cost/client/inference approvals remain explicit. The
 coordinator is locally tested; no fresh billable deployment is claimed.
 
@@ -73,17 +78,93 @@ The [single-user implementation diagram](docs/diagrams/ccgc-automated-solution.h
 is retained separately as current-state evidence. The running service and the
 existing Bicep/Terraform coordinator remain the single-user alpha described below.
 
+## Internal components deployed for the current test environment
+
+The working test environment is the **single-user Azure alpha**, not the
+enterprise Container Apps foundation. It has two halves: a remote Azure host
+that owns the Copilot connection and a local Mac configuration that keeps the
+unmodified Claude Code CLI as the user interface.
+
+### Azure host
+
+| Component | What it does | Why it is required |
+|---|---|---|
+| Azure VM | Runs the three Docker services and their protected state on one approved host. | Provides a stable remote Linux environment for the connector and HTTPS gateway. |
+| Azure networking and DNS | Gives the VM a static public address and the `ccgc-dev-87b7.swedencentral.cloudapp.azure.com` hostname. Port 443 is public; SSH is opened only through source-restricted Defender JIT access. | Claude Code needs a stable HTTPS origin, while administration must remain restricted. |
+| Caddy ingress | Terminates public TLS and forwards requests to the internal Node gateway. It is the only container that publishes ports 80/443. | The Claude API endpoint must be HTTPS; neither the gateway nor LiteLLM should be exposed directly. |
+| Node admission gateway | Validates the host and gateway credentials, runs the fixed live probe, issues bounded admissions, enforces the selected model and attempt limit, protects conversation continuity, and forwards native Anthropic Messages traffic. | A Copilot credential alone does not provide session admission, replay protection, limits, or safe client-facing authentication. |
+| LiteLLM connector | Performs GitHub device authorization, refreshes the user's Copilot token, discovers the Copilot endpoint and enabled Claude catalog, and transports native Anthropic Messages requests to Copilot. | This is the current proven adapter between the Anthropic-compatible Claude Code protocol and the employee's Copilot seat. |
+| Private Docker state volume | Stores the authorized GitHub account binding, Copilot token cache, gateway keys, approved model catalog, and deployment metadata with restricted filesystem permissions. | The containers need durable authentication and binding state across process restarts without placing secrets in the repository or container image. |
+
+The containers communicate only on private Docker networks:
+
+```text
+Internet
+  -> Caddy HTTPS ingress
+  -> Node admission gateway
+  -> LiteLLM connector
+  -> GitHub Copilot
+  -> entitled Claude model
+```
+
+There is intentionally no API Management instance, shared Copilot service
+account, provider fallback, response cache, inference retry layer, or prompt
+body logging in this deployed path.
+
+### Developer Mac
+
+| Component | What it does |
+|---|---|
+| Claude Code 2.1.284 | Remains the unmodified coding client. Read, Edit, Bash, permissions, and the interactive conversation run locally. |
+| `ccgc` CLI and `apiKeyHelper` | Performs login/configuration, remote checks, the isolated live probe, admission renewal, model discovery, and on-demand gateway-token retrieval. It is not a persistent local proxy. |
+| macOS Keychain | Stores the gateway renewal credential. GitHub and Copilot tokens remain on the Azure host. |
+| `~/.claude/settings.json` | Points Claude Code to the Azure HTTPS origin, installs the credential helper, enables gateway model discovery, and disables conflicting background/provider behavior. |
+| Local CCGC profile | Stores non-secret gateway metadata, the reviewed account/model binding, and the current bounded admission identifier. |
+
+The configured default is **Claude Sonnet 5.5**. Claude Code discovers the
+current approved catalog from the gateway rather than maintaining a separate
+hard-coded client mapping. To inspect it before starting Claude:
+
+```bash
+node src/cli.ts models
+```
+
+The currently verified Copilot-seat catalog is Claude Haiku 4.5, Claude Haiku
+5.5, Claude Sonnet 5, and Claude Sonnet 5.5. Inside Claude Code, use `/model` to
+select one of the discovered models. A live synthetic client check switches
+through every catalog model and back to the default over the same
+Claude Code -> HTTPS gateway -> LiteLLM -> GitHub Copilot route. If Copilot
+changes the entitled catalog, startup fails closed until the operator reviews
+and explicitly refreshes the same-account binding.
+
+For an ordinary request, Claude Code asks the helper for a short-lived gateway
+token and sends `/v1/messages` over HTTPS. The gateway validates the admission,
+then LiteLLM uses the already-authorized Copilot seat to reach the selected
+Claude model. The response streams back through the same path. Repository files
+and tool execution stay on the Mac; the remote services handle only model
+transport and the control metadata needed to secure it.
+
+### Enterprise components not deployed yet
+
+The Entra-authenticated enterprise broker, Azure Container Apps environment,
+PostgreSQL admission/fencing store, Key Vault worker records, private ACR,
+per-user workers, and Azure Monitor/Application Insights configuration exist as
+an implemented and locally validated foundation only. They are not part of the
+current live test deployment and must not be inferred from the enterprise
+poster. Their remaining deployment and release gates are documented in
+[the enterprise runbook](docs/ENTERPRISE.md).
+
 The **implemented alpha** path is **Claude -> remote TLS ingress -> admission gateway ->
 internal LiteLLM -> Copilot native `/v1/messages`**. Claude owns all file/shell
 tools and permission decisions. LiteLLM handles the Copilot inference transport
 and its own token cache. A small Node service owns client credentials, admission,
 model restrictions, conversation guards, and attempt accounting.
 
-The included deployment uses Caddy for HTTPS. APIM is proposed for enterprise,
-but remains optional and unprovisioned in the alpha;
-replacing ingress requires separately validating native Messages, immediate SSE,
-Host preservation, no inference retries/cache/body logging, and a suitable tier.
-Neither APIM nor a gateway key grants a Copilot seat.
+The included alpha deployment uses Caddy for HTTPS. The enterprise foundation
+uses the internal Container Apps broker directly and does not add a second API
+gateway. Any ingress change requires separately validating native Messages,
+immediate SSE, Host preservation, and no inference retries, cache, or body
+logging. A gateway credential never grants a Copilot seat.
 
 **Unofficial access warning:** LiteLLM uses GitHub device authorization with the
 community-default OAuth client ID `Iv1.b507a08c87ecfe98`, the internal
@@ -313,7 +394,7 @@ combination, nested-repository setting, interactive startup branch, or later
 manual routing override. Use a reviewed repository-root configuration with no
 unverified customizations. Source context intentionally leaves the developer
 machine during coding; client/provider retention is separate from gateway
-logging. Desktop, Entra/OIDC, Key Vault, APIM policies, performance targets, and
+logging. Desktop, Entra/OIDC, Key Vault, performance targets, and
 production hardening are not implemented or certified.
 
 **Still required for broader release:** verify cold/refresh endpoint behavior,

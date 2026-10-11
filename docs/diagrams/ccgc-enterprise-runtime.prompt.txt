@@ -2,34 +2,32 @@ Create a presentation-quality 2560 x 1600 architecture poster from the reference
 
 TITLE: "Claude Code with GitHub Copilot"
 SECTION TITLE: "ENTERPRISE RUNTIME ARCHITECTURE"
-Visible status badge: "PROPOSED TARGET - NOT DEPLOYED"
+Visible status badge: "IMPLEMENTED FOUNDATION - NOT DEPLOYED"
 
 CRITICAL SCOPE: This image contains RUNTIME ONLY. Do NOT include provisioning, Bicep, Terraform, CI/CD, installation, rollout, setup stages, or deployment arrows anywhere. Those belong to a completely separate diagram.
 
 STYLE: Warm ivory canvas, dark navy text, restrained cobalt runtime arrows, soft blue runtime boundary, muted violet data controls, amber identity/secrets. Consistent flat outline technical icons, no invented corporate logos, no isometric blocks, decorative circuitry, neon or hardware scenery. Large node titles and short sublabels. Clear hierarchy, careful alignment and generous spacing. Remove all screenshot viewer controls, export buttons, grid, zoom controls and category legend. Use the whole page meaningfully without excessive empty top space.
 
-LAYOUT: Main five-node inference rail through the center; two supporting identity/secrets cards above it; two durable-data/operations cards below. Exactly nine main component cards. The gateway and account-isolation area is the visual center. The logical Azure workload boundary contains API Management, Gateway + seat broker, Per-user LiteLLM, Azure Monitor and Azure PostgreSQL HA. Claude Code and GitHub Copilot are outside on opposite sides. Entra ID and Key Vault are managed services drawn above, outside that runtime boundary. Key Vault access is private; its placement does not mean it is outside Azure.
+LAYOUT: Main four-node inference rail through the center; two supporting identity/secrets cards above it; two durable-data/operations cards below. Exactly eight main component cards. The broker and account-isolation area is the visual center. The logical Azure workload boundary contains Enterprise broker, Per-user LiteLLM, Azure Monitor and Azure PostgreSQL HA. Claude Code and GitHub Copilot are outside on opposite sides. Entra ID and Key Vault are managed services drawn above, outside that runtime boundary. Key Vault access is private; its placement does not mean it is outside Azure.
 
-MAIN PATH, left to right, four solid cobalt arrows with arrowheads touching the destination boxes:
+MAIN PATH, left to right, three solid cobalt arrows with arrowheads touching the destination boxes:
 "Claude Code" / "Unmodified CLI; local tools"
-RIGHT via "Private TLS" to
-"API Management" / "Premium v2; private ingress"
-RIGHT via "Native Messages" to
-"Gateway + seat broker" / "Container Apps; per-user policy"
+RIGHT via "Private TLS / Native Messages" to
+"Enterprise broker" / "Container Apps; Entra + per-user policy"
 RIGHT via "Bound user" to
 "Per-user LiteLLM" / "Isolated account token caches"
 RIGHT via "TLS / SSE" to
 "GitHub Copilot" / "Each user's entitled Claude models".
 
-Above API Management:
+Above the enterprise broker:
 "Microsoft Entra ID" / "SSO; conditional access".
-A dashed amber arrow points UP from API Management into Entra ID, labeled "JWT trust". This means validation against the trusted issuer, not Copilot authorization.
+A dashed amber arrow points UP from the enterprise broker into Entra ID, labeled "JWT trust". This means validation against the trusted issuer, not Copilot authorization.
 
 Above the gateway/workers:
 "Azure Key Vault" / "Per-user secrets; private access".
 A dashed amber orthogonal arrow points from the TOP of Gateway + seat broker UP into Key Vault, labeled "Managed identity". Do NOT connect Key Vault directly to the user or give all workers access to all users' secrets.
 
-Below the API Management side, within the workload boundary:
+Below the broker side, within the workload boundary:
 "Azure Monitor" / "Audit; alerts; no prompt bodies".
 A thin gray arrow points from Gateway + seat broker DOWN and LEFT into Azure Monitor, labeled "Metadata only". Its corridor must not intersect the database arrows.
 
@@ -55,4 +53,4 @@ Compact bottom guardrail/status strip:
 
 Legend, only if useful: solid cobalt = inference request; dashed amber = identity / secrets; thin gray = control state / telemetry. No dashed deployment connectors. Replies stream back along the inference route; no need to draw a second parallel return graph.
 
-This is a proposed enterprise design, not evidence of a deployed or vendor-endorsed product. Do not say production-ready, officially supported, zero downtime, unlimited seats, guaranteed exactly-once, or that Azure hosting guarantees Copilot inference residency. Do not add an Anthropic API credential, local inference proxy, second agent, shared service-account seat, Kubernetes, WAF or Front Door. Keep provisioning entirely out of this image.
+This is an implemented and locally validated enterprise foundation, not evidence of a deployed or vendor-endorsed product. Do not say production-ready, officially supported, zero downtime, unlimited seats, guaranteed exactly-once, or that Azure hosting guarantees Copilot inference residency. Do not add API Management, an Anthropic API credential, local inference proxy, second agent, shared service-account seat, Kubernetes, WAF or Front Door. Keep provisioning entirely out of this image.
