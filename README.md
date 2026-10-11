@@ -55,11 +55,14 @@ of these required functions.
 ### On Azure
 
 - One Linux VM
-- Caddy for public HTTPS
-- Node.js admission gateway
-- LiteLLM Copilot connector
-- Private Docker state for account binding and credentials
 - Defender JIT access for temporary, source-restricted SSH
+
+| Component | What it is | Why we need it |
+|---|---|---|
+| Caddy | Third-party open-source HTTPS server and reverse proxy. | Provides automatic TLS and exposes one secure public endpoint without publishing the internal services. |
+| Node.js admission gateway | Project-developed TypeScript/Node.js service. | Authenticates the Mac client, creates bounded sessions, enforces the approved model catalog, and protects request history from replay or divergence. |
+| LiteLLM Copilot connector | Third-party open-source model gateway. | Handles GitHub device authorization, Copilot token refresh, model discovery, and Anthropic Messages transport to the user's Copilot seat. |
+| Private Docker state | Deployment-owned private Docker volume, not an external hosted service. | Keeps the account binding, Copilot token cache, gateway credentials, and approved model catalog across container restarts without storing them in Git or images. |
 
 Only Caddy exposes public ports. The gateway and LiteLLM stay on private Docker
 networks.
