@@ -87,6 +87,8 @@ export interface ClaudeOptions {
   capture?: boolean;
   signal?: AbortSignal;
   environment?: NodeJS.ProcessEnv;
+  autocompact?: 'auto' | `${number}k` | number;
+  tools?: string[];
   allowedTools?: string[];
   disallowedTools?: string[];
 }
@@ -98,7 +100,7 @@ export async function runClaude(options: ClaudeOptions): Promise<{ code: number;
     '--safe-mode', '--permission-mode', 'manual', '--disable-slash-commands',
     '--strict-mcp-config', '--mcp-config', '{"mcpServers":{}}', '--no-chrome',
     '--model', options.model.id, '--session-id', randomUUID(),
-    '--tools', options.probe ? '' : 'Read,Edit,Write,Bash,Glob,Grep',
+    '--tools', options.probe ? '' : (options.tools ?? ['Read', 'Edit', 'Write', 'Bash', 'Glob', 'Grep']).join(','),
   ];
   if (options.probe) {
     args.push('--system-prompt', 'This is an isolated connection probe. Reply with exactly CCGC_READY. Do not use tools.');
@@ -107,6 +109,7 @@ export async function runClaude(options: ClaudeOptions): Promise<{ code: number;
   }
   if (print) args.push('--print', '--no-session-persistence');
   if (options.capture) args.push('--output-format', 'json');
+  if (options.autocompact !== undefined) args.push('--autocompact', String(options.autocompact));
   if (options.allowedTools?.length) args.push('--allowedTools', options.allowedTools.join(','));
   if (options.disallowedTools?.length) args.push('--disallowedTools', options.disallowedTools.join(','));
   const env = childEnvironment(options.url, options.token, options.model, options.environment);

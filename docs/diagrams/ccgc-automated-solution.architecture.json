@@ -126,7 +126,7 @@
     {
       "dot": "cyan",
       "title": "Verified Claude feature route",
-      "items": ["Images, PDFs, adaptive thinking and token counts.", "Subagents use isolated branches; tools stay on the Mac."]
+      "items": ["Images, PDFs, adaptive thinking and token counts.", "Compaction, Cron, memory and agent branches are verified."]
     },
     {
       "dot": "amber",

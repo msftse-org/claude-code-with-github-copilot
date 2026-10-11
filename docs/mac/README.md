@@ -186,18 +186,17 @@ provider keys or override the broker URL.
 - Adaptive thinking
 - Exact token counting
 - Completed-turn resume after admission renewal or gateway restart
-- Agents/subagents
+- Coordinated agents/subagents
 - Background Bash tasks
 - Hooks
+- Automatic compaction through a real context-limit continuation cycle
+- Cron create/list/delete, durable restart, and timed one-shot firing
+- Automatic-memory write, persistence, and fresh-session reload
 
 | Feature | Status | Employee impact |
 |---|---|---|
 | Explicit fixed-budget thinking | Not supported by the current model | Use adaptive thinking; the current Sonnet model rejects explicit thinking budgets. |
-| Automatic compaction | Not fully verified | Thinking cleanup works, but do not rely on full context-limit compaction until a real long-context cycle passes release testing. |
 | Resume with a pending tool batch | Not working | Completed turns resume, but a conversation paused inside a tool batch cannot yet resume safely. |
-| Agent teams | Exposed, not fully verified | Claude Code 2.1.296 exposes Agent, ListAgents, SendMessage, and Workflow. Full coordinated multi-agent execution remains a release-test gap. |
-| Cron | Exposed, not fully verified | Claude Code 2.1.296 exposes CronCreate, CronDelete, and CronList, but scheduled firing and durable restart have not completed release testing. |
-| Automatic memory | Enabled, not fully verified | Automatic memory is no longer disabled, but controlled persistence and reload testing is still pending. |
 | Advisor | Not available in Claude Code 2.1.296 | The disable flag is gone, but the client does not expose an Advisor tool. |
 | Auto permission mode | Not supported through this route | The custom route cannot reach Claude Code's Anthropic safety classifier. The generated profile uses manual mode and preserves explicit allow/deny rules. |
 

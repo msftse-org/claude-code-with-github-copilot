@@ -65,6 +65,60 @@ function historyShape(value: unknown): unknown {
   };
 }
 
+function semanticDigest(body: ObjectValue): string {
+  const system = Array.isArray(body.system) ? body.system.map(value => {
+    const block = { ...object(value) };
+    if (typeof block.text === 'string') {
+      block.text = block.text.replace(
+        /^(x-anthropic-billing-header: cc_version=\d+\.\d+\.\d+)\.[a-z0-9]+(; cc_entrypoint=[a-z-]+;)(?: cc_workload=cron;)?$/,
+        '$1.<launch>$2',
+      );
+    }
+    return block;
+  }) : body.system;
+  return digest({ system, tools: body.tools, tool_choice: body.tool_choice });
+}
+
+const COMPACTION_PROMPT = 'CRITICAL: Respond with TEXT ONLY. Do NOT call any tools.';
+
+function compactionBase(messages: unknown[]): ObjectValue[] | undefined {
+  if (!messages.length) return undefined;
+  const base = structuredClone(messages) as ObjectValue[];
+  const last = object(base.at(-1));
+  if (!Array.isArray(last.content) || last.content.length < 2) return undefined;
+  const final = object(last.content.at(-1));
+  if (final.type !== 'text' || typeof final.text !== 'string' || !final.text.startsWith(COMPACTION_PROMPT)
+    || !final.text.includes('Your task is to create a detailed summary of the conversation so far')) return undefined;
+  last.content.pop();
+  return base;
+}
+
+function isTitleRequest(messages: unknown[]): boolean {
+  if (messages.length !== 1) return false;
+  const message = object(messages[0]);
+  if (message.role !== 'user' || !Array.isArray(message.content) || message.content.length !== 1) return false;
+  const block = object(message.content[0]);
+  if (block.type !== 'text' || typeof block.text !== 'string') return false;
+  return /^<session>\n[\s\S]+\n<\/session>\n\nWrite the title in the predominant language of the session — a stray word or code token in another language doesn't change it, and neither does the English of these instructions\.$/.test(block.text);
+}
+
+function approvedCompactionReplacement(messages: ObjectValue[], summary: string | undefined,
+  assistant: ObjectValue | undefined, pending: Set<string>): boolean {
+  if (!summary || !assistant || messages.length !== 3) return false;
+  const [summaryMessage, assistantMessage, resultMessage] = messages;
+  if (object(summaryMessage).role !== 'user' || !JSON.stringify(summaryMessage).includes(summary)) return false;
+  if (historyDigest(assistantMessage) !== historyDigest(assistant)) return false;
+  if (object(resultMessage).role !== 'user' || !Array.isArray(object(resultMessage).content)) return false;
+  const content = object(resultMessage).content as unknown[];
+  if (content.some(value => {
+    const block = object(value);
+    return block.type !== 'tool_result'
+      && !(block.type === 'text' && typeof block.text === 'string' && block.text.trim().startsWith('<system-reminder>'));
+  })) return false;
+  const results = toolResults({ messages: [resultMessage] });
+  return new Set(results).size === results.length && results.length === pending.size && results.every(id => pending.has(id));
+}
+
 function normalizeClaudeCodeRequest(body: ObjectValue): void {
   if (body.thinking === null || typeof body.thinking !== 'object' || Array.isArray(body.thinking)) return;
   const thinking = body.thinking as ObjectValue;
@@ -157,6 +211,8 @@ function createSingleMessageSession(options: GatewayOptions, token: string, orig
   let prefixFields: Record<string, string>[] = [];
   let prefixShapes: unknown[] = [];
   let semantics: string | undefined;
+  let compactionSummary: string | undefined;
+  let pendingAssistant: ObjectValue | undefined;
   let selectedModel: string | undefined;
   let pending: Set<string> = new Set();
   let pendingSince = 0;
@@ -221,17 +277,31 @@ function createSingleMessageSession(options: GatewayOptions, token: string, orig
       retired = true;
       throw new BridgeError('CANCELLED_OR_TIMEOUT', 'Tool-result wait expired; start a new session.', 409);
     }
+    if (!Array.isArray(body.messages)) throw new BridgeError('INVALID_REQUEST', 'Invalid messages.');
+    const title = isTitleRequest(body.messages);
+    if (title && (prefix.length || pending.size)) throw new BridgeError('CONTEXT_CONFLICT', 'Title generation is allowed only before the conversation starts.', 409);
+    const base = compactionBase(body.messages);
+    const normalizedBase = base === undefined ? undefined : (options.history?.(base) ?? base);
+    const compaction = normalizedBase !== undefined
+      && normalizedBase.length === prefix.length
+      && normalizedBase.map(historyDigest).every((hash, index) => hash === prefix[index]);
+    if (base !== undefined && !compaction) {
+      const hashes = normalizedBase!.map(historyDigest);
+      throw new BridgeError('CONTEXT_CONFLICT',
+        `Compaction base diverged at message ${prefix.findIndex((hash, index) => hashes[index] !== hash) + 1}.`, 409);
+    }
     const results = toolResults(body);
-    if (new Set(results).size !== results.length || results.length !== pending.size || results.some(id => !pending.has(id))) {
+    if (!title && !compaction && (new Set(results).size !== results.length || results.length !== pending.size || results.some(id => !pending.has(id)))) {
       throw new BridgeError('CONTEXT_CONFLICT', `Tool-result batch mismatch: expected ${pending.size}, received ${results.length}, matched ${results.filter(id => pending.has(id)).length}.`, 409);
     }
-    if (!Array.isArray(body.messages)) throw new BridgeError('INVALID_REQUEST', 'Invalid messages.');
     const normalizedHistory = options.history?.(body.messages) ?? body.messages;
     const history = normalizedHistory.map(historyDigest);
     const fields = normalizedHistory.map(historyFields);
     const shapes = normalizedHistory.map(historyShape);
     const mismatch = prefix.findIndex((hash, index) => history[index] !== hash);
-    if (!modelCheck && mismatch >= 0) {
+    const approvedReplacement = !compaction
+      && approvedCompactionReplacement(body.messages, compactionSummary, pendingAssistant, pending);
+    if (!modelCheck && !title && !compaction && !approvedReplacement && mismatch >= 0) {
       const previous = prefixFields[mismatch] ?? {};
       const current = fields[mismatch] ?? {};
       const changed = [...new Set([...Object.keys(previous), ...Object.keys(current)])]
@@ -241,9 +311,9 @@ function createSingleMessageSession(options: GatewayOptions, token: string, orig
         `(${prefix.length} previous, ${history.length} current); shapes: ` +
         `${JSON.stringify(prefixShapes[mismatch])} -> ${JSON.stringify(shapes[mismatch])}.`, 409);
     }
-    if (!modelCheck && switching && history.length <= prefix.length) throw new BridgeError('CONTEXT_CONFLICT', 'A model switch requires a new user turn, not a retry of the previous turn.', 409);
-    const currentSemantics = digest({ system: body.system, tools: body.tools, tool_choice: body.tool_choice });
-    if (!modelCheck && semantics !== undefined && semantics !== currentSemantics) throw new BridgeError('CONTEXT_CONFLICT', 'System prompt or tool semantics changed.', 409);
+    if (!modelCheck && !title && !compaction && !approvedReplacement && switching && history.length <= prefix.length) throw new BridgeError('CONTEXT_CONFLICT', 'A model switch requires a new user turn, not a retry of the previous turn.', 409);
+    const currentSemantics = semanticDigest(body);
+    if (!modelCheck && !title && !compaction && semantics !== undefined && semantics !== currentSemantics) throw new BridgeError('CONTEXT_CONFLICT', 'System prompt or tool semantics changed.', 409);
     const fingerprint = digest({ ...body, metadata: undefined });
     if (!modelCheck && seen.has(fingerprint)) throw new BridgeError('CONTEXT_CONFLICT', 'A repeated request will not be submitted again.', 409);
     if (stats.attempts >= maxTurns) throw new BridgeError('LIMIT_REACHED', 'Session upstream-turn limit reached.', 429);
@@ -303,14 +373,21 @@ function createSingleMessageSession(options: GatewayOptions, token: string, orig
         tracker.complete(value);
         json(response, 200, value);
       }
-      if (!modelCheck) {
+      if (title) {
+        if (tracker.pending.size || !tracker.text) throw new BridgeError('PROTOCOL_ERROR', 'Title generation must return non-empty text without tools.', 502);
+      } else if (compaction) {
+        if (tracker.pending.size || !tracker.text) throw new BridgeError('PROTOCOL_ERROR', 'Compaction must return a non-empty text summary.', 502);
+        compactionSummary = tracker.text;
+      } else if (!modelCheck) {
         prefix = history;
         prefixFields = fields;
         prefixShapes = shapes;
         semantics = currentSemantics;
         selectedModel = model.id;
         pending = tracker.pending;
+        pendingAssistant = pending.size ? { role: 'assistant', content: structuredClone(tracker.content) } : undefined;
         pendingSince = Date.now();
+        if (approvedReplacement) compactionSummary = undefined;
       }
       for (const [key, count] of Object.entries(tracker.usage)) stats.usage[key] = (stats.usage[key] ?? 0) + count;
       stats.completed++;

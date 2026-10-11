@@ -4,7 +4,7 @@ import { createServer as createTLS, request as httpsRequest } from 'node:https';
 import { request as httpRequest } from 'node:http';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
-import { mkdtemp, mkdir, readFile, rm, writeFile, access } from 'node:fs/promises';
+import { mkdtemp, mkdir, readFile, readdir, rm, writeFile, access } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -104,6 +104,9 @@ for (const model of catalog) test(`ordinary configured Claude uses HTTPS and the
   let codingTurn = 0;
   let switching = false;
   let switchingTurn = 0;
+  let feature: 'memory-write' | 'memory-read' | undefined;
+  let featureTurn = 0;
+  let memoryPath = '';
   const selected: string[] = [];
   const environment = { PATH: process.env.PATH, HOME: home, TMPDIR: process.env.TMPDIR, NODE_EXTRA_CA_CERTS: ca };
   try {
@@ -120,6 +123,19 @@ for (const model of catalog) test(`ordinary configured Claude uses HTTPS and the
         const selectedModel = catalog.find(model => model.id === body.model)!;
         const identities = JSON.stringify(body).match(/You are powered by the model named [^"\\]+/g);
         assert.ok(identities?.at(-1)?.startsWith(`You are powered by the model named ${selectedModel.name.replace('Claude ', '')}.`), JSON.stringify(identities));
+        if (feature === 'memory-write') {
+          if (featureTurn++ === 0) {
+            return stream([{ type: 'tool_use', id: 'memory-write', name: 'Write', input: {
+              file_path: memoryPath, content: '# Project memory\n\nCCGC_AUTO_MEMORY_RELOAD_OK\n',
+            } }], 'tool_use', 'msg_memory_write', String(body.model));
+          }
+          return stream([{ type: 'text', text: 'MEMORY_WRITE_OK' }], 'end_turn', 'msg_memory_written', String(body.model));
+        }
+        if (feature === 'memory-read') {
+          assert.match(JSON.stringify(body), /CCGC_AUTO_MEMORY_RELOAD_OK/);
+          featureTurn++;
+          return stream([{ type: 'text', text: 'MEMORY_RELOAD_OK' }], 'end_turn', 'msg_memory_reload', String(body.model));
+        }
         if (switching) {
           const index = selected.length;
           const workingDirectory = /Primary working directory: ([^\\"]+)/.exec(JSON.stringify(body))?.[1];
@@ -180,6 +196,32 @@ for (const model of catalog) test(`ordinary configured Claude uses HTTPS and the
     }
     assert.ok(diagnostics.includes('GET /fixture/v1/models?limit=1000 200'), diagnostics.join('; '));
     if (model.id === 'claude-sonnet-5.5') {
+      await client.close();
+      await client.probe(project, environment, join(directory, 'no-managed-settings'));
+      const projectHomes = await readdir(join(home, '.claude', 'projects'), { withFileTypes: true });
+      const projectHome = projectHomes.find(entry => entry.isDirectory());
+      assert.ok(projectHome, 'Claude Code did not create its per-project state directory.');
+      memoryPath = join(home, '.claude', 'projects', projectHome.name, 'memory', 'MEMORY.md');
+      feature = 'memory-write';
+      featureTurn = 0;
+      const memoryWrite = await exec('claude', [
+        '--print', 'Persist the synthetic project memory marker.',
+        '--output-format', 'json', '--no-session-persistence', '--allowedTools', 'Write',
+      ], { cwd: project, env: environment, timeout: 45000, maxBuffer: 1024 * 1024 });
+      assert.equal(parseJson(memoryWrite.stdout).result, 'MEMORY_WRITE_OK');
+      assert.match(await readFile(memoryPath, 'utf8'), /CCGC_AUTO_MEMORY_RELOAD_OK/);
+      feature = undefined;
+      await client.close();
+      await client.probe(project, environment, join(directory, 'no-managed-settings'));
+      feature = 'memory-read';
+      featureTurn = 0;
+      const memoryRead = await exec('claude', [
+        '--print', 'Confirm the project memory loaded.',
+        '--output-format', 'json', '--no-session-persistence',
+      ], { cwd: project, env: environment, timeout: 45000, maxBuffer: 1024 * 1024 });
+      assert.equal(parseJson(memoryRead.stdout).result, 'MEMORY_RELOAD_OK');
+      assert.equal(featureTurn, 1);
+      feature = undefined;
       await client.close();
       await client.probe(project, environment, join(directory, 'no-managed-settings'));
       switching = true;

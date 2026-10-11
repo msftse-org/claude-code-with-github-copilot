@@ -33,8 +33,8 @@
     {"id": "metadata-only-telemetry", "from": "principal-seat-broker", "to": "restricted-observability", "label": "metadata only", "fromSide": "bottom", "toSide": "top", "labelAt": [320, 540]}
   ],
   "cards": [
-    {"dot": "cyan", "title": "Verified Claude compatibility", "items": ["Images, PDFs, adaptive thinking and token counts.", "Read/Edit/Bash, hooks and background work stay local."]},
-    {"dot": "violet", "title": "Isolated multi-branch control", "items": ["Main plus eight fenced agent branches per admission.", "Completed transcripts can resume after re-admission."]},
+    {"dot": "cyan", "title": "Verified Claude compatibility", "items": ["Images, PDFs, adaptive thinking and token counts.", "Compaction, Cron and automatic memory complete native lifecycles."]},
+    {"dot": "violet", "title": "Isolated multi-branch control", "items": ["Coordinated agents use fenced branches per admission.", "Completed transcripts can resume after re-admission."]},
     {"dot": "amber", "title": "Implemented foundation - not deployed", "items": ["Integration permission and streaming gates remain.", "Region, capacity and DR require approval."]}
   ]
 }

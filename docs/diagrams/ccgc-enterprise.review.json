@@ -40,7 +40,7 @@
         "The five-component inference rail is separate from identity, secret, control-state and telemetry dependencies.",
         "Local tools and the upstream Copilot service remain outside the private workload boundary.",
         "Entra, broker-only secret access, the per-user worker, and the LiteLLM connector are distinct; no shared Copilot seat is shown.",
-        "Verified rich input, adaptive thinking, exact token counting, agent branches, background work and completed-turn resume are summarized without hiding remaining gaps.",
+        "Verified rich input, adaptive thinking, exact token counting, coordinated agent branches, compaction, Cron, automatic memory, background work and completed-turn resume are summarized.",
         "The two control-state writes have separate arrowheads; JWT trust text does not mask the boundary title.",
         "No provisioning pipeline, IaC stage or deployment flow appears.",
         "Both themes remain contained, with readable labels and conclusion cards at the largest desktop size."

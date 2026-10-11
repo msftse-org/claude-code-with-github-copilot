@@ -289,8 +289,10 @@ export class MessageTracker {
   readonly model: Model;
   readonly tools: Set<string>;
   readonly pending = new Set<string>();
-  readonly blocks = new Map<number, { type: string; json: string; signature?: boolean }>();
+  readonly blocks = new Map<number, { type: string; json: string; value: ObjectValue; signature?: boolean }>();
+  readonly content: ObjectValue[] = [];
   usage: Usage = {};
+  text = '';
   started = false;
   stopped = false;
   stopReason: string | undefined;
@@ -307,7 +309,7 @@ export class MessageTracker {
     }
   }
 
-  block(value: unknown, streaming = false): { type: string; json: string; signature?: boolean } {
+  block(value: unknown, streaming = false): { type: string; json: string; value: ObjectValue; signature?: boolean } {
     const block = object(value);
     if (block.type === 'tool_use') {
       const id = text(block.id, 'tool ID');
@@ -318,11 +320,11 @@ export class MessageTracker {
       object(block.input);
     } else if (block.type === 'thinking') {
       if (typeof block.thinking !== 'string' || (!streaming && typeof block.signature !== 'string')) throw new BridgeError('PROTOCOL_ERROR', 'Invalid upstream thinking block.', 502);
-      return { type: 'thinking', json: '', signature: typeof block.signature === 'string' };
+      return { type: 'thinking', json: '', value: structuredClone(block), signature: typeof block.signature === 'string' };
     } else if (block.type === 'redacted_thinking') {
       if (typeof block.data !== 'string') throw new BridgeError('PROTOCOL_ERROR', 'Invalid upstream redacted thinking block.', 502);
     } else if (block.type !== 'text' || typeof block.text !== 'string') throw new BridgeError('FEATURE_UNSUPPORTED', 'Unsupported or invalid upstream content block.', 502);
-    return { type: String(block.type), json: '' };
+    return { type: String(block.type), json: '', value: structuredClone(block) };
   }
 
   event(value: ObjectValue): boolean {
@@ -340,21 +342,29 @@ export class MessageTracker {
     if (!this.started) throw new BridgeError('PROTOCOL_ERROR', 'Event before message start.', 502);
     if (value.type === 'content_block_start') {
       if (value.index !== this.nextIndex++) throw new BridgeError('PROTOCOL_ERROR', 'Invalid content block order.', 502);
-      this.blocks.set(Number(value.index), this.block(value.content_block, true));
+      const block = this.block(value.content_block, true);
+      this.blocks.set(Number(value.index), block);
+      this.content[Number(value.index)] = block.value;
     } else if (value.type === 'content_block_delta') {
       const block = this.blocks.get(Number(value.index));
       if (!block) throw new BridgeError('PROTOCOL_ERROR', 'Delta outside an open block.', 502);
       const delta = object(value.delta);
       if (block.type === 'tool_use' && delta.type === 'input_json_delta' && typeof delta.partial_json === 'string') block.json += delta.partial_json;
-      else if (block.type === 'text' && delta.type === 'text_delta' && typeof delta.text === 'string') {}
-      else if (block.type === 'thinking' && delta.type === 'thinking_delta' && typeof delta.thinking === 'string') {}
-      else if (block.type === 'thinking' && delta.type === 'signature_delta' && typeof delta.signature === 'string') block.signature = true;
+      else if (block.type === 'text' && delta.type === 'text_delta' && typeof delta.text === 'string') {
+        block.value.text = String(block.value.text ?? '') + delta.text;
+        this.text += delta.text;
+      } else if (block.type === 'thinking' && delta.type === 'thinking_delta' && typeof delta.thinking === 'string') {
+        block.value.thinking = String(block.value.thinking ?? '') + delta.thinking;
+      } else if (block.type === 'thinking' && delta.type === 'signature_delta' && typeof delta.signature === 'string') {
+        block.value.signature = delta.signature;
+        block.signature = true;
+      }
       else throw new BridgeError('PROTOCOL_ERROR', 'Invalid block delta.', 502);
       if (block.json.length > 8 * 1024 * 1024) throw new BridgeError('LIMIT_REACHED', 'Tool JSON exceeds the local limit.', 502);
     } else if (value.type === 'content_block_stop') {
       const block = this.blocks.get(Number(value.index));
       if (!block) throw new BridgeError('PROTOCOL_ERROR', 'Unknown or already closed block.', 502);
-      if (block.json) parseJson(block.json);
+      if (block.json) block.value.input = parseJson(block.json);
       if (block.type === 'thinking' && !block.signature) throw new BridgeError('PROTOCOL_ERROR', 'Thinking block ended without a signature.', 502);
       this.blocks.delete(Number(value.index));
     } else if (value.type === 'message_delta') {
@@ -381,7 +391,11 @@ export class MessageTracker {
     if (value.type !== 'message' || !Array.isArray(value.content)) throw new BridgeError('PROTOCOL_ERROR', 'Invalid upstream message.', 502);
     this.started = true;
     this.usage = readUsage(value.usage);
-    for (const block of value.content) this.block(block);
+    this.content.push(...structuredClone(value.content) as ObjectValue[]);
+    for (const block of value.content) {
+      this.block(block);
+      if (object(block).type === 'text') this.text += text(object(block).text, 'text response');
+    }
     this.stopReason = text(value.stop_reason, 'stop reason');
     this.finish();
     this.stopped = true;

@@ -27,11 +27,11 @@ replay fencing and isolated agent branches. LiteLLM owns Copilot authorization,
 model discovery, transport, and exact token counting.
 
 The compatibility labels reflect the latest verified implementation: images,
-PDFs, adaptive thinking, exact token counts, subagents, background tasks, and
-completed-turn resume are working. Full context-limit compaction, pending-tool
-resume, coordinated agent teams, Cron lifecycle, and automatic-memory lifecycle
-proof remain release gaps. Claude Code `2.1.296` exposes Cron and multi-agent
-workflow tools, but does not expose an Advisor tool through this route.
+PDFs, adaptive thinking, exact token counts, coordinated agent branches,
+background tasks, completed-turn resume, automatic compaction, Cron lifecycle,
+and automatic-memory persistence are working. Pending-tool resume remains
+unsupported, and Claude Code `2.1.296` does not expose an Advisor tool through
+this route.
 
 Entra authenticates broker access, not Copilot entitlement. Each immutable
 enterprise principal must be linked to that same employee's authorized GitHub

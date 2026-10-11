@@ -170,6 +170,13 @@ export function clientHistory(messages: unknown[]): ObjectValue[] {
           index++;
         }
       }
+      for (let contentIndex = 0; contentIndex < content.length; contentIndex++) {
+        const block = object(content[contentIndex]);
+        if (block.type === 'text' && typeof block.text === 'string'
+          && block.text.trimStart().startsWith('<system-reminder>\nAttribution for git commits and pull requests')) {
+          content[contentIndex] = { ...block, text: block.text.trimEnd() };
+        }
+      }
       result.push({ ...message, content, ...(context.length ? { clientContext: context.join('\n\n') } : {}) });
     } else result.push({ ...message });
   }

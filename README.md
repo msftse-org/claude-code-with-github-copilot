@@ -92,18 +92,17 @@ Entra sign-in, configuration, Keychain behavior, verification, and daily use.
 - Adaptive thinking, effort metadata, and thinking-block handling
 - Exact token counting
 - Resume of completed turns across admission renewal and gateway restart
-- Agents/subagents with isolated branches
+- Coordinated agents/subagents with isolated branches
 - Background Bash tasks and result collection
 - Hooks
+- Automatic compaction through a real context-limit continuation cycle
+- Cron create/list/delete, durable restart, and timed one-shot firing
+- Automatic-memory write, persistence, and fresh-session reload
 
 | Feature | Status | Why |
 |---|---|---|
 | Explicit fixed-budget thinking | **Not supported by the current model** | The current Sonnet model requires adaptive thinking and rejects `thinking.type: enabled` with an explicit token budget. |
-| Automatic compaction | **Not fully verified** | Claude Code clear-thinking context management works, but a real context-limit compaction cycle has not completed the release gates. Arbitrary same-admission history replacement remains blocked. |
 | Resume with a pending tool batch | **Not working** | Completed turns resume across admissions and restarts, but the gateway cannot safely prove pending tool-result lineage after state replacement. |
-| Agent teams | **Exposed, not fully verified** | Claude Code `2.1.296` exposes `Agent`, `ListAgents`, `SendMessage`, and `Workflow`. The gateway supports the main branch plus eight isolated agent branches, but a coordinated multi-agent workflow has not completed release testing. |
-| Cron | **Exposed, not fully verified** | Claude Code `2.1.296` exposes `CronCreate`, `CronDelete`, and `CronList`. A scheduled fire, durable restart, and cleanup lifecycle has not completed release testing through this route. |
-| Automatic memory | **Enabled, not fully verified** | The project no longer disables automatic memory, but a controlled write-and-reload lifecycle has not completed release testing. |
 | Advisor tool | **Not available in this client** | The project no longer disables Advisor, but Claude Code `2.1.296` does not expose an `Advisor` tool in its native tool catalog. |
 | Auto permission mode | **Not supported through this route** | Auto mode depends on an Anthropic safety-classifier model that is unavailable through the custom Copilot gateway. The generated profile selects Claude Code's `manual` mode, preserves allow/deny rules, and still honors explicit approvals such as `--allowedTools`. |
 
