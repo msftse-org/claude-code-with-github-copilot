@@ -10,6 +10,11 @@
     "postgresAdminName": {"value": "id-ccgc-postgres-admin"},
     "brokerImage": {"value": "replace.azurecr.io/ccgc-enterprise-broker@sha256:replace"},
     "workerImage": {"value": "replace.azurecr.io/ccgc-enterprise-worker@sha256:replace"},
+    "litellmImage": {"value": "replace.azurecr.io/ccgc-enterprise-litellm@sha256:replace"},
+    "litellmPostgresAdminLogin": {"value": "litellmadmin"},
+    "litellmPostgresAdminPassword": {"value": "replace-with-a-long-random-password"},
+    "litellmMasterKey": {"value": "sk-replace-with-at-least-32-random-characters"},
+    "litellmSaltKey": {"value": "sk-replace-with-at-least-32-random-characters"},
     "dispatchSigningSecret": {"value": "replace-with-at-least-32-random-characters"},
     "checkpointEncryptionKey": {"value": "replace-with-base64-encoded-32-byte-key"},
     "cryptographicSecretExpiration": {"value": 1893456000}

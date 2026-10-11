@@ -8,7 +8,7 @@ Bicep/Terraform VM automation remain the single-user alpha documented below.
 
 | Enterprise diagram | Presentation PNG | Interactive HTML | Technical source |
 |---|---|---|---|
-| Runtime architecture | [Multi-user presentation poster](ccgc-enterprise-runtime-multiuser-flare-v3.png) | [Runtime viewer](ccgc-enterprise-runtime.html) | [Architecture JSON](ccgc-enterprise-runtime.architecture.json) |
+| Runtime architecture | [LiteLLM presentation poster](ccgc-enterprise-runtime-multiuser-litellm-flare-v4.png) | [Runtime viewer](ccgc-enterprise-runtime.html) | [Architecture JSON](ccgc-enterprise-runtime.architecture.json) |
 | Provisioning and rollout | [Provisioning poster](ccgc-enterprise-provisioning.png) | [Workflow viewer](ccgc-enterprise-provisioning.html) | [Workflow JSON](ccgc-enterprise-provisioning.workflow.json) |
 
 The [PRD enterprise target contract](../PRD.md#enterprise-target-revision-017)
@@ -17,21 +17,19 @@ and production gates. These diagrams do not certify enterprise readiness.
 
 ## Enterprise runtime
 
-![Enterprise multi-user runtime architecture](ccgc-enterprise-runtime-multiuser-flare-v3.png)
+![Enterprise multi-user runtime architecture](ccgc-enterprise-runtime-multiuser-litellm-flare-v4.png)
 
 The primary request path is **Claude Code -> private enterprise broker ->
-shared multi-user worker Container App -> in-process account-scoped connector
-pool -> GitHub Copilot -> Anthropic models**. The connector pool is contained
-inside every worker replica; it is not another Container App or independently
-scaled service. Native Messages and streamed responses follow this route;
+shared multi-user worker Container App -> private LiteLLM Gateway Container App
+-> GitHub Copilot -> Anthropic models**. Native Messages and streamed responses follow this route;
 Claude's Read/Edit/Bash, hooks, and background execution remain local. The
 broker owns admission and branch fencing. Any worker replica can load the
-matching encrypted checkpoint, while each connector owns only one account's
-Copilot authorization, token cache, refresh lock, transport, and token counting.
-Node.js marks identify the broker process, worker request runtime, and
-in-process connector pool. The Azure Container Apps mark remains on the
-deployable worker boundary. LiteLLM is intentionally absent from this enterprise
-diagram and remains only in the single-user alpha below.
+matching encrypted checkpoint and forwards with only that account's LiteLLM
+user key. LiteLLM stores encrypted per-user GitHub connections in its dedicated
+PostgreSQL database and owns Copilot token exchange, transport, streaming, and
+token counting. Node.js marks identify the broker and worker; Container Apps
+marks identify all three deployable services; the LiteLLM logo identifies the
+gateway.
 
 The compatibility labels reflect the latest verified implementation: images,
 PDFs, adaptive thinking, exact token counts, coordinated agent branches,
@@ -41,10 +39,11 @@ Claude Code `2.1.296` does not expose an Advisor tool through this route.
 
 Entra authenticates broker access, not Copilot entitlement. Each immutable
 enterprise principal must be linked to that same employee's authorized GitHub
-account. Workers use managed identity to resolve the signed account credential
-reference from Key Vault; connector caches remain account keyed. PostgreSQL
+account. Workers use managed identity to resolve the signed LiteLLM user-key reference
+from Key Vault; client caches remain account keyed. Enterprise PostgreSQL
 holds durable reservations, per-branch active locks, fences, quotas, and audit
-intent. Private Blob Storage holds client-side-encrypted checkpoints with ETag
+intent. LiteLLM PostgreSQL holds encrypted OAuth connections and gateway state.
+Private Blob Storage holds client-side-encrypted checkpoints with ETag
 conditional writes. Azure Monitor collects restricted metadata, never
 prompt/response bodies.
 
@@ -78,18 +77,17 @@ PaaS modules, per-user services or acceptance gates.
 |---|---|---|
 | Frozen specification/HTML hashes and byte counts | [Delivery receipt](ccgc-enterprise-runtime.delivery.json) | [Delivery receipt](ccgc-enterprise-provisioning.delivery.json) |
 | Desktop light/dark evidence | [Contact sheet](ccgc-enterprise-runtime.visual-check.html) | [Contact sheet](ccgc-enterprise-provisioning.visual-check.html) |
-| Initial image brief | [Archify runtime prompt](ccgc-enterprise-runtime.prompt.txt), [multi-user Flare prompt](ccgc-enterprise-runtime-multiuser-flare.prompt.txt), [nested-connector correction](ccgc-enterprise-runtime-multiuser-flare-v2.prompt.txt), [Node.js brand correction](ccgc-enterprise-runtime-multiuser-flare-v3.prompt.txt) | [Provisioning prompt](ccgc-enterprise-provisioning.prompt.txt) |
-| Image generation provenance | [Current Node-branded Flare receipt](ccgc-enterprise-runtime-multiuser-flare-v3.receipt.json), [nested-connector Flare receipt](ccgc-enterprise-runtime-multiuser-flare-v2.receipt.json), [initial multi-user Flare receipt](ccgc-enterprise-runtime-multiuser-flare.receipt.json), [historical per-user Flare receipt](ccgc-enterprise-runtime-flare-v2.receipt.json) | [Selected-image receipt](ccgc-enterprise-provisioning.receipt.json) |
+| Initial image brief | [LiteLLM architecture prompt](ccgc-enterprise-runtime-multiuser-litellm-flare-v4.prompt.txt), [Archify runtime prompt](ccgc-enterprise-runtime.prompt.txt), and historical correction prompts | [Provisioning prompt](ccgc-enterprise-provisioning.prompt.txt) |
+| Image generation provenance | [Current LiteLLM Flare receipt](ccgc-enterprise-runtime-multiuser-litellm-flare-v4.receipt.json) and retained historical receipts | [Selected-image receipt](ccgc-enterprise-provisioning.receipt.json) |
 
 The runtime presentation PNG was generated from the validated Archify
 light-theme capture and official Microsoft Entra/Azure icon references. It
-shows the current shared multi-user worker with its nested in-process,
-account-scoped connector pool. The validated
+shows the independently scaled broker, worker, and LiteLLM Gateway services. The validated
 [technical runtime capture](ccgc-enterprise-runtime.png),
 reviewed JSON, and interactive HTML remain authoritative when presentation
 artwork and implementation details differ. The earlier
-[per-user/LiteLLM Flare poster](ccgc-enterprise-runtime-flare-v2.png) is retained
-only as historical presentation artwork.
+[native-connector Flare poster](ccgc-enterprise-runtime-multiuser-flare-v3.png)
+is retained only as historical presentation artwork.
 
 Inputs were sanitized Archify screenshots and architecture terminology, not
 repository source, credentials, account IDs or actual private endpoints.

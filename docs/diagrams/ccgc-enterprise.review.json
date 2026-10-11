@@ -9,18 +9,18 @@
     "liveGatewayModified": false,
     "clientSettingsModified": false,
     "copilotInferencePerformed": false,
-    "imageGenerationInvocations": 6
+    "imageGenerationInvocations": 9
   },
   "interactiveDiagrams": [
     {
       "diagram_type": "architecture",
       "file": "ccgc-enterprise-runtime.html",
-      "sha256": "e7da3c41f63766c2488137fc99340bbd36faf84c80536c26cbca5bf5e04ce338",
-      "bytes": 728167,
+      "sha256": "fc6ac705633aff47bb3100b4a829e503de661456e60ec3044458b808a13b22a1",
+      "bytes": 732433,
       "specification": {
         "file": "ccgc-enterprise-runtime.architecture.json",
-        "sha256": "59465d5da06913ec57824a0984f0bab10dba51ef102d98ef8cdd60d7b3df73e8",
-        "bytes": 5030
+        "sha256": "9d4ce4c58e0276d15126aab8d5266531dea548861fe1168625f92031b9c47f89",
+        "bytes": 5782
       },
       "deliveryReceipt": "ccgc-enterprise-runtime.delivery.json",
       "visualEvidence": "ccgc-enterprise-runtime.visual-check.json",
@@ -37,12 +37,12 @@
         "ccgc-enterprise-runtime.visual-check.2048x1320.dark.png"
       ],
       "observations": [
-        "The worker Container App boundary visibly contains the worker request runtime and in-process account-scoped connector pool.",
-        "Node.js marks identify the broker, worker runtime, and in-process connector pool without implying separate deployments.",
+        "Broker, worker, and LiteLLM Gateway are visibly separate Container Apps with independent replica ranges.",
+        "Node.js marks identify only the broker and worker runtimes; LiteLLM is a distinct gateway service.",
         "Local tools and the upstream Copilot service remain outside the private workload boundary.",
-        "The connector pool is not represented as a separate Container App, worker service, or shared Copilot seat.",
+        "The worker carries only a per-user virtual key to LiteLLM; GitHub OAuth connections remain in the dedicated LiteLLM database.",
         "Verified rich input, adaptive thinking, exact token counting, coordinated agent branches, compaction, Cron, automatic memory, background work and completed-turn resume are summarized.",
-        "The two control-state writes have separate arrowheads; JWT trust text does not mask the boundary title.",
+        "Enterprise control PostgreSQL, LiteLLM PostgreSQL, and encrypted Blob checkpoints have separate state responsibilities.",
         "No provisioning pipeline, IaC stage or deployment flow appears.",
         "Both themes remain contained, with readable labels and conclusion cards at the largest desktop size."
       ]
@@ -84,25 +84,25 @@
   "presentationImages": [
     {
       "diagram_type": "architecture",
-      "file": "ccgc-enterprise-runtime-multiuser-flare-v3.png",
-      "sha256": "c494d65a00a999fdb8dc76142c2281019034615af6db2fc911edddbb4f430a7d",
-      "bytes": 2629789,
+      "file": "ccgc-enterprise-runtime-multiuser-litellm-flare-v4.png",
+      "sha256": "aba7c410075c8cbc60f40393e4d10d41ce0e5694794dd2d7229f5ef98b273ed0",
+      "bytes": 2301894,
       "width": 2560,
       "height": 1600,
-      "generationReceipt": "ccgc-enterprise-runtime-multiuser-flare-v3.receipt.json",
-      "supersedesDraft": "ccgc-enterprise-runtime-multiuser-flare-v2.png",
+      "generationReceipt": "ccgc-enterprise-runtime-multiuser-litellm-flare-v4.receipt.json",
+      "supersedesDraft": "ccgc-enterprise-runtime-multiuser-flare-v3.png",
       "visual_review": "passed",
-      "correction_rounds": 1,
+      "correction_rounds": 3,
       "inspectedSizes": ["2560x1600", "1280x800"],
-      "correctedDefect": "The poster now identifies the Node.js runtime in the broker, worker request runtime, and in-process connector pool while keeping LiteLLM out of the enterprise path.",
+      "correctedDefect": "The poster now shows the implemented separate LiteLLM Gateway Container App, dedicated database, per-user OAuth boundary, and correct runtime branding.",
       "observations": [
-        "The outer worker Container App clearly contains both request-runtime and connector-pool inner areas.",
-        "The connector pool is explicitly labeled in-process and retains three account-isolated contexts.",
-        "Node.js branding appears on the broker and both worker-process modules; the Azure Container Apps mark remains on the deployable outer worker component.",
+        "Broker, worker, and LiteLLM are peer Azure Container Apps with 2-10, 2-30, and 2-10 replica ranges.",
+        "Node.js branding appears only on the broker and worker; the official LiteLLM logo identifies the gateway.",
+        "The LiteLLM database is explicitly limited to encrypted OAuth connections and gateway state.",
         "Managed-identity, JWT trust, database and telemetry paths terminate at their intended components without crossing text.",
         "The implemented/not-deployed badge is prominent and all production caveats remain readable.",
         "The client remains unmodified with local tools; access remains per employee and entitled Claude model.",
-        "No LiteLLM component, separate connector Container App, provisioning flow, shared seat, direct Anthropic credential or image-generation service appears."
+        "No native connector pool, APIM, VM, per-user container, shared seat, direct Anthropic credential or image-generation service appears."
       ],
       "rubric": {
         "scale": 5,

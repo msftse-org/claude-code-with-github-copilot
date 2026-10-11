@@ -3,7 +3,7 @@
 | Field | Value |
 |---|---|
 | Project | `claude-code-with-github-copilot` |
-| Revision | 0.20 - Container Apps multi-user worker fleet |
+| Revision | 0.21 - LiteLLM per-user OAuth gateway |
 | Created / revised | 2026-10-04 / 2026-10-11 |
 | Status | Single-user alpha live evidence retained; enterprise foundation locally validated but not deployed or production-approved |
 | Working name / command | Copilot Gateway for Claude Code / ordinary Claude client, with optional `ccgc` setup and diagnostics |
@@ -12,7 +12,42 @@
 
 ## 1. Product decision
 
-### Enterprise implementation (revision 0.20)
+### Enterprise implementation (revision 0.21)
+
+Revision 0.21 retains the Entra broker, shared multi-user worker fleet,
+PostgreSQL fencing, encrypted Blob checkpoints, and no-replay state machine from
+revision 0.20, but replaces the enterprise-critical native Copilot connector
+with a separately scaled LiteLLM Gateway Container App.
+
+Current LiteLLM Gateway supports per-user GitHub OAuth. Each employee connects
+GitHub once as their LiteLLM user; the GitHub token is encrypted in LiteLLM's
+dedicated PostgreSQL database. Every worker request uses that employee's
+LiteLLM virtual key, so LiteLLM selects the same user's connection and owns
+Copilot token exchange, provider endpoint validation, Anthropic Messages
+transport, streaming, token counting, and per-user session caches.
+
+LiteLLM does not replace the project broker or worker. They continue to enforce
+immutable Entra-to-GitHub binding, bounded admissions, signed dispatch claims,
+per-user branch capacity, durable encrypted checkpoint lineage, cancellation,
+and the rule that uncertain inference is never replayed. API Management remains
+unnecessary because these controls are already implemented at the broker.
+
+The deployment now contains three independently scaled private Container Apps:
+broker (2-10), worker (2-30), and LiteLLM (2-10). LiteLLM receives a dedicated
+private PostgreSQL Flexible Server because its Prisma-backed credential store
+requires a stable database password; the enterprise control database remains
+Entra-only. Redis is not required for correctness: without it, LiteLLM reads
+user connections from PostgreSQL and still keeps short-lived Copilot sessions
+user-scoped in each replica. Redis may be added after load testing if database
+pressure justifies another stateful dependency.
+
+This revision is locally implemented and validated, not deployed or
+production-approved. Release remains blocked on two real Copilot users,
+same-prompt isolation, disconnect/reconnect, revoked-seat behavior, long SSE,
+scale-out/restart/draining, LiteLLM license review, and proof that no uncertain
+request is replayed.
+
+### Superseded enterprise implementation (revision 0.20, historical)
 
 Revision 0.20 replaces the per-user worker/LiteLLM target with a horizontally
 scaled, shared multi-user Container Apps worker fleet. Microsoft Entra JWT
@@ -30,7 +65,8 @@ global capacity. Blob ETags reject stale checkpoint writers. This removes sticky
 session and one-container-per-user requirements while preserving one employee
 Copilot seat per binding.
 
-LiteLLM remains only in the retained single-user proof. Its process-wide GitHub
+The revision 0.20 decision was superseded by revision 0.21. At that point,
+LiteLLM remained only in the retained single-user proof. Its process-wide GitHub
 Copilot credential directory is not suitable for many users in one worker
 process. The enterprise connector is now based on the repository's native
 `CopilotBackend`, extended with Key Vault credential resolution and account

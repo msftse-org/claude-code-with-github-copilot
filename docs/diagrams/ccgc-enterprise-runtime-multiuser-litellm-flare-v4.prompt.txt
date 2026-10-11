@@ -1,0 +1,64 @@
+Create a polished enterprise architecture poster by editing the FIRST reference
+poster's visual style and using the SECOND reference diagram as the authoritative
+topology. Preserve the dark navy Microsoft technical-poster aesthetic, cyan and
+violet flow accents, rounded cards, clean spacing, and highly readable typography.
+
+The architecture must show one clear left-to-right runtime path:
+
+Claude Code
+-> Enterprise broker Container App
+-> Multi-user worker Container App
+-> LiteLLM Gateway Container App
+-> Employee's GitHub Copilot seat
+-> Anthropic models
+
+Deployable component branding:
+- Enterprise broker: Azure Container Apps icon on the deployable boundary and a
+  Node.js logo inside the broker runtime.
+- Multi-user worker: Azure Container Apps icon on the deployable boundary and a
+  Node.js logo inside the worker runtime.
+- LiteLLM Gateway: Azure Container Apps icon on the deployable boundary and the
+  official LiteLLM logo inside the gateway runtime.
+- Do not place a Node.js logo inside LiteLLM.
+
+LiteLLM Gateway labels:
+- "Per-user GitHub OAuth"
+- "Encrypted user connections"
+- "Copilot token exchange + session cache"
+- "Anthropic Messages / streaming / token counting"
+
+Show these supporting services with accurate arrows:
+- Microsoft Entra ID -> enterprise broker: SSO / Conditional Access / JWT trust
+- Azure Key Vault -> broker, worker, and LiteLLM: dispatch signing, checkpoint
+  encryption, per-user LiteLLM keys, LiteLLM master and salt keys
+- Enterprise PostgreSQL HA -> broker: bindings, admissions, fences, quotas, audit
+- LiteLLM PostgreSQL HA -> LiteLLM: encrypted OAuth connections and gateway state
+- Encrypted Blob checkpoints <-> worker: branch state with ETag compare-and-swap
+- Azure Monitor from broker, worker, and LiteLLM: metadata only, no prompt bodies
+
+Scaling labels:
+- Broker: 2-10 replicas
+- Multi-user worker: 2-30 replicas
+- LiteLLM Gateway: 2-10 replicas
+
+Isolation callout:
+"Same LiteLLM user who connected GitHub"
+"No cross-user credentials or response cache"
+"No uncertain inference replay"
+
+Status banner:
+"IMPLEMENTED FOUNDATION - NOT DEPLOYED"
+
+Preserve the capability ribbon:
+Images, PDFs, adaptive thinking, exact token counting, agents, background tasks,
+hooks, compaction, Cron, automatic memory, model switching, and encrypted restart
+recovery. Keep the limitations concise: fixed-budget thinking remains
+model-limited; Advisor remains Anthropic API only.
+
+Do not show APIM, a VM, a native Copilot connector pool, one container per user,
+provider fallback, shared GitHub credentials, or LiteLLM nested inside the worker.
+The broker, worker, and LiteLLM Gateway are three peer Container Apps with
+independent scaling.
+
+Use the supplied Azure Container Apps, Node.js, and LiteLLM logo references
+faithfully. Keep every label readable at 1280 x 800 presentation size.

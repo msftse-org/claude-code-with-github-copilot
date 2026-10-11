@@ -1,0 +1,21 @@
+FROM alpine:3.22@sha256:5291449c3df73caf6ed85e649dec1b9e818b39a5d8c871e97afc13e9cd5e8fa8 AS litellm-source
+
+ADD --checksum=sha256:1dda51709d79bcaf082a15f56dc088ff70bb578f2a289f4f64c7f4c5031def22 \
+    "https://github.com/BerriAI/litellm/archive/464a4dba9dc1dadf6d7affaa985aa7050596a745.tar.gz" \
+    /tmp/litellm.tar.gz
+RUN mkdir /src && tar -xzf /tmp/litellm.tar.gz --strip-components=1 -C /src
+
+FROM ghcr.io/berriai/litellm:main-latest@sha256:de5b050c1e9bd7e6c0aebfa126c5df71de071962592ba3e9638b28e45bed3901
+
+COPY --from=litellm-source /src/litellm /app/.venv/lib/python3.13/site-packages/litellm
+COPY --from=litellm-source /src/litellm-proxy-extras/litellm_proxy_extras /app/.venv/lib/python3.13/site-packages/litellm_proxy_extras
+COPY --from=litellm-source /src/litellm-proxy-extras/litellm_proxy_extras /app/litellm-proxy-extras/litellm_proxy_extras
+COPY --from=litellm-source /src/litellm-proxy-extras/litellm_proxy_extras/schema.prisma /app/schema.prisma
+
+RUN DATABASE_URL=postgresql://generate:generate@localhost:5432/generate \
+    /app/.venv/bin/prisma generate --schema /app/schema.prisma
+
+COPY server/litellm.enterprise.yaml /app/config.yaml
+COPY server/litellm-github-copilot-bootstrap/api-key.json /root/.config/litellm/github_copilot/api-key.json
+
+CMD ["--config", "/app/config.yaml", "--host", "0.0.0.0", "--port", "4000"]

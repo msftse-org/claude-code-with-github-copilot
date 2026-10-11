@@ -6,6 +6,14 @@ param postgresAdminObjectId string
 param postgresAdminName string
 param brokerImage string
 param workerImage string
+param litellmImage string
+param litellmPostgresAdminLogin string
+@secure()
+param litellmPostgresAdminPassword string
+@secure()
+param litellmMasterKey string
+@secure()
+param litellmSaltKey string
 @secure()
 param dispatchSigningSecret string
 @secure()
@@ -18,13 +26,16 @@ var unique = toLower(uniqueString(subscription().id, resourceGroup().id, prefix)
 var vnetName = 'vnet-${prefix}-enterprise'
 var brokerIdentityName = 'id-${prefix}-broker'
 var workerIdentityName = 'id-${prefix}-worker'
+var litellmIdentityName = 'id-${prefix}-litellm'
 var postgresName = take('psql-${compact}-${unique}', 63)
+var litellmPostgresName = take('psql-${compact}-litellm-${unique}', 63)
 var vaultName = take('kv-${compact}-${unique}', 24)
 var registryName = take('cr${compact}${unique}', 50)
 var storageName = take('st${compact}${unique}', 24)
 var environmentName = 'cae-${prefix}-enterprise'
 var brokerName = 'ca-${prefix}-broker'
 var workerName = 'ca-${prefix}-worker'
+var litellmName = 'ca-${prefix}-litellm'
 var workspaceName = 'log-${prefix}-enterprise'
 var insightsName = 'appi-${prefix}-enterprise'
 var postgresDnsZoneName = '${compact}.postgres.database.azure.com'
@@ -42,6 +53,12 @@ resource brokerIdentity 'Microsoft.ManagedIdentity/userAssignedIdentities@2024-1
 
 resource workerIdentity 'Microsoft.ManagedIdentity/userAssignedIdentities@2024-11-30' = {
   name: workerIdentityName
+  location: location
+  tags: tags
+}
+
+resource litellmIdentity 'Microsoft.ManagedIdentity/userAssignedIdentities@2024-11-30' = {
+  name: litellmIdentityName
   location: location
   tags: tags
 }
@@ -200,6 +217,23 @@ resource vnet 'Microsoft.Network/virtualNetworks@2024-07-01' = {
           privateEndpointNetworkPolicies: 'Disabled'
         }
       }
+      {
+        name: 'snet-litellm-postgres'
+        properties: {
+          addressPrefix: '10.80.2.64/27'
+          delegations: [
+            {
+              name: 'postgres'
+              properties: {
+                serviceName: 'Microsoft.DBforPostgreSQL/flexibleServers'
+              }
+            }
+          ]
+          networkSecurityGroup: {
+            id: workloadNsg.id
+          }
+        }
+      }
     ]
   }
 }
@@ -217,6 +251,11 @@ resource postgresSubnet 'Microsoft.Network/virtualNetworks/subnets@2024-07-01' e
 resource privateEndpointSubnet 'Microsoft.Network/virtualNetworks/subnets@2024-07-01' existing = {
   parent: vnet
   name: 'snet-private-endpoints'
+}
+
+resource litellmPostgresSubnet 'Microsoft.Network/virtualNetworks/subnets@2024-07-01' existing = {
+  parent: vnet
+  name: 'snet-litellm-postgres'
 }
 
 resource postgresDns 'Microsoft.Network/privateDnsZones@2024-06-01' = {
@@ -289,6 +328,49 @@ resource postgresAdmin 'Microsoft.DBforPostgreSQL/flexibleServers/administrators
   }
 }
 
+resource litellmPostgres 'Microsoft.DBforPostgreSQL/flexibleServers@2024-08-01' = {
+  name: litellmPostgresName
+  location: location
+  tags: tags
+  sku: {
+    name: 'Standard_D2ds_v5'
+    tier: 'GeneralPurpose'
+  }
+  properties: {
+    version: '16'
+    administratorLogin: litellmPostgresAdminLogin
+    administratorLoginPassword: litellmPostgresAdminPassword
+    authConfig: {
+      activeDirectoryAuth: 'Disabled'
+      passwordAuth: 'Enabled'
+      tenantId: tenantId
+    }
+    backup: {
+      backupRetentionDays: 14
+      geoRedundantBackup: 'Disabled'
+    }
+    dataEncryption: {
+      type: 'SystemManaged'
+    }
+    highAvailability: {
+      mode: 'ZoneRedundant'
+    }
+    network: {
+      delegatedSubnetResourceId: litellmPostgresSubnet.id
+      privateDnsZoneArmResourceId: postgresDns.id
+      publicNetworkAccess: 'Disabled'
+    }
+    storage: {
+      storageSizeGB: 128
+      autoGrow: 'Enabled'
+      tier: 'P10'
+    }
+  }
+  dependsOn: [
+    postgresDnsLink
+  ]
+}
+
 resource vault 'Microsoft.KeyVault/vaults@2024-11-01' = {
   name: vaultName
   location: location
@@ -329,6 +411,45 @@ resource checkpointKeySecret 'Microsoft.KeyVault/vaults/secrets@2024-11-01' = {
   properties: {
     value: checkpointEncryptionKey
     contentType: 'application/vnd.ccgc.checkpoint-key'
+    attributes: {
+      enabled: true
+      exp: cryptographicSecretExpiration
+    }
+  }
+}
+
+resource litellmDatabaseSecret 'Microsoft.KeyVault/vaults/secrets@2024-11-01' = {
+  parent: vault
+  name: 'litellm-database-url'
+  properties: {
+    value: 'postgresql://${litellmPostgresAdminLogin}:${uriComponent(litellmPostgresAdminPassword)}@${litellmPostgres.properties.fullyQualifiedDomainName}:5432/postgres?sslmode=require'
+    contentType: 'application/vnd.ccgc.litellm-database-url'
+    attributes: {
+      enabled: true
+      exp: cryptographicSecretExpiration
+    }
+  }
+}
+
+resource litellmMasterKeySecret 'Microsoft.KeyVault/vaults/secrets@2024-11-01' = {
+  parent: vault
+  name: 'litellm-master-key'
+  properties: {
+    value: litellmMasterKey
+    contentType: 'application/vnd.ccgc.litellm-master-key'
+    attributes: {
+      enabled: true
+      exp: cryptographicSecretExpiration
+    }
+  }
+}
+
+resource litellmSaltKeySecret 'Microsoft.KeyVault/vaults/secrets@2024-11-01' = {
+  parent: vault
+  name: 'litellm-salt-key'
+  properties: {
+    value: litellmSaltKey
+    contentType: 'application/vnd.ccgc.litellm-salt-key'
     attributes: {
       enabled: true
       exp: cryptographicSecretExpiration
@@ -763,6 +884,10 @@ resource worker 'Microsoft.App/containerApps@2025-01-01' = {
               value: modelsJson
             }
             {
+              name: 'CCGC_LITELLM_URL'
+              value: 'https://${litellmName}.${environment.properties.defaultDomain}'
+            }
+            {
               name: 'CCGC_MAX_CONNECTORS'
               value: '500'
             }
@@ -829,6 +954,127 @@ resource worker 'Microsoft.App/containerApps@2025-01-01' = {
     workerKeyVaultAccess
     workerRegistryPull
     workerStorageAccess
+    litellm
+  ]
+}
+
+resource litellm 'Microsoft.App/containerApps@2025-01-01' = {
+  name: litellmName
+  location: location
+  tags: tags
+  identity: {
+    type: 'UserAssigned'
+    userAssignedIdentities: {
+      '${litellmIdentity.id}': {}
+    }
+  }
+  properties: {
+    environmentId: environment.id
+    workloadProfileName: 'D4'
+    configuration: {
+      activeRevisionsMode: 'Single'
+      ingress: {
+        allowInsecure: false
+        external: true
+        targetPort: 4000
+        transport: 'http'
+      }
+      registries: [
+        {
+          identity: litellmIdentity.id
+          server: registry.properties.loginServer
+        }
+      ]
+      secrets: [
+        {
+          name: 'litellm-database-url'
+          keyVaultUrl: litellmDatabaseSecret.properties.secretUriWithVersion
+          identity: litellmIdentity.id
+        }
+        {
+          name: 'litellm-master-key'
+          keyVaultUrl: litellmMasterKeySecret.properties.secretUriWithVersion
+          identity: litellmIdentity.id
+        }
+        {
+          name: 'litellm-salt-key'
+          keyVaultUrl: litellmSaltKeySecret.properties.secretUriWithVersion
+          identity: litellmIdentity.id
+        }
+      ]
+    }
+    template: {
+      containers: [
+        {
+          name: 'litellm'
+          image: litellmImage
+          env: [
+            {
+              name: 'DATABASE_URL'
+              secretRef: 'litellm-database-url'
+            }
+            {
+              name: 'LITELLM_MASTER_KEY'
+              secretRef: 'litellm-master-key'
+            }
+            {
+              name: 'LITELLM_SALT_KEY'
+              secretRef: 'litellm-salt-key'
+            }
+            {
+              name: 'PROXY_BASE_URL'
+              value: 'https://${litellmName}.${environment.properties.defaultDomain}'
+            }
+          ]
+          probes: [
+            {
+              type: 'Liveness'
+              httpGet: {
+                path: '/health/liveliness'
+                port: 4000
+                scheme: 'HTTP'
+              }
+              initialDelaySeconds: 30
+              periodSeconds: 15
+            }
+            {
+              type: 'Readiness'
+              httpGet: {
+                path: '/health/readiness'
+                port: 4000
+                scheme: 'HTTP'
+              }
+              initialDelaySeconds: 20
+              periodSeconds: 10
+            }
+          ]
+          resources: {
+            cpu: json('2.0')
+            memory: '4Gi'
+          }
+        }
+      ]
+      scale: {
+        minReplicas: 2
+        maxReplicas: 10
+        rules: [
+          {
+            name: 'http'
+            http: {
+              metadata: {
+                concurrentRequests: '32'
+              }
+            }
+          }
+        ]
+      }
+    }
+  }
+  dependsOn: [
+    containerDns
+    privateDnsGroups
+    litellmKeyVaultAccess
+    litellmRegistryPull
   ]
 }
 
@@ -847,6 +1093,16 @@ resource workerKeyVaultAccess 'Microsoft.Authorization/roleAssignments@2022-04-0
   scope: vault
   properties: {
     principalId: workerIdentity.properties.principalId
+    principalType: 'ServicePrincipal'
+    roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', '4633458b-17de-408a-b874-0445c86b69e6')
+  }
+}
+
+resource litellmKeyVaultAccess 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
+  name: guid(vault.id, litellmIdentity.id, 'Key Vault Secrets User')
+  scope: vault
+  properties: {
+    principalId: litellmIdentity.properties.principalId
     principalType: 'ServicePrincipal'
     roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', '4633458b-17de-408a-b874-0445c86b69e6')
   }
@@ -872,6 +1128,16 @@ resource workerRegistryPull 'Microsoft.Authorization/roleAssignments@2022-04-01'
   }
 }
 
+resource litellmRegistryPull 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
+  name: guid(registry.id, litellmIdentity.id, 'AcrPull')
+  scope: registry
+  properties: {
+    principalId: litellmIdentity.properties.principalId
+    principalType: 'ServicePrincipal'
+    roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', '7f951dda-4ed3-4680-a7ca-43fe172d538d')
+  }
+}
+
 resource workerStorageAccess 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
   name: guid(storage.id, workerIdentity.id, 'Storage Blob Data Contributor')
   scope: storage
@@ -884,7 +1150,9 @@ resource workerStorageAccess 'Microsoft.Authorization/roleAssignments@2022-04-01
 
 output brokerInternalFqdn string = broker.properties.configuration.ingress.fqdn
 output workerInternalFqdn string = worker.properties.configuration.ingress.fqdn
+output litellmInternalFqdn string = litellm.properties.configuration.ingress.fqdn
 output keyVaultName string = vault.name
 output postgresHost string = postgres.properties.fullyQualifiedDomainName
+output litellmPostgresHost string = litellmPostgres.properties.fullyQualifiedDomainName
 output registryName string = registry.name
 output checkpointStorageName string = storage.name

@@ -32,6 +32,7 @@ const server = await startEnterpriseWorkerServer({
   verifier: new DispatchVerifier(dispatchSecret.value, required('CCGC_BROKER_ORIGIN'), workerOrigin),
   connectors: new AccountScopedConnectorPool(
     new KeyVaultAccountCredentialResolver(vaultUrl),
+    required('CCGC_LITELLM_URL'),
     fetch,
     Number(process.env.CCGC_MAX_CONNECTORS ?? '500'),
   ),

@@ -451,7 +451,7 @@ test('a conversation branch moves between live worker replicas through durable c
   }
 });
 
-test('account connector pool keeps GitHub credentials and refresh state account scoped', async () => {
+test('account connector pool keeps LiteLLM user keys account scoped', async () => {
   const claimsA = dispatchClaims(1);
   const claimsB: DispatchClaims = {
     ...claimsA,
@@ -459,30 +459,22 @@ test('account connector pool keeps GitHub credentials and refresh state account 
     objectId: '99999999-9999-4999-8999-999999999999',
     githubAccountId: 5678,
     githubLogin: 'second-developer',
-    credentialSecretName: 'copilot-second-developer',
+    credentialSecretName: 'litellm-second-developer',
   };
   const resolverCalls: string[] = [];
   const upstreamAuthorization: string[] = [];
   const pool = new AccountScopedConnectorPool({
     async resolve(claims) {
       resolverCalls.push(claims.githubLogin);
-      return { login: claims.githubLogin, accessToken: `oauth-${claims.githubLogin}-secret` };
+      return {
+        login: claims.githubLogin,
+        apiKey: `sk-${claims.githubLogin}-synthetic-user-key`,
+        githubAccountId: claims.githubAccountId,
+        credentialName: 'github-copilot',
+      };
     },
-  }, async (input, init = {}) => {
-    const url = String(input);
-    const authorization = new Headers(init.headers).get('authorization') ?? '';
-    if (url.endsWith('/user')) {
-      return Response.json({ login: authorization.includes('second-developer') ? 'second-developer' : 'developer' });
-    }
-    if (url.endsWith('/copilot_internal/v2/token')) {
-      const account = authorization.includes('second-developer') ? 'second' : 'first';
-      return Response.json({
-        token: `session-${account}`,
-        expires_at: Math.floor(Date.now() / 1000) + 600,
-        endpoints: { api: 'https://api.githubcopilot.com' },
-      });
-    }
-    upstreamAuthorization.push(authorization);
+  }, 'https://litellm.internal', async (_input, init = {}) => {
+    upstreamAuthorization.push(new Headers(init.headers).get('authorization') ?? '');
     return Response.json(message());
   });
   const [first, firstConcurrent] = await Promise.all([
@@ -495,7 +487,10 @@ test('account connector pool keeps GitHub credentials and refresh state account 
   await first.send(request(), new Headers(), new AbortController().signal);
   await second.send(request(), new Headers(), new AbortController().signal);
   assert.deepEqual(resolverCalls, ['developer', 'second-developer']);
-  assert.deepEqual(upstreamAuthorization, ['Bearer session-first', 'Bearer session-second']);
+  assert.deepEqual(upstreamAuthorization, [
+    'Bearer sk-developer-synthetic-user-key',
+    'Bearer sk-second-developer-synthetic-user-key',
+  ]);
 });
 
 test('enterprise client uses Entra for control and an opaque admission token for Claude', async () => {

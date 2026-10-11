@@ -1,0 +1,101 @@
+{
+  "operation": "images/edits",
+  "provider": "Azure OpenAI",
+  "resource": "foundry-llm-demo-resource",
+  "region": "Sweden Central",
+  "deployment": "gpt-image-2.5-flare",
+  "model": "gpt-image-2.5-flare",
+  "modelVersion": "2026-09-08",
+  "apiVersion": "2025-04-01-preview",
+  "authentication": "Microsoft Entra ID bearer token",
+  "createdAt": "2026-10-11T17:40:22Z",
+  "request": {
+    "quality": "high",
+    "size": "2560x1600",
+    "outputFormat": "png",
+    "prompts": [
+      {
+        "role": "architecture migration",
+        "path": "docs/diagrams/ccgc-enterprise-runtime-multiuser-litellm-flare-v4.prompt.txt",
+        "sha256": "dd835b8dcf894a5171c5fb8636d98cfe335b7bd1f24720969fb292dd6a68c001",
+        "requestId": "449adf2c-d01e-4ad1-b69b-d13c3bc61da8"
+      },
+      {
+        "role": "LiteLLM database subtitle correction",
+        "path": "docs/diagrams/ccgc-enterprise-runtime-multiuser-litellm-flare-v4-correction.prompt.txt",
+        "sha256": "2c1e2a0b3c86b0a52ff65fd574f6c99c61a8d01bfaa9f27d46e71ad2dc707b82",
+        "requestId": "19e0e489-0369-4834-8f91-4dfc6ed04b81"
+      },
+      {
+        "role": "database title spelling correction",
+        "path": "docs/diagrams/ccgc-enterprise-runtime-multiuser-litellm-flare-v4-correction-2.prompt.txt",
+        "sha256": "93ebbfc3eda081846f4b66b71a64fb0627e442e040a6b5bc18f6d6ebcf9b16c7",
+        "requestId": "ba3ebd82-1c59-46a0-93ca-8653cbf29544"
+      }
+    ],
+    "references": [
+      {
+        "role": "historical visual style",
+        "path": "docs/diagrams/ccgc-enterprise-runtime-multiuser-flare-v3.png",
+        "sha256": "c494d65a00a999fdb8dc76142c2281019034615af6db2fc911edddbb4f430a7d"
+      },
+      {
+        "role": "authoritative validated topology",
+        "path": "docs/diagrams/ccgc-enterprise-runtime.png",
+        "sha256": "8eb8c47bf2aac8307f52206d17d2903b659478230991abedcd5ec92bcb47c936"
+      },
+      {
+        "role": "Azure Container Apps logo",
+        "path": "session-artifact:azure-icons/references/container-apps.svg.png",
+        "sha256": "cfcaa8088b2e289918eceb683def7928cae1e235eba0398681c092f0148bf089"
+      },
+      {
+        "role": "Node.js logo",
+        "path": "session-artifact:azure-icons/references/node-js.svg.png",
+        "sha256": "ad0b36ebc43c4a59a78e84e4803e3716358bfe164c198939e40f6a21bde82210"
+      },
+      {
+        "role": "official LiteLLM logo",
+        "path": "session-artifact:azure-icons/references/litellm-logo-blue.png",
+        "sha256": "63fe0c8e277756129d7fbbb3ff7c7a02c7d88ceda51e46daf5151835a923e976"
+      }
+    ]
+  },
+  "response": {
+    "generations": 3,
+    "usage": {
+      "inputTokens": 12775,
+      "imageInputTokens": 11856,
+      "textInputTokens": 919,
+      "outputTokens": 6585,
+      "imageOutputTokens": 6585,
+      "totalTokens": 19360
+    }
+  },
+  "manualPostProcessing": {
+    "reason": "The final image-edit response reintroduced a one-word database-title spelling error.",
+    "change": "Replaced only the bottom-right card title with 'LiteLLM DB HA' using a local text overlay; topology, icons, arrows, labels, and all other pixels were preserved."
+  },
+  "output": {
+    "path": "docs/diagrams/ccgc-enterprise-runtime-multiuser-litellm-flare-v4.png",
+    "desktopCopy": "/Users/shironbabi/Desktop/CCGC-Enterprise-LiteLLM-Architecture-Poster.png",
+    "width": 2560,
+    "height": 1600,
+    "sha256": "aba7c410075c8cbc60f40393e4d10d41ce0e5694794dd2d7229f5ef98b273ed0"
+  },
+  "visualReview": {
+    "status": "approved",
+    "inspectedAt": [
+      "native 2560x1600",
+      "presentation 1280x800"
+    ],
+    "threeContainerAppsPresent": true,
+    "nodeJsBrokerMarkPresent": true,
+    "nodeJsWorkerMarkPresent": true,
+    "liteLlmMarkPresent": true,
+    "separateLiteLlmDatabasePresent": true,
+    "nativeConnectorPoolAbsent": true,
+    "readability": "approved"
+  },
+  "infrastructureChanged": false
+}

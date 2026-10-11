@@ -1,11 +1,19 @@
 import { DefaultAzureCredential } from '@azure/identity';
 import { SecretClient } from '@azure/keyvault-secrets';
-import { CopilotBackend, type Backend, type Credential } from './copilot.ts';
+import type { Backend } from './copilot.ts';
 import type { DispatchClaims } from './enterprise-dispatch.ts';
+import { LiteLLMBackend } from './litellm.ts';
 import { BridgeError, object, parseJson, positive, text } from './protocol.ts';
 
+export interface LiteLLMAccountCredential {
+  login: string;
+  apiKey: string;
+  githubAccountId: number;
+  credentialName: string;
+}
+
 export interface AccountCredentialResolver {
-  resolve(claims: DispatchClaims): Promise<Credential>;
+  resolve(claims: DispatchClaims): Promise<LiteLLMAccountCredential>;
 }
 
 export interface AccountConnectorFactory {
@@ -23,30 +31,33 @@ export class KeyVaultAccountCredentialResolver implements AccountCredentialResol
     this.client = new SecretClient(url.href, new DefaultAzureCredential());
   }
 
-  async resolve(claims: DispatchClaims): Promise<Credential> {
+  async resolve(claims: DispatchClaims): Promise<LiteLLMAccountCredential> {
     const secret = await this.client.getSecret(claims.credentialSecretName);
-    if (!secret.value) throw new BridgeError('AUTH_REQUIRED', 'The linked Copilot credential is unavailable.', 401);
+    if (!secret.value) throw new BridgeError('AUTH_REQUIRED', 'The linked LiteLLM user key is unavailable.', 401);
     const value = object(parseJson(secret.value));
     const login = text(value.login, 'stored GitHub login');
-    const accessToken = text(value.accessToken, 'stored GitHub credential');
+    const apiKey = text(value.apiKey, 'stored LiteLLM user key');
     const githubAccountId = positive(value.githubAccountId, 'stored GitHub account ID');
+    const credentialName = text(value.credentialName, 'stored LiteLLM credential name');
     if (login !== claims.githubLogin || githubAccountId !== claims.githubAccountId
-      || accessToken.length < 20 || /[\r\n]/.test(accessToken)) {
-      throw new BridgeError('IDENTITY_CONFLICT', 'The selected credential does not match the immutable account binding.', 403);
+      || !/^sk-[A-Za-z0-9._-]{16,}$/.test(apiKey)
+      || !/^[A-Za-z0-9._-]{1,128}$/.test(credentialName)) {
+      throw new BridgeError('IDENTITY_CONFLICT', 'The selected LiteLLM user does not match the immutable account binding.', 403);
     }
-    return { login, accessToken };
+    return { login, apiKey, githubAccountId, credentialName };
   }
 }
 
 interface CachedConnector {
-  backend: CopilotBackend;
+  backend: LiteLLMBackend;
   lastAt: number;
 }
 
 export class AccountScopedConnectorPool implements AccountConnectorFactory {
   readonly connectors = new Map<string, CachedConnector>();
-  readonly creating = new Map<string, Promise<CopilotBackend>>();
+  readonly creating = new Map<string, Promise<LiteLLMBackend>>();
   readonly credentials: AccountCredentialResolver;
+  readonly litellmUrl: string;
   readonly fetcher: typeof fetch;
   readonly maxConnectors: number;
   readonly idleMilliseconds: number;
@@ -54,6 +65,7 @@ export class AccountScopedConnectorPool implements AccountConnectorFactory {
 
   constructor(
     credentials: AccountCredentialResolver,
+    litellmUrl: string,
     fetcher: typeof fetch = fetch,
     maxConnectors = 500,
     idleMilliseconds = 30 * 60_000,
@@ -64,6 +76,12 @@ export class AccountScopedConnectorPool implements AccountConnectorFactory {
       throw new BridgeError('INVALID_OPTIONS', 'Account connector cache limits are invalid.');
     }
     this.credentials = credentials;
+    const endpoint = new URL(litellmUrl);
+    if (endpoint.protocol !== 'https:' || endpoint.username || endpoint.password
+      || endpoint.pathname !== '/' || endpoint.search || endpoint.hash) {
+      throw new BridgeError('INVALID_OPTIONS', 'Enterprise LiteLLM URL must be a fixed HTTPS origin.');
+    }
+    this.litellmUrl = endpoint.origin;
     this.fetcher = fetcher;
     this.maxConnectors = maxConnectors;
     this.idleMilliseconds = idleMilliseconds;
@@ -98,11 +116,7 @@ export class AccountScopedConnectorPool implements AccountConnectorFactory {
     }
     const creating = (async () => {
       const credential = await this.credentials.resolve(claims);
-      const backend = new CopilotBackend({ async load() { return credential; } }, this.fetcher);
-      const login = await backend.initialize();
-      if (login !== claims.githubLogin) {
-        throw new BridgeError('IDENTITY_CONFLICT', 'Effective GitHub identity differs from the admitted account.', 403);
-      }
+      const backend = new LiteLLMBackend(this.litellmUrl, credential.apiKey, this.fetcher);
       this.connectors.set(id, { backend, lastAt: this.now() });
       return backend;
     })();

@@ -1,0 +1,5 @@
+general_settings:
+  store_model_in_db: true
+
+litellm_settings:
+  drop_params: false

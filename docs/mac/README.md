@@ -18,9 +18,9 @@ architecture.
 | `~/.claude/settings.json` | Routes Claude to the enterprise broker and installs the credential helper. | Preview and explicitly apply the generated patch. |
 | Enterprise profile | Stores non-secret Entra/GitHub binding, catalog, revision, and admission metadata. | Let the helper create it; do not hand-edit or restore stale grants. |
 
-GitHub OAuth and Copilot tokens do not belong on the Mac. The long-lived
-credential remains in private Key Vault; short-lived Copilot state exists only
-inside the matching account-scoped connector on a shared worker replica.
+GitHub OAuth and Copilot tokens do not belong on the Mac. LiteLLM encrypts the
+GitHub connection in its private PostgreSQL database; Key Vault stores only the
+matching LiteLLM user key used by workers.
 
 ## 1. Install prerequisites
 
@@ -205,8 +205,8 @@ provider keys or override the broker URL.
 
 Auto mode is not the default. Start or select it only under the organization's
 normal Claude Code permission policy; the local classifier path has official
-client coverage through this gateway and does not require the native connector
-to emulate Anthropic safeguard results.
+client coverage through this gateway and does not require LiteLLM to emulate
+Anthropic safeguard results.
 
 The detailed reasons and enforcement points are in the root
 [feature compatibility table](../../README.md#claude-code-feature-compatibility).
