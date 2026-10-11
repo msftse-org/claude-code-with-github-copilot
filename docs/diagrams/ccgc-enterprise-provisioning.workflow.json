@@ -19,9 +19,9 @@
     {"id": "plan-infrastructure", "lane": "release-governance", "col": 1, "type": "cloud", "label": "Build + IaC plan", "sublabel": "Signed build / Bicep OR Terraform", "width": 180},
     {"id": "approve-change", "lane": "release-governance", "col": 2, "type": "security", "label": "Human approval", "sublabel": "Exact changes / costs", "width": 155},
     {"id": "private-foundation", "lane": "platform-build", "col": 2, "type": "cloud", "label": "Private foundation", "sublabel": "Network / HA data / identities", "width": 180},
-    {"id": "deploy-runtime", "lane": "platform-build", "col": 3, "type": "backend", "label": "Deploy services", "sublabel": "Broker / apps / workers", "width": 155},
-    {"id": "link-user-seats", "lane": "controlled-adoption", "col": 3, "type": "frontend", "label": "Link each user", "sublabel": "SSO / own GitHub seat", "width": 155},
-    {"id": "prove-acceptance", "lane": "controlled-adoption", "col": 4, "type": "security", "label": "Acceptance gates", "sublabel": "SSE / isolation / failover", "width": 155},
+    {"id": "deploy-runtime", "lane": "platform-build", "col": 3, "type": "backend", "label": "Deploy services", "sublabel": "Broker / worker / LiteLLM", "width": 155},
+    {"id": "link-user-seats", "lane": "controlled-adoption", "col": 3, "type": "frontend", "label": "Link each user", "sublabel": "SSO / Keychain / own seat", "width": 155},
+    {"id": "prove-acceptance", "lane": "controlled-adoption", "col": 4, "type": "security", "label": "Acceptance gates", "sublabel": "Features / isolation / restart", "width": 155},
     {"id": "promote-rings", "lane": "release-promotion", "col": 4, "type": "cloud", "label": "Staged rollout", "sublabel": "Pilot / rings / monitoring", "width": 155},
     {"id": "halt-promotion", "lane": "failed-acceptance", "col": 3, "type": "security", "label": "Block promotion", "sublabel": "Revoke affected admissions", "width": 155},
     {"id": "restore-release", "lane": "failed-acceptance", "col": 4, "type": "messagebus", "label": "Approved recovery", "sublabel": "Restore known-good release", "width": 155}

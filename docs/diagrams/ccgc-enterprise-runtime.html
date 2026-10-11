@@ -5030,36 +5030,37 @@
         <rect width="100%" height="100%" fill="url(#grid)" />
 
         <!-- Boundaries (behind everything) -->
-        <rect data-graph-role="structural-frame" data-composition-frame-kind="region" data-composition-frame-id="0" data-composition-frame-label="Private Azure workload / zone-redundant target" x="272" y="327" width="751" height="398" rx="12" class="c-region" stroke-width="1"/>
+        <rect data-graph-role="structural-frame" data-composition-frame-kind="region" data-composition-frame-id="0" data-composition-frame-label="Private Azure workload / zone-redundant target" x="262" y="327" width="816" height="398" rx="12" class="c-region" stroke-width="1"/>
 
         <!-- Connection paths (before components for correct z-order) -->
-        <path data-edge-from="managed-client" data-edge-to="principal-seat-broker" data-edge-label="VPN / TLS / Messages" data-edge-key="0" data-edge-id="private-client-access" data-composition-points="225,400;340,400" d="M 225 400 L 340 400" class="a-emphasis" stroke-width="1.8" marker-end="url(#arrowhead-emphasis)"/>
-        <path data-edge-from="principal-seat-broker" data-edge-to="isolated-copilot-workers" data-edge-label="bound user" data-edge-key="1" data-edge-id="user-bound-dispatch" data-composition-points="560,400;720,400" d="M 560 400 L 720 400" class="a-emphasis" stroke-width="1.8" marker-end="url(#arrowhead-emphasis)"/>
-        <path data-edge-from="isolated-copilot-workers" data-edge-to="individual-copilot-seat" data-edge-label="TLS / SSE" data-edge-key="2" data-edge-id="copilot-native-stream" data-composition-points="915,400;1090,400" d="M 915 400 L 1090 400" class="a-emphasis" stroke-width="1.8" marker-end="url(#arrowhead-emphasis)"/>
-        <path data-edge-from="principal-seat-broker" data-edge-to="enterprise-identity" data-edge-label="JWT trust" data-edge-key="3" data-edge-id="trusted-token-validation" data-composition-points="443,355;443,257.5;405,257.5;405,160" d="M 443 355 L 443 265.5 Q 443 257.5 435 257.5 L 413 257.5 Q 405 257.5 405 249.5 L 405 160" class="a-security" stroke-width="1.5" marker-end="url(#arrowhead-security)"/>
-        <path data-edge-from="principal-seat-broker" data-edge-to="private-credential-store" data-edge-label="MI / secrets" data-edge-key="4" data-edge-id="broker-secret-access" data-composition-points="457,355;457,257.5;832.5,257.5;832.5,160" d="M 457 355 L 457 265.5 Q 457 257.5 465 257.5 L 824.5 257.5 Q 832.5 257.5 832.5 249.5 L 832.5 160" class="a-security" stroke-width="1.5" marker-end="url(#arrowhead-security)"/>
-        <path data-edge-from="principal-seat-broker" data-edge-to="durable-admission-ledger" data-edge-label="reserve / fence" data-edge-key="5" data-edge-id="atomic-admission-reservation" data-composition-points="450,445;450,530;802.5,530;802.5,615" d="M 450 445 L 450 522 Q 450 530 458 530 L 794.5 530 Q 802.5 530 802.5 538 L 802.5 615" class="a-default" stroke-width="1.5" marker-end="url(#arrowhead)"/>
-        <path data-edge-from="isolated-copilot-workers" data-edge-to="durable-admission-ledger" data-edge-label="record outcome" data-edge-key="6" data-edge-id="durable-attempt-outcome" data-composition-points="817.5,445;817.5,469;833.5,469;833.5,591;802.5,591;802.5,615" d="M 817.5 445 L 817.5 461 Q 817.5 469 825.5 469 L 825.5 469 Q 833.5 469 833.5 477 L 833.5 583 Q 833.5 591 825.5 591 L 810.5 591 Q 802.5 591 802.5 599 L 802.5 615" class="a-default" stroke-width="1.5" marker-end="url(#arrowhead)"/>
-        <path data-edge-from="principal-seat-broker" data-edge-to="restricted-observability" data-edge-label="metadata only" data-edge-key="7" data-edge-id="metadata-only-telemetry" data-composition-points="450,445;450,530;415,530;415,615" d="M 450 445 L 450 522 Q 450 530 442 530 L 423 530 Q 415 530 415 538 L 415 615" class="a-default" stroke-width="1.5" marker-end="url(#arrowhead)"/>
+        <path data-edge-from="managed-client" data-edge-to="principal-seat-broker" data-edge-label="VPN / TLS / Messages" data-edge-key="0" data-edge-id="private-client-access" data-composition-points="215,400;290,400" d="M 215 400 L 290 400" class="a-emphasis" stroke-width="1.8" marker-end="url(#arrowhead-emphasis)"/>
+        <path data-edge-from="principal-seat-broker" data-edge-to="isolated-user-worker" data-edge-label="fenced dispatch" data-edge-key="1" data-edge-id="user-bound-dispatch" data-composition-points="500,400;590,400" d="M 500 400 L 590 400" class="a-emphasis" stroke-width="1.8" marker-end="url(#arrowhead-emphasis)"/>
+        <path data-edge-from="isolated-user-worker" data-edge-to="isolated-copilot-connector" data-edge-label="Messages / exact model" data-edge-key="2" data-edge-id="reviewed-message-route" data-composition-points="780,400;865,400" d="M 780 400 L 865 400" class="a-emphasis" stroke-width="1.8" marker-end="url(#arrowhead-emphasis)"/>
+        <path data-edge-from="isolated-copilot-connector" data-edge-to="individual-copilot-seat" data-edge-label="TLS / SSE" data-edge-key="3" data-edge-id="copilot-native-stream" data-composition-points="1050,400;1150,400" d="M 1050 400 L 1150 400" class="a-emphasis" stroke-width="1.8" marker-end="url(#arrowhead-emphasis)"/>
+        <path data-edge-from="principal-seat-broker" data-edge-to="enterprise-identity" data-edge-label="JWT trust" data-edge-key="4" data-edge-id="trusted-token-validation" data-composition-points="388,355;388,257.5;405,257.5;405,160" d="M 388 355 L 388 265.5 Q 388 257.5 396 257.5 L 397 257.5 Q 405 257.5 405 249.5 L 405 160" class="a-security" stroke-width="1.5" marker-end="url(#arrowhead-security)"/>
+        <path data-edge-from="principal-seat-broker" data-edge-to="private-credential-store" data-edge-label="MI / secrets" data-edge-key="5" data-edge-id="broker-secret-access" data-composition-points="402,355;402,257.5;872.5,257.5;872.5,160" d="M 402 355 L 402 265.5 Q 402 257.5 410 257.5 L 864.5 257.5 Q 872.5 257.5 872.5 249.5 L 872.5 160" class="a-security" stroke-width="1.5" marker-end="url(#arrowhead-security)"/>
+        <path data-edge-from="principal-seat-broker" data-edge-to="durable-admission-ledger" data-edge-label="reserve / fence" data-edge-key="6" data-edge-id="atomic-admission-reservation" data-composition-points="395,445;395,530;802.5,530;802.5,615" d="M 395 445 L 395 522 Q 395 530 403 530 L 794.5 530 Q 802.5 530 802.5 538 L 802.5 615" class="a-default" stroke-width="1.5" marker-end="url(#arrowhead)"/>
+        <path data-edge-from="isolated-user-worker" data-edge-to="durable-admission-ledger" data-edge-label="record outcome" data-edge-key="7" data-edge-id="durable-attempt-outcome" data-composition-points="685,445;685,530;802.5,530;802.5,615" d="M 685 445 L 685 522 Q 685 530 693 530 L 794.5 530 Q 802.5 530 802.5 538 L 802.5 615" class="a-default" stroke-width="1.5" marker-end="url(#arrowhead)"/>
+        <path data-edge-from="principal-seat-broker" data-edge-to="restricted-observability" data-edge-label="metadata only" data-edge-key="8" data-edge-id="metadata-only-telemetry" data-composition-points="395,445;395,530;415,530;415,615" d="M 395 445 L 395 522 Q 395 530 403 530 L 407 530 Q 415 530 415 538 L 415 615" class="a-default" stroke-width="1.5" marker-end="url(#arrowhead)"/>
 
         <!-- Components -->
-        <g id="node-managed-client" data-node-id="managed-client" data-node-label="Claude Code" tabindex="0" role="button" aria-label="Focus Claude Code, SSO helper / local tools, Architecture component, Claude" aria-pressed="false" data-node-kind="frontend" data-node-sublabel="SSO helper / local tools" data-node-context="Architecture component" data-node-brand="Claude" data-node-brand-id="claude" data-node-brand-status="preset" data-node-brand-source="https://claude.ai">
-          <title>Claude Code · SSO helper / local tools · Architecture component · Claude</title>
-          <rect x="35" y="355" width="190" height="90" rx="6" class="c-mask"/>
-          <rect x="35" y="355" width="190" height="90" rx="6" class="c-frontend" stroke-width="1.5"/>
-          <g aria-hidden="true" data-semantic-sigil="frontend" class="semantic-sigil s-frontend" transform="translate(41 361) scale(0.6875)">
+        <g id="node-managed-client" data-node-id="managed-client" data-node-label="Claude Code" tabindex="0" role="button" aria-label="Focus Claude Code, Rich input / agents / local tools, Architecture component, Claude" aria-pressed="false" data-node-kind="frontend" data-node-sublabel="Rich input / agents / local tools" data-node-context="Architecture component" data-node-brand="Claude" data-node-brand-id="claude" data-node-brand-status="preset" data-node-brand-source="https://claude.ai">
+          <title>Claude Code · Rich input / agents / local tools · Architecture component · Claude</title>
+          <rect x="25" y="355" width="190" height="90" rx="6" class="c-mask"/>
+          <rect x="25" y="355" width="190" height="90" rx="6" class="c-frontend" stroke-width="1.5"/>
+          <g aria-hidden="true" data-semantic-sigil="frontend" class="semantic-sigil s-frontend" transform="translate(31 361) scale(0.6875)">
             <rect x="2" y="3" width="12" height="10" rx="2"/>
             <path d="M2 6.5h12"/>
             <circle cx="4.1" cy="4.8" r=".7" class="sigil-fill"/>
             <circle cx="6.3" cy="4.8" r=".7" class="sigil-fill"/>
           </g>
-          <g aria-hidden="true" data-brand-mark="claude" data-brand-title="Claude" data-brand-status="preset" data-brand-source="https://claude.ai" class="brand-mark" transform="translate(203 361)">
+          <g aria-hidden="true" data-brand-mark="claude" data-brand-title="Claude" data-brand-status="preset" data-brand-source="https://claude.ai" class="brand-mark" transform="translate(193 361)">
             <rect width="16" height="16" rx="4" class="brand-mark-badge"/>
             <path d="m4.7144 15.9555 4.7174-2.6471.079-.2307-.079-.1275h-.2307l-.7893-.0486-2.6956-.0729-2.3375-.0971-2.2646-.1214-.5707-.1215-.5343-.7042.0546-.3522.4797-.3218.686.0608 1.5179.1032 2.2767.1578 1.6514.0972 2.4468.255h.3886l.0546-.1579-.1336-.0971-.1032-.0972L6.973 9.8356l-2.55-1.6879-1.3356-.9714-.7225-.4918-.3643-.4614-.1578-1.0078.6557-.7225.8803.0607.2246.0607.8925.686 1.9064 1.4754 2.4893 1.8336.3643.3035.1457-.1032.0182-.0728-.164-.2733-1.3539-2.4467-1.445-2.4893-.6435-1.032-.17-.6194c-.0607-.255-.1032-.4674-.1032-.7285L6.287.1335 6.6997 0l.9957.1336.419.3642.6192 1.4147 1.0018 2.2282 1.5543 3.0296.4553.8985.2429.8318.091.255h.1579v-.1457l.1275-1.706.2368-2.0947.2307-2.6957.0789-.7589.3764-.9107.7468-.4918.5828.2793.4797.686-.0668.4433-.2853 1.8517-.5586 2.9021-.3643 1.9429h.2125l.2429-.2429.9835-1.3053 1.6514-2.0643.7286-.8196.85-.9046.5464-.4311h1.0321l.759 1.1293-.34 1.1657-1.0625 1.3478-.8804 1.1414-1.2628 1.7-.7893 1.36.0729.1093.1882-.0183 2.8535-.607 1.5421-.2794 1.8396-.3157.8318.3886.091.3946-.3278.8075-1.967.4857-2.3072.4614-3.4364.8136-.0425.0304.0486.0607 1.5482.1457.6618.0364h1.621l3.0175.2247.7892.522.4736.6376-.079.4857-1.2142.6193-1.6393-.3886-3.825-.9107-1.3113-.3279h-.1822v.1093l1.0929 1.0686 2.0035 1.8092 2.5075 2.3314.1275.5768-.3218.4554-.34-.0486-2.2039-1.6575-.85-.7468-1.9246-1.621h-.1275v.17l.4432.6496 2.3436 3.5214.1214 1.0807-.17.3521-.6071.2125-.6679-.1214-1.3721-1.9246L14.38 17.959l-1.1414-1.9428-.1397.079-.674 7.2552-.3156.3703-.7286.2793-.6071-.4614-.3218-.7468.3218-1.4753.3886-1.9246.3157-1.53.2853-1.9004.17-.6314-.0121-.0425-.1397.0182-1.4328 1.9672-2.1796 2.9446-1.7243 1.8456-.4128.164-.7164-.3704.0667-.6618.4008-.5889 2.386-3.0357 1.4389-1.882.929-1.0868-.0062-.1579h-.0546l-6.3385 4.1164-1.1293.1457-.4857-.4554.0608-.7467.2307-.2429 1.9064-1.3114Z" transform="translate(3 3) scale(0.4166666666666667)" fill="#D97757"/>
             <rect width="16" height="16" rx="4" class="brand-mark-frame"/>
           </g>
-          <text data-node-label="" data-detail-anchor="" x="130" y="398" class="t-primary" font-size="11" font-weight="600" text-anchor="middle">Claude Code</text>
-        <text data-detail="context" x="130" y="414" class="t-muted" font-size="9" text-anchor="middle">SSO helper / local tools</text>
+          <text data-node-label="" data-detail-anchor="" x="120" y="398" class="t-primary" font-size="11" font-weight="600" text-anchor="middle">Claude Code</text>
+        <text data-detail="context" x="120" y="414" class="t-muted" font-size="9" text-anchor="middle">Rich input / agents / local tools</text>
         </g>
 
         <g id="node-enterprise-identity" data-node-id="enterprise-identity" data-node-label="Microsoft Entra ID" tabindex="0" role="button" aria-label="Focus Microsoft Entra ID, SSO / conditional access, Architecture component" aria-pressed="false" data-node-kind="security" data-node-sublabel="SSO / conditional access" data-node-context="Architecture component">
@@ -5074,55 +5075,66 @@
         <text data-detail="context" x="405" y="129" class="t-muted" font-size="9" text-anchor="middle">SSO / conditional access</text>
         </g>
 
-        <g id="node-principal-seat-broker" data-node-id="principal-seat-broker" data-node-label="Enterprise broker" tabindex="0" role="button" aria-label="Focus Enterprise broker, Container Apps / Entra policy, Private Azure workload / zone-redundant target" aria-pressed="false" data-node-kind="backend" data-node-sublabel="Container Apps / Entra policy" data-node-context="Private Azure workload / zone-redundant target">
-          <title>Enterprise broker · Container Apps / Entra policy · Private Azure workload / zone-redundant target</title>
-          <rect x="340" y="355" width="220" height="90" rx="6" class="c-mask"/>
-          <rect x="340" y="355" width="220" height="90" rx="6" class="c-backend" stroke-width="1.5"/>
-          <g aria-hidden="true" data-semantic-sigil="backend" class="semantic-sigil s-backend" transform="translate(346 361) scale(0.6875)">
+        <g id="node-principal-seat-broker" data-node-id="principal-seat-broker" data-node-label="Enterprise broker" tabindex="0" role="button" aria-label="Focus Enterprise broker, Entra admission / dispatch fence, Private Azure workload / zone-redundant target" aria-pressed="false" data-node-kind="backend" data-node-sublabel="Entra admission / dispatch fence" data-node-context="Private Azure workload / zone-redundant target">
+          <title>Enterprise broker · Entra admission / dispatch fence · Private Azure workload / zone-redundant target</title>
+          <rect x="290" y="355" width="210" height="90" rx="6" class="c-mask"/>
+          <rect x="290" y="355" width="210" height="90" rx="6" class="c-backend" stroke-width="1.5"/>
+          <g aria-hidden="true" data-semantic-sigil="backend" class="semantic-sigil s-backend" transform="translate(296 361) scale(0.6875)">
             <path d="M6 3 3 8l3 5M10 3l3 5-3 5"/>
           </g>
-          <text data-node-label="" data-detail-anchor="" x="450" y="398" class="t-primary" font-size="11" font-weight="600" text-anchor="middle">Enterprise broker</text>
-        <text data-detail="context" x="450" y="414" class="t-muted" font-size="9" text-anchor="middle">Container Apps / Entra policy</text>
+          <text data-node-label="" data-detail-anchor="" x="395" y="398" class="t-primary" font-size="11" font-weight="600" text-anchor="middle">Enterprise broker</text>
+        <text data-detail="context" x="395" y="414" class="t-muted" font-size="9" text-anchor="middle">Entra admission / dispatch fence</text>
         </g>
 
-        <g id="node-isolated-copilot-workers" data-node-id="isolated-copilot-workers" data-node-label="Per-user LiteLLM" tabindex="0" role="button" aria-label="Focus Per-user LiteLLM, Isolated account caches, Private Azure workload / zone-redundant target" aria-pressed="false" data-node-kind="backend" data-node-sublabel="Isolated account caches" data-node-context="Private Azure workload / zone-redundant target">
-          <title>Per-user LiteLLM · Isolated account caches · Private Azure workload / zone-redundant target</title>
-          <rect x="720" y="355" width="195" height="90" rx="6" class="c-mask"/>
-          <rect x="720" y="355" width="195" height="90" rx="6" class="c-backend" stroke-width="1.5"/>
-          <g aria-hidden="true" data-semantic-sigil="backend" class="semantic-sigil s-backend" transform="translate(726 361) scale(0.6875)">
+        <g id="node-isolated-user-worker" data-node-id="isolated-user-worker" data-node-label="Per-user worker" tabindex="0" role="button" aria-label="Focus Per-user worker, Replay fence / agent branches, Private Azure workload / zone-redundant target" aria-pressed="false" data-node-kind="backend" data-node-sublabel="Replay fence / agent branches" data-node-context="Private Azure workload / zone-redundant target">
+          <title>Per-user worker · Replay fence / agent branches · Private Azure workload / zone-redundant target</title>
+          <rect x="590" y="355" width="190" height="90" rx="6" class="c-mask"/>
+          <rect x="590" y="355" width="190" height="90" rx="6" class="c-backend" stroke-width="1.5"/>
+          <g aria-hidden="true" data-semantic-sigil="backend" class="semantic-sigil s-backend" transform="translate(596 361) scale(0.6875)">
             <path d="M6 3 3 8l3 5M10 3l3 5-3 5"/>
           </g>
-          <text data-node-label="" data-detail-anchor="" x="817.5" y="398" class="t-primary" font-size="11" font-weight="600" text-anchor="middle">Per-user LiteLLM</text>
-        <text data-detail="context" x="817.5" y="414" class="t-muted" font-size="9" text-anchor="middle">Isolated account caches</text>
+          <text data-node-label="" data-detail-anchor="" x="685" y="398" class="t-primary" font-size="11" font-weight="600" text-anchor="middle">Per-user worker</text>
+        <text data-detail="context" x="685" y="414" class="t-muted" font-size="9" text-anchor="middle">Replay fence / agent branches</text>
         </g>
 
-        <g id="node-individual-copilot-seat" data-node-id="individual-copilot-seat" data-node-label="GitHub Copilot" tabindex="0" role="button" aria-label="Focus GitHub Copilot, Each user&#39;s Claude access, Architecture component, GitHub" aria-pressed="false" data-node-kind="external" data-node-sublabel="Each user&#39;s Claude access" data-node-context="Architecture component" data-node-brand="GitHub" data-node-brand-id="github" data-node-brand-status="preset" data-node-brand-source="https://github.com/logos">
-          <title>GitHub Copilot · Each user&#39;s Claude access · Architecture component · GitHub</title>
-          <rect x="1090" y="355" width="190" height="90" rx="6" class="c-mask"/>
-          <rect x="1090" y="355" width="190" height="90" rx="6" class="c-external" stroke-width="1.5"/>
-          <g aria-hidden="true" data-semantic-sigil="external" class="semantic-sigil s-external" transform="translate(1096 361) scale(0.6875)">
+        <g id="node-isolated-copilot-connector" data-node-id="isolated-copilot-connector" data-node-label="LiteLLM connector" tabindex="0" role="button" aria-label="Focus LiteLLM connector, Copilot auth / token count, Private Azure workload / zone-redundant target" aria-pressed="false" data-node-kind="backend" data-node-sublabel="Copilot auth / token count" data-node-context="Private Azure workload / zone-redundant target">
+          <title>LiteLLM connector · Copilot auth / token count · Private Azure workload / zone-redundant target</title>
+          <rect x="865" y="355" width="185" height="90" rx="6" class="c-mask"/>
+          <rect x="865" y="355" width="185" height="90" rx="6" class="c-backend" stroke-width="1.5"/>
+          <g aria-hidden="true" data-semantic-sigil="backend" class="semantic-sigil s-backend" transform="translate(871 361) scale(0.6875)">
+            <path d="M6 3 3 8l3 5M10 3l3 5-3 5"/>
+          </g>
+          <text data-node-label="" data-detail-anchor="" x="957.5" y="398" class="t-primary" font-size="11" font-weight="600" text-anchor="middle">LiteLLM connector</text>
+        <text data-detail="context" x="957.5" y="414" class="t-muted" font-size="9" text-anchor="middle">Copilot auth / token count</text>
+        </g>
+
+        <g id="node-individual-copilot-seat" data-node-id="individual-copilot-seat" data-node-label="GitHub Copilot" tabindex="0" role="button" aria-label="Focus GitHub Copilot, User&#39;s Anthropic models, Architecture component, GitHub" aria-pressed="false" data-node-kind="external" data-node-sublabel="User&#39;s Anthropic models" data-node-context="Architecture component" data-node-brand="GitHub" data-node-brand-id="github" data-node-brand-status="preset" data-node-brand-source="https://github.com/logos">
+          <title>GitHub Copilot · User&#39;s Anthropic models · Architecture component · GitHub</title>
+          <rect x="1150" y="355" width="210" height="90" rx="6" class="c-mask"/>
+          <rect x="1150" y="355" width="210" height="90" rx="6" class="c-external" stroke-width="1.5"/>
+          <g aria-hidden="true" data-semantic-sigil="external" class="semantic-sigil s-external" transform="translate(1156 361) scale(0.6875)">
             <rect x="2.5" y="5" width="8.5" height="8" rx="1.5"/>
             <path d="M8 2.5h5.5V8M13.5 2.5 7.5 8.5"/>
           </g>
-          <g aria-hidden="true" data-brand-mark="github" data-brand-title="GitHub" data-brand-status="preset" data-brand-source="https://github.com/logos" class="brand-mark" transform="translate(1258 361)">
+          <g aria-hidden="true" data-brand-mark="github" data-brand-title="GitHub" data-brand-status="preset" data-brand-source="https://github.com/logos" class="brand-mark" transform="translate(1338 361)">
             <rect width="16" height="16" rx="4" class="brand-mark-badge"/>
             <path d="M12 .297c-6.63 0-12 5.373-12 12 0 5.303 3.438 9.8 8.205 11.385.6.113.82-.258.82-.577 0-.285-.01-1.04-.015-2.04-3.338.724-4.042-1.61-4.042-1.61C4.422 18.07 3.633 17.7 3.633 17.7c-1.087-.744.084-.729.084-.729 1.205.084 1.838 1.236 1.838 1.236 1.07 1.835 2.809 1.305 3.495.998.108-.776.417-1.305.76-1.605-2.665-.3-5.466-1.332-5.466-5.93 0-1.31.465-2.38 1.235-3.22-.135-.303-.54-1.523.105-3.176 0 0 1.005-.322 3.3 1.23.96-.267 1.98-.399 3-.405 1.02.006 2.04.138 3 .405 2.28-1.552 3.285-1.23 3.285-1.23.645 1.653.24 2.873.12 3.176.765.84 1.23 1.91 1.23 3.22 0 4.61-2.805 5.625-5.475 5.92.42.36.81 1.096.81 2.22 0 1.606-.015 2.896-.015 3.286 0 .315.21.69.825.57C20.565 22.092 24 17.592 24 12.297c0-6.627-5.373-12-12-12" transform="translate(3 3) scale(0.4166666666666667)" fill="#181717"/>
             <rect width="16" height="16" rx="4" class="brand-mark-frame"/>
           </g>
-          <text data-node-label="" data-detail-anchor="" x="1185" y="398" class="t-primary" font-size="11" font-weight="600" text-anchor="middle">GitHub Copilot</text>
-        <text data-detail="context" x="1185" y="414" class="t-muted" font-size="9" text-anchor="middle">Each user&#39;s Claude access</text>
+          <text data-node-label="" data-detail-anchor="" x="1255" y="398" class="t-primary" font-size="11" font-weight="600" text-anchor="middle">GitHub Copilot</text>
+        <text data-detail="context" x="1255" y="414" class="t-muted" font-size="9" text-anchor="middle">User&#39;s Anthropic models</text>
         </g>
 
         <g id="node-private-credential-store" data-node-id="private-credential-store" data-node-label="Azure Key Vault" tabindex="0" role="button" aria-label="Focus Azure Key Vault, Per-user secrets / private access, Architecture component" aria-pressed="false" data-node-kind="security" data-node-sublabel="Per-user secrets / private access" data-node-context="Architecture component">
           <title>Azure Key Vault · Per-user secrets / private access · Architecture component</title>
-          <rect x="720" y="70" width="225" height="90" rx="6" class="c-mask"/>
-          <rect x="720" y="70" width="225" height="90" rx="6" class="c-security" stroke-width="1.5"/>
-          <g aria-hidden="true" data-semantic-sigil="security" class="semantic-sigil s-security" transform="translate(726 76) scale(0.6875)">
+          <rect x="760" y="70" width="225" height="90" rx="6" class="c-mask"/>
+          <rect x="760" y="70" width="225" height="90" rx="6" class="c-security" stroke-width="1.5"/>
+          <g aria-hidden="true" data-semantic-sigil="security" class="semantic-sigil s-security" transform="translate(766 76) scale(0.6875)">
             <path d="M8 2.2 13 4v3.5c0 3.1-1.8 5.4-5 6.5-3.2-1.1-5-3.4-5-6.5V4Z"/>
             <path d="m5.8 8 1.5 1.5 3-3"/>
           </g>
-          <text data-node-label="" data-detail-anchor="" x="832.5" y="113" class="t-primary" font-size="11" font-weight="600" text-anchor="middle">Azure Key Vault</text>
-        <text data-detail="context" x="832.5" y="129" class="t-muted" font-size="9" text-anchor="middle">Per-user secrets / private access</text>
+          <text data-node-label="" data-detail-anchor="" x="872.5" y="113" class="t-primary" font-size="11" font-weight="600" text-anchor="middle">Azure Key Vault</text>
+        <text data-detail="context" x="872.5" y="129" class="t-muted" font-size="9" text-anchor="middle">Per-user secrets / private access</text>
         </g>
 
         <g id="node-durable-admission-ledger" data-node-id="durable-admission-ledger" data-node-label="Azure PostgreSQL HA" tabindex="0" role="button" aria-label="Focus Azure PostgreSQL HA, Bindings / leases / quotas / audit outbox, Private Azure workload / zone-redundant target" aria-pressed="false" data-node-kind="database" data-node-sublabel="Bindings / leases / quotas / audit outbox" data-node-context="Private Azure workload / zone-redundant target">
@@ -5150,42 +5162,46 @@
 
         <!-- Connection labels -->
         <g data-detail="context" data-edge-from="managed-client" data-edge-to="principal-seat-broker" data-edge-label="VPN / TLS / Messages" data-edge-key="0" data-edge-id="private-client-access">
-          <rect x="229.5" y="380" width="106" height="14" rx="3" class="c-mask"/>
-          <text x="282.5" y="390" class="t-backend" font-size="8" text-anchor="middle">VPN / TLS / Messages</text>
+          <rect x="200" y="455" width="106" height="14" rx="3" class="c-mask"/>
+          <text x="253" y="465" class="t-backend" font-size="8" text-anchor="middle">VPN / TLS / Messages</text>
         </g>
-        <g data-detail="context" data-edge-from="principal-seat-broker" data-edge-to="isolated-copilot-workers" data-edge-label="bound user" data-edge-key="1" data-edge-id="user-bound-dispatch">
-          <rect x="611" y="380" width="58" height="14" rx="3" class="c-mask"/>
-          <text x="640" y="390" class="t-backend" font-size="8" text-anchor="middle">bound user</text>
+        <g data-detail="context" data-edge-from="principal-seat-broker" data-edge-to="isolated-user-worker" data-edge-label="fenced dispatch" data-edge-key="1" data-edge-id="user-bound-dispatch">
+          <rect x="504" y="380" width="82" height="14" rx="3" class="c-mask"/>
+          <text x="545" y="390" class="t-backend" font-size="8" text-anchor="middle">fenced dispatch</text>
         </g>
-        <g data-detail="context" data-edge-from="isolated-copilot-workers" data-edge-to="individual-copilot-seat" data-edge-label="TLS / SSE" data-edge-key="2" data-edge-id="copilot-native-stream">
-          <rect x="975.9" y="380" width="53.199999999999996" height="14" rx="3" class="c-mask"/>
-          <text x="1002.5" y="390" class="t-backend" font-size="8" text-anchor="middle">TLS / SSE</text>
+        <g data-detail="context" data-edge-from="isolated-user-worker" data-edge-to="isolated-copilot-connector" data-edge-label="Messages / exact model" data-edge-key="2" data-edge-id="reviewed-message-route">
+          <rect x="765.2" y="341" width="115.6" height="14" rx="3" class="c-mask"/>
+          <text x="823" y="351" class="t-backend" font-size="8" text-anchor="middle">Messages / exact model</text>
         </g>
-        <g data-detail="context" data-edge-from="principal-seat-broker" data-edge-to="enterprise-identity" data-edge-label="JWT trust" data-edge-key="3" data-edge-id="trusted-token-validation">
-          <rect x="397.4" y="162.5" width="53.199999999999996" height="14" rx="3" class="c-mask"/>
-          <text x="424" y="172.5" class="t-security" font-size="8" text-anchor="middle">JWT trust</text>
+        <g data-detail="context" data-edge-from="isolated-copilot-connector" data-edge-to="individual-copilot-seat" data-edge-label="TLS / SSE" data-edge-key="3" data-edge-id="copilot-native-stream">
+          <rect x="1073.4" y="380" width="53.199999999999996" height="14" rx="3" class="c-mask"/>
+          <text x="1100" y="390" class="t-backend" font-size="8" text-anchor="middle">TLS / SSE</text>
         </g>
-        <g data-detail="context" data-edge-from="principal-seat-broker" data-edge-to="private-credential-store" data-edge-label="MI / secrets" data-edge-key="4" data-edge-id="broker-secret-access">
-          <rect x="610.95" y="237.5" width="67.6" height="14" rx="3" class="c-mask"/>
-          <text x="644.75" y="247.5" class="t-security" font-size="8" text-anchor="middle">MI / secrets</text>
+        <g data-detail="context" data-edge-from="principal-seat-broker" data-edge-to="enterprise-identity" data-edge-label="JWT trust" data-edge-key="4" data-edge-id="trusted-token-validation">
+          <rect x="369.9" y="162.5" width="53.199999999999996" height="14" rx="3" class="c-mask"/>
+          <text x="396.5" y="172.5" class="t-security" font-size="8" text-anchor="middle">JWT trust</text>
         </g>
-        <g data-detail="context" data-edge-from="principal-seat-broker" data-edge-to="durable-admission-ledger" data-edge-label="reserve / fence" data-edge-key="5" data-edge-id="atomic-admission-reservation">
-          <rect x="585.25" y="510" width="82" height="14" rx="3" class="c-mask"/>
-          <text x="626.25" y="520" class="t-muted" font-size="8" text-anchor="middle">reserve / fence</text>
+        <g data-detail="context" data-edge-from="principal-seat-broker" data-edge-to="private-credential-store" data-edge-label="MI / secrets" data-edge-key="5" data-edge-id="broker-secret-access">
+          <rect x="603.45" y="237.5" width="67.6" height="14" rx="3" class="c-mask"/>
+          <text x="637.25" y="247.5" class="t-security" font-size="8" text-anchor="middle">MI / secrets</text>
         </g>
-        <g data-detail="context" data-edge-from="isolated-copilot-workers" data-edge-to="durable-admission-ledger" data-edge-label="record outcome" data-edge-key="6" data-edge-id="durable-attempt-outcome">
-          <rect x="771.4" y="465" width="77.2" height="14" rx="3" class="c-mask"/>
-          <text x="810" y="475" class="t-muted" font-size="8" text-anchor="middle">record outcome</text>
+        <g data-detail="context" data-edge-from="principal-seat-broker" data-edge-to="durable-admission-ledger" data-edge-label="reserve / fence" data-edge-key="6" data-edge-id="atomic-admission-reservation">
+          <rect x="557.75" y="510" width="82" height="14" rx="3" class="c-mask"/>
+          <text x="598.75" y="520" class="t-muted" font-size="8" text-anchor="middle">reserve / fence</text>
         </g>
-        <g data-detail="context" data-edge-from="principal-seat-broker" data-edge-to="restricted-observability" data-edge-label="metadata only" data-edge-key="7" data-edge-id="metadata-only-telemetry">
-          <rect x="338.8" y="530" width="72.4" height="14" rx="3" class="c-mask"/>
-          <text x="375" y="540" class="t-muted" font-size="8" text-anchor="middle">metadata only</text>
+        <g data-detail="context" data-edge-from="isolated-user-worker" data-edge-to="durable-admission-ledger" data-edge-label="record outcome" data-edge-key="7" data-edge-id="durable-attempt-outcome">
+          <rect x="671.4" y="475" width="77.2" height="14" rx="3" class="c-mask"/>
+          <text x="710" y="485" class="t-muted" font-size="8" text-anchor="middle">record outcome</text>
+        </g>
+        <g data-detail="context" data-edge-from="principal-seat-broker" data-edge-to="restricted-observability" data-edge-label="metadata only" data-edge-key="8" data-edge-id="metadata-only-telemetry">
+          <rect x="283.8" y="530" width="72.4" height="14" rx="3" class="c-mask"/>
+          <text x="320" y="540" class="t-muted" font-size="8" text-anchor="middle">metadata only</text>
         </g>
 
         <!-- Boundary labels (foreground masks keep routes out of titles) -->
         <g data-graph-role="structural-frame-label" data-composition-frame-id="0" data-composition-frame-kind="region" data-composition-frame-label="Private Azure workload / zone-redundant target">
-          <rect data-graph-role="structural-frame-label-mask" x="276" y="335" width="258.4" height="16" rx="3" class="c-mask"/>
-          <text data-boundary-label="" x="280" y="348" class="t-cloud" font-size="9" font-weight="600">Private Azure workload / zone-redundant target</text>
+          <rect data-graph-role="structural-frame-label-mask" x="266" y="335" width="258.4" height="16" rx="3" class="c-mask"/>
+          <text data-boundary-label="" x="270" y="348" class="t-cloud" font-size="9" font-weight="600">Private Azure workload / zone-redundant target</text>
         </g>
 
         <!-- Legend -->
@@ -5379,22 +5395,22 @@
       <div class="card">
         <div class="card-header">
           <div class="card-dot cyan"></div>
-          <h3>One employee, one authorized seat</h3>
+          <h3>Verified Claude compatibility</h3>
         </div>
         <ul>
-          <li>&bull; Immutable Entra-to-GitHub account binding.</li>
-          <li>&bull; Claude keeps Read/Edit/Bash and permissions.</li>
+          <li>&bull; Images, PDFs, adaptive thinking and token counts.</li>
+          <li>&bull; Read/Edit/Bash, hooks and background work stay local.</li>
         </ul>
       </div>
 
       <div class="card">
         <div class="card-header">
           <div class="card-dot violet"></div>
-          <h3>Durable, fail-closed controls</h3>
+          <h3>Isolated multi-branch control</h3>
         </div>
         <ul>
-          <li>&bull; Fenced ownership, quotas and revocation.</li>
-          <li>&bull; No fallback, uncertain replay or body logging.</li>
+          <li>&bull; Main plus eight fenced agent branches per admission.</li>
+          <li>&bull; Completed transcripts can resume after re-admission.</li>
         </ul>
       </div>
 

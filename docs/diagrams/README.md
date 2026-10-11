@@ -8,7 +8,7 @@ Bicep/Terraform VM automation remain the single-user alpha documented below.
 
 | Enterprise diagram | Presentation PNG | Interactive HTML | Technical source |
 |---|---|---|---|
-| Runtime architecture | [Azure-icon runtime poster](ccgc-enterprise-runtime-flare-v2.png) | [Runtime viewer](ccgc-enterprise-runtime.html) | [Architecture JSON](ccgc-enterprise-runtime.architecture.json) |
+| Runtime architecture | [Validated runtime image](ccgc-enterprise-runtime.png) | [Runtime viewer](ccgc-enterprise-runtime.html) | [Architecture JSON](ccgc-enterprise-runtime.architecture.json) |
 | Provisioning and rollout | [Provisioning poster](ccgc-enterprise-provisioning.png) | [Workflow viewer](ccgc-enterprise-provisioning.html) | [Workflow JSON](ccgc-enterprise-provisioning.workflow.json) |
 
 The [PRD enterprise target contract](../PRD.md#enterprise-target-revision-017)
@@ -17,13 +17,21 @@ and production gates. These diagrams do not certify enterprise readiness.
 
 ## Enterprise runtime
 
-![Proposed enterprise runtime architecture with official Azure service icons](ccgc-enterprise-runtime-flare-v2.png)
+![Proposed enterprise runtime architecture](ccgc-enterprise-runtime.png)
 
 The primary request path is **Claude Code -> private enterprise broker ->
-isolated per-user LiteLLM -> GitHub Copilot**. Native Messages
-and streamed responses follow this route; Claude's Read/Edit/Bash and permission
-decisions remain local. Ordinary endpoint and credential-helper configuration
-is still necessary; no client modification or per-model mapping table is proposed.
+isolated per-user worker -> LiteLLM connector -> GitHub Copilot -> Anthropic
+models**. Native Messages and streamed responses follow this route; Claude's
+Read/Edit/Bash, hooks, and background execution remain local. The worker owns
+replay fencing and isolated agent branches. LiteLLM owns Copilot authorization,
+model discovery, transport, and exact token counting.
+
+The compatibility labels reflect the latest verified implementation: images,
+PDFs, adaptive thinking, exact token counts, subagents, background tasks, and
+completed-turn resume are working. Full context-limit compaction, pending-tool
+resume, coordinated agent teams, and automatic-memory lifecycle proof remain
+release gaps. Claude Code `2.1.284` exposes neither a native Cron tool nor the
+Advisor tool through this route.
 
 Entra authenticates broker access, not Copilot entitlement. Each immutable
 enterprise principal must be linked to that same employee's authorized GitHub
@@ -65,11 +73,11 @@ PaaS modules, per-user services or acceptance gates.
 | Initial image brief | [Archify runtime prompt](ccgc-enterprise-runtime.prompt.txt), [Flare prompt](ccgc-enterprise-runtime.flare.prompt.txt), [Flare caption correction](ccgc-enterprise-runtime-flare-v2.prompt.txt) | [Provisioning prompt](ccgc-enterprise-provisioning.prompt.txt) |
 | Image generation provenance | [Initial receipt](ccgc-enterprise-runtime.receipt.json), [v2 receipt](ccgc-enterprise-runtime-v2.receipt.json), [Flare Azure-icon receipt](ccgc-enterprise-runtime-flare.receipt.json), [final Flare receipt](ccgc-enterprise-runtime-flare-v2.receipt.json) | [Selected-image receipt](ccgc-enterprise-provisioning.receipt.json) |
 
-The provisioning PNG is exported from the validated Archify HTML. The runtime
-presentation PNG was generated with Azure OpenAI `gpt-image-2.5-flare` from the
-validated required-only Archify screenshot plus official Microsoft Entra and
-Azure Architecture Center service-icon references. The reviewed JSON and
-interactive HTML remain the technical sources of truth.
+The current runtime and provisioning PNGs are the validated Archify light-theme
+desktop captures, so their labels stay synchronized with the technical JSON and
+interactive HTML. The earlier
+[Azure-icon Flare poster](ccgc-enterprise-runtime-flare-v2.png) is retained as
+historical presentation artwork and is no longer the current-state diagram.
 
 Inputs were sanitized Archify screenshots and architecture terminology, not
 repository source, credentials, account IDs or actual private endpoints.
@@ -79,7 +87,7 @@ resource for this documentation render; no enterprise gateway/client resource
 was deployed and no Copilot inference was performed. Image token counts are not
 a cost quote or Copilot usage.
 
-Both HTML artifacts passed **9/9 showcase checks with 0 errors and 0 warnings**,
+Both enterprise HTML artifacts passed **9/9 showcase checks with 0 errors and 0 warnings**,
 with desktop containment at 1440 x 900, 1600 x 1000, 1920 x 1080 and 2048 x 1320.
 Both themes at the smallest and largest sizes were inspected. The selected
 posters were inspected at native resolution and 1280 x 800 presentation size.
@@ -96,28 +104,32 @@ documentation tool, never a runtime service in this solution.
 | Artifact | Use |
 |---|---|
 | [Interactive architecture](ccgc-automated-solution.html) | Authoritative component/relationship map, with light/dark themes, inspection and export. Open the standalone HTML in a browser. |
-| [GPT-image-enhanced poster](ccgc-automated-solution.gpt-image-v2.png) | Reviewed 2560 x 1600 presentation image, generated with the existing Azure `gpt-image-2` deployment. |
+| [Current-state runtime image](ccgc-automated-solution.png) | Validated 2048 x 1320 Archify capture with the latest feature labels. |
+| [Historical GPT-image poster](ccgc-automated-solution.gpt-image-v2.png) | Earlier 2560 x 1600 presentation artwork retained for provenance. |
 | [Archify specification](ccgc-automated-solution.architecture.json) | Editable technical source for the interactive diagram. |
 | [Delivery receipt](ccgc-automated-solution.delivery.json) | Exact specification/HTML SHA-256 hashes, byte counts and showcase acceptance. |
 | [Desktop evidence](ccgc-automated-solution.visual-check.html) | Light/dark screenshots at 1440 x 900 and 2048 x 1320. |
 | [Visual review](ccgc-automated-solution.review.json) | Separate inspection result for the HTML and final poster. |
 
-![Claude Code runtime and automated setup](ccgc-automated-solution.gpt-image-v2.png)
+![Claude Code runtime and automated setup](ccgc-automated-solution.png)
 
 ### Reading the alpha architecture
 
 **Runtime:** unmodified Claude Code calls Caddy over HTTPS. The Node gateway
-enforces admission, history and shared limits; LiteLLM connects to the same
-developer's entitled Claude models through GitHub Copilot. The arrows show
-requests; streaming responses return over the same route. Read/Edit/Bash and
-tool permissions remain local. There is no local inference proxy, direct
-Anthropic inference credential, model/provider fallback, or second agent.
+enforces admission, replay protection, shared limits, and isolated agent
+branches; LiteLLM connects to the same developer's entitled Anthropic models
+through GitHub Copilot and supplies exact token counts. The arrows show
+requests; streaming responses return over the same route. Images, PDFs,
+adaptive thinking, Read/Edit/Bash, hooks, background tasks, and tool permissions
+remain client-driven. There is no local inference proxy, direct Anthropic
+inference credential, model/provider fallback, or shared Copilot account.
 
 **Credentials:** Keychain stores the separate gateway renewal key. GitHub
 credentials, the reviewed catalog and gateway keys remain in the protected
 server volume. The state box is not a SQL database or Key Vault. In-memory
-admissions are not durable across gateway restarts. Mode restrictions alone
-are not encryption.
+admissions are not durable across gateway restarts, but Claude can resend and
+resume a completed transcript after explicit refresh and re-admission. Pending
+tool batches cannot resume safely. Mode restrictions alone are not encryption.
 
 **Setup:** one coordinator selects Bicep **or** Terraform for a new deployment,
 then performs verified SSH installation, account linking, client configuration
@@ -128,7 +140,7 @@ is installed. Defender JIT grants one IPv4 `/32` a 55-minute SSH window.
 Browser authorization and cost/client/inference approvals remain human gates.
 
 This depicts the **implemented single-user alpha**, not the proposed enterprise
-service. The existing gateway has live all-model evidence; fresh deployments
+service. The existing gateway has live four-model and feature evidence; fresh deployments
 through the new coordinator remain unexecuted. Sweden Central locates the host,
 not necessarily provider inference. No Entra ID, APIM, HA or multi-user seat pool
 is claimed. The older [`../architecture.html`](../architecture.html) is retained
@@ -170,13 +182,13 @@ Only sanitized architecture imagery and public product terminology were sent.
 No repository source, credentials, account IDs, private paths or actual gateway
 addresses were included in the image inputs.
 
-The first edit used the validated HTML's large light-theme screenshot and
+The first historical edit used the validated HTML's large light-theme screenshot and
 [initial prompt](ccgc-automated-solution.gpt-image.prompt.txt). Inspection found
 that its bootstrap connector stopped at the Azure heading. One
 [focused correction](ccgc-automated-solution.gpt-image-v2.prompt.txt) restored the
-arrow into Node gateway and moved the heading out of its path. The **v2 image is
-the selected presentation artifact**. The first image is retained only as the
-input to that correction, not as an accepted diagram.
+arrow into Node gateway and moved the heading out of its path. The v2 image was
+the selected presentation artifact for that revision. The validated Archify PNG
+is now the current-state image; both GPT images remain provenance artifacts.
 
 [First-generation receipt](ccgc-automated-solution.gpt-image.receipt.json) and
 [final-image receipt](ccgc-automated-solution.gpt-image-v2.receipt.json) bind the
@@ -192,7 +204,7 @@ intentionally retain `visualReview: "pending"`; the separate review record
 documents the subsequent visual inspection rather than rewriting machine
 evidence.
 
-The PNG is an AI-generated presentation companion, not an editable substitute
-for the JSON/HTML. If future edits diverge, the reviewed technical specification
-and implementation take precedence. GPT-image is a documentation tool only,
-not part of the solution's inference route.
+The GPT PNG is a historical AI-generated presentation companion, not an
+editable substitute for the JSON/HTML. The current Archify PNG, reviewed
+technical specification, and implementation define the latest state.
+GPT-image is a documentation tool only, not part of the inference route.

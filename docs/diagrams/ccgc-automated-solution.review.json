@@ -1,10 +1,10 @@
 {
   "schemaVersion": 1,
-  "reviewedOn": "2026-10-07",
+  "reviewedOn": "2026-10-11",
   "reviewMethod": "Direct image inspection by Copilot",
   "architecture": {
     "file": "ccgc-automated-solution.html",
-    "sha256": "d4797fdb8cdf9a30b41b90080ef814ed42b6fb345d9162ee4d9c17127281b944",
+    "sha256": "a754d3f194330f4e73c4c20324b83e7d789c81a600a2f03b4a9a256e5e66118c",
     "visual_review": "passed",
     "correction_rounds": 0,
     "showcaseChecksPassed": 9,
@@ -26,20 +26,20 @@
     ]
   },
   "presentationImage": {
-    "file": "ccgc-automated-solution.gpt-image-v2.png",
-    "sha256": "d6c0ff37337d9bdcabecbd96bca84c7482bcf7333558ab2c2b910665f8e83923",
+    "file": "ccgc-automated-solution.png",
+    "sha256": "341db2d1dd13274abbdd1486dcd3214b3ece7a6be84a4abde8150a9ae2b85a5c",
     "visual_review": "passed",
     "correction_rounds": 1,
-    "width": 2560,
-    "height": 1600,
-    "supersedesDraft": "ccgc-automated-solution.gpt-image.png",
-    "correctedDefect": "The first image's install/activate connector stopped at the Azure heading. The second image restores the downward arrow into Node gateway without obscuring the heading.",
+    "width": 2048,
+    "height": 1320,
+    "supersedesDraft": "ccgc-automated-solution.gpt-image-v2.png",
+    "correctedDefect": "The current technical image synchronizes feature, model-count, agent-branch, token-count and resume labels with the implementation.",
     "observations": [
       "Five runtime nodes preserve the Claude Code, Caddy, Node gateway, LiteLLM, GitHub Copilot order.",
       "Bicep or Terraform remains a mutually exclusive setup choice.",
       "Defender JIT access points toward host bootstrap, not into the inference path.",
       "Local tools remain outside Azure; protected server state remains inside.",
-      "All six Claude family/version names are readable and match the reviewed catalog.",
+      "The four approved Claude models and current feature boundaries match the reviewed catalog and implementation.",
       "Single-user, no-fallback and unexecuted-new-deployment caveats are retained.",
       "No unimplemented enterprise services or image model appear as runtime components."
     ]

@@ -5,9 +5,9 @@
   "status": "pass",
   "visualReview": "pending",
   "artifact": {
-    "path": "/Users/shironbabi/Library/CloudStorage/OneDrive-Microsoft/Desktop/microsoft/claude-code-with-github-copilot/docs/diagrams/ccgc-automated-solution.html",
-    "sha256": "d4797fdb8cdf9a30b41b90080ef814ed42b6fb345d9162ee4d9c17127281b944",
-    "bytes": 723187
+    "path": "/Users/shironbabi/Desktop/OneDrive - Microsoft/Desktop/microsoft/claude-code-with-github-copilot/docs/diagrams/ccgc-automated-solution.html",
+    "sha256": "a754d3f194330f4e73c4c20324b83e7d789c81a600a2f03b4a9a256e5e66118c",
+    "bytes": 723285
   },
   "state": {
     "detail": "read",

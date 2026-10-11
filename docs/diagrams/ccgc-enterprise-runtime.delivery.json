@@ -6,12 +6,12 @@
   "input": "/Users/shironbabi/Desktop/OneDrive - Microsoft/Desktop/microsoft/claude-code-with-github-copilot/docs/diagrams/ccgc-enterprise-runtime.architecture.json",
   "output": "/Users/shironbabi/Desktop/OneDrive - Microsoft/Desktop/microsoft/claude-code-with-github-copilot/docs/diagrams/ccgc-enterprise-runtime.html",
   "specification": {
-    "sha256": "7377aa96105a12b3df298feed596b38b66874603f18fbd9fcbdfc625bcf614f2",
-    "bytes": 3835
+    "sha256": "0272bc6e641f7530ebdd7d2b0d268527590645fa4c50c197f7bbe447bd2e7a99",
+    "bytes": 4282
   },
   "artifact": {
-    "sha256": "549785ac5f1420e4b2f8d2f7a34567769a7365575b995044c95ac2fe15a42849",
-    "bytes": 716094
+    "sha256": "062fe76cee7141daf8c079b5446dc4f853703e4da6dcca6d84095638867b3caa",
+    "bytes": 718096
   },
   "validation": {
     "checksPassed": 9,

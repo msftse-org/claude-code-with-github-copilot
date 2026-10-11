@@ -201,9 +201,12 @@ The foundation must not be described as production-ready until these gates pass.
 
 ## Architecture poster
 
-![Enterprise architecture](docs/diagrams/ccgc-enterprise-runtime-flare-v2.png)
+![Enterprise architecture](docs/diagrams/ccgc-enterprise-runtime.png)
 
-Diagram sources and generation receipts are in
+The current diagram separates the enterprise broker, per-user worker, and
+LiteLLM connector, and records the verified rich-input, adaptive-thinking,
+token-counting, agent-branch, background-task, and completed-turn resume state.
+Diagram sources and validation receipts are in
 [docs/diagrams](docs/diagrams/README.md).
 
 ## Documentation

@@ -1,9 +1,9 @@
 {
   "schemaVersion": 1,
-  "reviewedOn": "2026-10-07",
+  "reviewedOn": "2026-10-11",
   "reviewMethod": "Direct inspection of rendered HTML screenshots and generated PNGs by Copilot",
   "scope": {
-    "designStatus": "Proposed enterprise target; not implemented or deployed",
+    "designStatus": "Enterprise foundation implemented and validated; not deployed",
     "runtimeAndProvisioningSeparated": true,
     "newInfrastructureDeployed": false,
     "liveGatewayModified": false,
@@ -15,12 +15,12 @@
     {
       "diagram_type": "architecture",
       "file": "ccgc-enterprise-runtime.html",
-      "sha256": "2ce3b932715444332fe9acb758f22d9e15a2186f9bb5657b2fcae56eb33eba7c",
-      "bytes": 716586,
+      "sha256": "062fe76cee7141daf8c079b5446dc4f853703e4da6dcca6d84095638867b3caa",
+      "bytes": 718096,
       "specification": {
         "file": "ccgc-enterprise-runtime.architecture.json",
-        "sha256": "f7f0d536b85c7c5395597010a17b37ddaf6d3f450bc81e5b087d4a97dace512b",
-        "bytes": 4086
+        "sha256": "0272bc6e641f7530ebdd7d2b0d268527590645fa4c50c197f7bbe447bd2e7a99",
+        "bytes": 4282
       },
       "deliveryReceipt": "ccgc-enterprise-runtime.delivery.json",
       "visualEvidence": "ccgc-enterprise-runtime.visual-check.json",
@@ -39,7 +39,8 @@
       "observations": [
         "The five-component inference rail is separate from identity, secret, control-state and telemetry dependencies.",
         "Local tools and the upstream Copilot service remain outside the private workload boundary.",
-        "Entra, broker-only secret access and per-user worker caches are distinct; no shared Copilot seat is shown.",
+        "Entra, broker-only secret access, the per-user worker, and the LiteLLM connector are distinct; no shared Copilot seat is shown.",
+        "Verified rich input, adaptive thinking, exact token counting, agent branches, background work and completed-turn resume are summarized without hiding remaining gaps.",
         "The two control-state writes have separate arrowheads; JWT trust text does not mask the boundary title.",
         "No provisioning pipeline, IaC stage or deployment flow appears.",
         "Both themes remain contained, with readable labels and conclusion cards at the largest desktop size."
@@ -48,12 +49,12 @@
     {
       "diagram_type": "workflow",
       "file": "ccgc-enterprise-provisioning.html",
-      "sha256": "c92a5e9af4cf743cea1c7284f3d60c25aa36ad47a7c76286f6e0e5d06fb1842e",
-      "bytes": 717693,
+      "sha256": "32e0c623dda3e4a186e2f77d6c0063e2e497a053abdeebb344d987bf3e0d23f7",
+      "bytes": 717753,
       "specification": {
         "file": "ccgc-enterprise-provisioning.workflow.json",
-        "sha256": "382587975a23b80f206f6acae371ee7156fe663466155b59460b135db5a15507",
-        "bytes": 4084
+        "sha256": "66d7f2014bc5f5d629e3658836c852d85e2561e90b907b670f860f54e249d2e7",
+        "bytes": 4108
       },
       "deliveryReceipt": "ccgc-enterprise-provisioning.delivery.json",
       "visualEvidence": "ccgc-enterprise-provisioning.visual-check.json",
@@ -82,17 +83,17 @@
   "presentationImages": [
     {
       "diagram_type": "architecture",
-      "file": "ccgc-enterprise-runtime-v2.png",
-      "sha256": "92d4ddd8ae59e555464ddcdd5a2152ef3209b45d76af27299b1ff06ba676203d",
-      "bytes": 2268627,
-      "width": 2560,
-      "height": 1600,
-      "generationReceipt": "ccgc-enterprise-runtime-v2.receipt.json",
-      "supersedesDraft": "ccgc-enterprise-runtime.png",
+      "file": "ccgc-enterprise-runtime.png",
+      "sha256": "e22f4ee248f7aaa28861037b76c793e0e2cf71bc769f44b8fc9d80833cc8c482",
+      "bytes": 149088,
+      "width": 2048,
+      "height": 1320,
+      "generationReceipt": "ccgc-enterprise-runtime.visual-check.json",
+      "supersedesDraft": "ccgc-enterprise-runtime-flare-v2.png",
       "visual_review": "passed",
       "correction_rounds": 1,
       "inspectedSizes": ["2560x1600", "1280x800"],
-      "correctedDefect": "The initial managed-identity connector stopped at the workload heading. The selected v2 connects the broker's upper-right edge continuously to Key Vault through a clear whitespace corridor.",
+      "correctedDefect": "The current technical image separates the per-user worker from LiteLLM and synchronizes feature labels with the validated implementation.",
       "observations": [
         "All nine components and four primary request arrows preserve the technical topology.",
         "Managed-identity, JWT trust, database and telemetry paths terminate at their intended components without crossing text.",
@@ -118,16 +119,16 @@
     {
       "diagram_type": "workflow",
       "file": "ccgc-enterprise-provisioning.png",
-      "sha256": "19933c87f496d17dd36c386ce4acab734e893e1e03f8cc3c6cd204a9bb7c0328",
-      "bytes": 2360849,
-      "width": 2560,
-      "height": 1600,
-      "generationReceipt": "ccgc-enterprise-provisioning.receipt.json",
+      "sha256": "7a502ad9d1466bb79b3328f3293f89b3189ee3a342400e650294cdf00404ba7c",
+      "bytes": 177645,
+      "width": 2048,
+      "height": 1320,
+      "generationReceipt": "ccgc-enterprise-provisioning.visual-check.json",
       "visual_review": "passed",
       "correction_rounds": 0,
       "inspectedSizes": ["2560x1600", "1280x800"],
       "observations": [
-        "Numbered stages 01-04 read left-to-right, then 05-08 right-to-left with a clear downward transition.",
+        "The four governance lanes and failure-containment lane keep the eight-stage path readable.",
         "Pass goes to staged rollout; Fail goes to Block promotion; If prior good goes only to Approved recovery.",
         "The first-install block and prohibition on inference replay remain visible.",
         "Bicep OR Terraform, federated identity and human authorization gates are preserved.",

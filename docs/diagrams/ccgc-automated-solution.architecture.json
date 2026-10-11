@@ -63,7 +63,7 @@
       "id": "admission-control",
       "type": "backend",
       "label": "Node gateway",
-      "sublabel": "Admission / history / limits",
+      "sublabel": "Admission / branches / replay",
       "pos": [615, 345],
       "size": [210, 85]
     },
@@ -71,7 +71,7 @@
       "id": "copilot-connector",
       "type": "backend",
       "label": "LiteLLM",
-      "sublabel": "Native Copilot connector",
+      "sublabel": "Copilot auth / exact token count",
       "pos": [925, 345],
       "size": [190, 85]
     },
@@ -88,7 +88,7 @@
       "id": "local-workspace",
       "type": "frontend",
       "label": "Tools + Keychain",
-      "sublabel": "Read / Edit / Bash locally",
+      "sublabel": "Tools / hooks / background tasks",
       "pos": [40, 590],
       "size": [215, 85]
     },
@@ -125,8 +125,8 @@
   "cards": [
     {
       "dot": "cyan",
-      "title": "Claude keeps the coding workflow",
-      "items": ["Tools and permissions stay on the Mac.", "Gateway discovery supports six Claude models."]
+      "title": "Verified Claude feature route",
+      "items": ["Images, PDFs, adaptive thinking and token counts.", "Subagents use isolated branches; tools stay on the Mac."]
     },
     {
       "dot": "amber",
@@ -136,7 +136,7 @@
     {
       "dot": "rose",
       "title": "Single-user alpha, not enterprise HA",
-      "items": ["One authorized seat; no shared account pool.", "Fresh IaC applies remain unexecuted."]
+      "items": ["One authorized seat; four approved Claude models.", "Completed transcripts resume; pending tools do not."]
     }
   ]
 }
