@@ -15,6 +15,13 @@ Claude Code remains unchanged. It reads and edits files and runs commands on
 your Mac. The remote services only authenticate the session and carry model
 requests to GitHub Copilot.
 
+Core chat, streaming, Read, Edit, Bash, and model switching work. Features that
+are not currently supported or fully verified through this method include image
+and document input, extended thinking, automatic compaction, resuming across
+admissions, agents/teams, background tasks, hooks, cron, automatic memory, the
+advisor tool, and exact token counting. Use one foreground Claude session per
+admission.
+
 > [!WARNING]
 > This is an experimental, unofficial integration. It uses GitHub Copilot
 > endpoints through LiteLLM and is not endorsed by GitHub or Anthropic. Confirm
