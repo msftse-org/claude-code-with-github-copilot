@@ -8,7 +8,7 @@ Bicep/Terraform VM automation remain the single-user alpha documented below.
 
 | Enterprise diagram | Presentation PNG | Interactive HTML | Technical source |
 |---|---|---|---|
-| Runtime architecture | [Multi-user presentation poster](ccgc-enterprise-runtime-multiuser-flare-v2.png) | [Runtime viewer](ccgc-enterprise-runtime.html) | [Architecture JSON](ccgc-enterprise-runtime.architecture.json) |
+| Runtime architecture | [Multi-user presentation poster](ccgc-enterprise-runtime-multiuser-flare-v3.png) | [Runtime viewer](ccgc-enterprise-runtime.html) | [Architecture JSON](ccgc-enterprise-runtime.architecture.json) |
 | Provisioning and rollout | [Provisioning poster](ccgc-enterprise-provisioning.png) | [Workflow viewer](ccgc-enterprise-provisioning.html) | [Workflow JSON](ccgc-enterprise-provisioning.workflow.json) |
 
 The [PRD enterprise target contract](../PRD.md#enterprise-target-revision-017)
@@ -17,7 +17,7 @@ and production gates. These diagrams do not certify enterprise readiness.
 
 ## Enterprise runtime
 
-![Enterprise multi-user runtime architecture](ccgc-enterprise-runtime-multiuser-flare-v2.png)
+![Enterprise multi-user runtime architecture](ccgc-enterprise-runtime-multiuser-flare-v3.png)
 
 The primary request path is **Claude Code -> private enterprise broker ->
 shared multi-user worker Container App -> in-process account-scoped connector
@@ -28,6 +28,10 @@ Claude's Read/Edit/Bash, hooks, and background execution remain local. The
 broker owns admission and branch fencing. Any worker replica can load the
 matching encrypted checkpoint, while each connector owns only one account's
 Copilot authorization, token cache, refresh lock, transport, and token counting.
+Node.js marks identify the broker process, worker request runtime, and
+in-process connector pool. The Azure Container Apps mark remains on the
+deployable worker boundary. LiteLLM is intentionally absent from this enterprise
+diagram and remains only in the single-user alpha below.
 
 The compatibility labels reflect the latest verified implementation: images,
 PDFs, adaptive thinking, exact token counts, coordinated agent branches,
@@ -74,8 +78,8 @@ PaaS modules, per-user services or acceptance gates.
 |---|---|---|
 | Frozen specification/HTML hashes and byte counts | [Delivery receipt](ccgc-enterprise-runtime.delivery.json) | [Delivery receipt](ccgc-enterprise-provisioning.delivery.json) |
 | Desktop light/dark evidence | [Contact sheet](ccgc-enterprise-runtime.visual-check.html) | [Contact sheet](ccgc-enterprise-provisioning.visual-check.html) |
-| Initial image brief | [Archify runtime prompt](ccgc-enterprise-runtime.prompt.txt), [multi-user Flare prompt](ccgc-enterprise-runtime-multiuser-flare.prompt.txt), [nested-connector correction](ccgc-enterprise-runtime-multiuser-flare-v2.prompt.txt) | [Provisioning prompt](ccgc-enterprise-provisioning.prompt.txt) |
-| Image generation provenance | [Current nested-connector Flare receipt](ccgc-enterprise-runtime-multiuser-flare-v2.receipt.json), [initial multi-user Flare receipt](ccgc-enterprise-runtime-multiuser-flare.receipt.json), [historical per-user Flare receipt](ccgc-enterprise-runtime-flare-v2.receipt.json) | [Selected-image receipt](ccgc-enterprise-provisioning.receipt.json) |
+| Initial image brief | [Archify runtime prompt](ccgc-enterprise-runtime.prompt.txt), [multi-user Flare prompt](ccgc-enterprise-runtime-multiuser-flare.prompt.txt), [nested-connector correction](ccgc-enterprise-runtime-multiuser-flare-v2.prompt.txt), [Node.js brand correction](ccgc-enterprise-runtime-multiuser-flare-v3.prompt.txt) | [Provisioning prompt](ccgc-enterprise-provisioning.prompt.txt) |
+| Image generation provenance | [Current Node-branded Flare receipt](ccgc-enterprise-runtime-multiuser-flare-v3.receipt.json), [nested-connector Flare receipt](ccgc-enterprise-runtime-multiuser-flare-v2.receipt.json), [initial multi-user Flare receipt](ccgc-enterprise-runtime-multiuser-flare.receipt.json), [historical per-user Flare receipt](ccgc-enterprise-runtime-flare-v2.receipt.json) | [Selected-image receipt](ccgc-enterprise-provisioning.receipt.json) |
 
 The runtime presentation PNG was generated from the validated Archify
 light-theme capture and official Microsoft Entra/Azure icon references. It

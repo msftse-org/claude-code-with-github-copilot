@@ -1,0 +1,71 @@
+{
+  "operation": "images/edits",
+  "provider": "Azure OpenAI",
+  "resource": "foundry-llm-demo-resource",
+  "region": "Sweden Central",
+  "deployment": "gpt-image-2.5-flare",
+  "model": "gpt-image-2.5-flare",
+  "modelVersion": "2026-09-08",
+  "apiVersion": "2025-04-01-preview",
+  "authentication": "Microsoft Entra ID bearer token",
+  "createdAt": "2026-10-11T17:11:42Z",
+  "requestId": "ff101e88-28d1-469c-85eb-91e1b1537d42",
+  "request": {
+    "quality": "high",
+    "size": "2560x1600",
+    "outputFormat": "png",
+    "prompt": {
+      "path": "docs/diagrams/ccgc-enterprise-runtime-multiuser-flare-v3.prompt.txt",
+      "sha256": "d71769c3040d3ecea0f37a8c06b6fef4f24061ec72dbb8033d1622d7057a8385"
+    },
+    "references": [
+      {
+        "role": "current nested architecture poster",
+        "path": "docs/diagrams/ccgc-enterprise-runtime-multiuser-flare-v2.png",
+        "sha256": "3e0581154ba03f10bdef732c019bf3735b4ba3f313f538f83767cc01b081cc27"
+      },
+      {
+        "role": "authoritative Node.js brand placement",
+        "path": "docs/diagrams/ccgc-enterprise-runtime.visual-check.2048x1320.light.png",
+        "sha256": "6f0129f5b21956b32113606f79d760b14dfff5dd458c8f97308e00a332d71a61"
+      },
+      {
+        "role": "Node.js logo reference",
+        "path": "session-artifact:azure-icons/references/node-js.svg.png",
+        "sha256": "ad0b36ebc43c4a59a78e84e4803e3716358bfe164c198939e40f6a21bde82210"
+      }
+    ]
+  },
+  "response": {
+    "usage": {
+      "inputTokens": 4347,
+      "imageInputTokens": 3952,
+      "textInputTokens": 395,
+      "outputTokens": 2195,
+      "imageOutputTokens": 2195,
+      "totalTokens": 6542
+    }
+  },
+  "output": {
+    "path": "docs/diagrams/ccgc-enterprise-runtime-multiuser-flare-v3.png",
+    "desktopCopy": "/Users/shironbabi/Desktop/CCGC-Enterprise-Multiuser-Architecture-Poster.png",
+    "width": 2560,
+    "height": 1600,
+    "sha256": "c494d65a00a999fdb8dc76142c2281019034615af6db2fc911edddbb4f430a7d"
+  },
+  "visualReview": {
+    "status": "approved",
+    "inspectedAt": [
+      "native 2560x1600",
+      "presentation 1280x800"
+    ],
+    "nodeJsBrokerMarkPresent": true,
+    "nodeJsWorkerRuntimeMarkPresent": true,
+    "nodeJsConnectorPoolMarkPresent": true,
+    "workerContainerAppsMarkPreserved": true,
+    "liteLlmAbsentFromEnterprisePath": true,
+    "nestedConnectorTopologyPreserved": true,
+    "readability": "approved"
+  },
+  "infrastructureChanged": false
+}

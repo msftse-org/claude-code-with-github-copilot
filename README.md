@@ -230,7 +230,7 @@ The foundation must not be described as production-ready until these gates pass.
 
 ## Architecture poster
 
-![Enterprise multi-user architecture](docs/diagrams/ccgc-enterprise-runtime-multiuser-flare-v2.png)
+![Enterprise multi-user architecture](docs/diagrams/ccgc-enterprise-runtime-multiuser-flare-v3.png)
 
 The current poster shows the enterprise broker and a horizontally scaled
 multi-user worker Container App containing the worker runtime and in-process

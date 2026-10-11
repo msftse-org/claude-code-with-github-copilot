@@ -148,7 +148,7 @@ export async function startEnterpriseWorkerServer(options: EnterpriseWorkerServe
     const activeForUser = [...sessions.values()].filter(record =>
       record.claims.tenantId === claims.tenantId && record.claims.objectId === claims.objectId).length;
     if (activeForUser >= maxActiveBranchesPerUser) {
-      throw new BridgeError('LIMIT_REACHED', 'Per-user worker branch capacity is exhausted.', 429);
+      throw new BridgeError('LIMIT_REACHED', 'Per-user active branch capacity is exhausted.', 429);
     }
     const checkpointIdentity = identity(claims);
     const stored = await options.checkpoints.load(checkpointIdentity);

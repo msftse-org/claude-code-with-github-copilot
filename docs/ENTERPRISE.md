@@ -25,6 +25,11 @@ safe for the retained single-user proof but not for many accounts in one worker
 process. The enterprise worker instead reuses the repository's native Copilot
 transport through account-keyed connector objects.
 
+The broker, worker request runtime, and connector pool are TypeScript modules
+running on Node.js 24. Azure Container Apps hosts the broker and worker
+processes; the connector pool is created inside each worker process and has no
+separate container, ingress, revision, or scaling rule.
+
 ## Implemented request path
 
 1. `ccgc-enterprise login` obtains a gateway-audience Entra token through

@@ -9,18 +9,18 @@
     "liveGatewayModified": false,
     "clientSettingsModified": false,
     "copilotInferencePerformed": false,
-    "imageGenerationInvocations": 5
+    "imageGenerationInvocations": 6
   },
   "interactiveDiagrams": [
     {
       "diagram_type": "architecture",
       "file": "ccgc-enterprise-runtime.html",
-      "sha256": "cc3e7ef47df9c710e60ec672b7fa1a8336a319d6caa60253a245daf666661043",
-      "bytes": 721734,
+      "sha256": "e7da3c41f63766c2488137fc99340bbd36faf84c80536c26cbca5bf5e04ce338",
+      "bytes": 728167,
       "specification": {
         "file": "ccgc-enterprise-runtime.architecture.json",
-        "sha256": "ffbe8d98c04dd8415c7cce8ab96ddb5e09eaa6b6f9049438dc4b3cec2edceb8d",
-        "bytes": 4970
+        "sha256": "59465d5da06913ec57824a0984f0bab10dba51ef102d98ef8cdd60d7b3df73e8",
+        "bytes": 5030
       },
       "deliveryReceipt": "ccgc-enterprise-runtime.delivery.json",
       "visualEvidence": "ccgc-enterprise-runtime.visual-check.json",
@@ -38,6 +38,7 @@
       ],
       "observations": [
         "The worker Container App boundary visibly contains the worker request runtime and in-process account-scoped connector pool.",
+        "Node.js marks identify the broker, worker runtime, and in-process connector pool without implying separate deployments.",
         "Local tools and the upstream Copilot service remain outside the private workload boundary.",
         "The connector pool is not represented as a separate Container App, worker service, or shared Copilot seat.",
         "Verified rich input, adaptive thinking, exact token counting, coordinated agent branches, compaction, Cron, automatic memory, background work and completed-turn resume are summarized.",
@@ -83,24 +84,25 @@
   "presentationImages": [
     {
       "diagram_type": "architecture",
-      "file": "ccgc-enterprise-runtime-multiuser-flare-v2.png",
-      "sha256": "3e0581154ba03f10bdef732c019bf3735b4ba3f313f538f83767cc01b081cc27",
-      "bytes": 2295143,
+      "file": "ccgc-enterprise-runtime-multiuser-flare-v3.png",
+      "sha256": "c494d65a00a999fdb8dc76142c2281019034615af6db2fc911edddbb4f430a7d",
+      "bytes": 2629789,
       "width": 2560,
       "height": 1600,
-      "generationReceipt": "ccgc-enterprise-runtime-multiuser-flare-v2.receipt.json",
-      "supersedesDraft": "ccgc-enterprise-runtime-multiuser-flare.png",
+      "generationReceipt": "ccgc-enterprise-runtime-multiuser-flare-v3.receipt.json",
+      "supersedesDraft": "ccgc-enterprise-runtime-multiuser-flare-v2.png",
       "visual_review": "passed",
       "correction_rounds": 1,
       "inspectedSizes": ["2560x1600", "1280x800"],
-      "correctedDefect": "The connector pool is now nested inside the multi-user worker Container App instead of appearing as an independently deployed peer service.",
+      "correctedDefect": "The poster now identifies the Node.js runtime in the broker, worker request runtime, and in-process connector pool while keeping LiteLLM out of the enterprise path.",
       "observations": [
         "The outer worker Container App clearly contains both request-runtime and connector-pool inner areas.",
         "The connector pool is explicitly labeled in-process and retains three account-isolated contexts.",
+        "Node.js branding appears on the broker and both worker-process modules; the Azure Container Apps mark remains on the deployable outer worker component.",
         "Managed-identity, JWT trust, database and telemetry paths terminate at their intended components without crossing text.",
         "The implemented/not-deployed badge is prominent and all production caveats remain readable.",
         "The client remains unmodified with local tools; access remains per employee and entitled Claude model.",
-        "No separate connector Container App, provisioning flow, shared seat, direct Anthropic credential or image-generation service appears."
+        "No LiteLLM component, separate connector Container App, provisioning flow, shared seat, direct Anthropic credential or image-generation service appears."
       ],
       "rubric": {
         "scale": 5,

@@ -3,7 +3,7 @@
   "version": "0.2.0-alpha.1",
   "private": true,
   "type": "module",
-  "description": "Experimental remote LiteLLM gateway and Claude Code configuration for Copilot-provided Anthropic models",
+  "description": "Enterprise Node.js broker and multi-user worker with native account-scoped Copilot connectors, plus a retained single-user LiteLLM proof",
   "engines": {
     "node": ">=24.0.0 <25"
   },

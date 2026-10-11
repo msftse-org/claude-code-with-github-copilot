@@ -10,9 +10,9 @@
   "components": [
     {"id": "managed-client", "type": "frontend", "label": "Claude Code", "sublabel": "Rich input / agents / local tools", "brand": "claude", "pos": [25, 355], "size": [190, 90]},
     {"id": "enterprise-identity", "type": "security", "label": "Microsoft Entra ID", "sublabel": "SSO / conditional access", "pos": [310, 70], "size": [190, 90]},
-    {"id": "principal-seat-broker", "type": "backend", "label": "Enterprise broker", "sublabel": "Entra admission / dispatch fence", "pos": [290, 355], "size": [210, 90]},
-    {"id": "multiuser-worker-fleet", "type": "backend", "label": "Worker request runtime", "sublabel": "Shared replica / branch restore", "pos": [570, 355], "size": [220, 90]},
-    {"id": "account-scoped-connectors", "type": "backend", "label": "In-process connector pool", "sublabel": "Account-scoped Copilot auth / refresh", "pos": [825, 355], "size": [230, 90]},
+    {"id": "principal-seat-broker", "type": "backend", "label": "Enterprise broker", "sublabel": "Entra admission / dispatch fence", "brand": "node-js", "pos": [290, 355], "size": [210, 90]},
+    {"id": "multiuser-worker-fleet", "type": "backend", "label": "Worker request runtime", "sublabel": "Shared replica / branch restore", "brand": "node-js", "pos": [570, 355], "size": [220, 90]},
+    {"id": "account-scoped-connectors", "type": "backend", "label": "In-process connector pool", "sublabel": "Account-scoped Copilot auth / refresh", "brand": "node-js", "pos": [825, 355], "size": [230, 90]},
     {"id": "individual-copilot-seat", "type": "external", "label": "GitHub Copilot", "sublabel": "User's Anthropic models", "brand": "github", "pos": [1160, 355], "size": [210, 90]},
     {"id": "private-credential-store", "type": "security", "label": "Azure Key Vault", "sublabel": "Account credentials / signing keys", "pos": [770, 70], "size": [245, 90]},
     {"id": "durable-admission-ledger", "type": "database", "label": "Azure PostgreSQL HA", "sublabel": "Bindings / branch fences / quotas / audit", "pos": [440, 615], "size": [300, 90]},
