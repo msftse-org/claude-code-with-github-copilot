@@ -268,14 +268,15 @@ The foundation must not be described as production-ready until these gates pass.
 
 ## Architecture poster
 
-![Enterprise multi-user architecture](docs/diagrams/ccgc-enterprise-runtime-multiuser-litellm-flare-v4.png)
+![Enterprise multi-user architecture](docs/diagrams/ccgc-enterprise-runtime-multiuser-litellm-flare-v5.png)
 
-The current poster shows independently scaled broker, multi-user worker, and
-LiteLLM Gateway Container Apps, plus the separate control and LiteLLM databases,
-private Key Vault, and encrypted checkpoint store. The reviewed Archify JSON and
-interactive HTML remain the authoritative technical architecture; the
-GPT-image poster is its presentation companion. Diagram sources, model
-provenance, and validation receipts are in
+The current poster shows an independently scaled broker and one shared inference
+plane containing separate multi-user worker and LiteLLM Gateway Container Apps.
+The worker and LiteLLM retain independent replica ranges and responsibilities.
+The poster also includes the separate control and LiteLLM databases, private Key
+Vault, and encrypted checkpoint store. The reviewed Archify JSON and interactive
+HTML remain the authoritative technical architecture; the GPT-image poster is
+its presentation companion. Diagram sources, model provenance, and validation receipts are in
 [docs/diagrams](docs/diagrams/README.md).
 
 ## Documentation

@@ -8,7 +8,7 @@ Bicep/Terraform VM automation remain the single-user alpha documented below.
 
 | Enterprise diagram | Presentation PNG | Interactive HTML | Technical source |
 |---|---|---|---|
-| Runtime architecture | [LiteLLM presentation poster](ccgc-enterprise-runtime-multiuser-litellm-flare-v4.png) | [Runtime viewer](ccgc-enterprise-runtime.html) | [Architecture JSON](ccgc-enterprise-runtime.architecture.json) |
+| Runtime architecture | [LiteLLM presentation poster](ccgc-enterprise-runtime-multiuser-litellm-flare-v5.png) | [Runtime viewer](ccgc-enterprise-runtime.html) | [Architecture JSON](ccgc-enterprise-runtime.architecture.json) |
 | Provisioning and rollout | [Provisioning poster](ccgc-enterprise-provisioning.png) | [Workflow viewer](ccgc-enterprise-provisioning.html) | [Workflow JSON](ccgc-enterprise-provisioning.workflow.json) |
 
 The [PRD enterprise target contract](../PRD.md#enterprise-target-revision-017)
@@ -17,7 +17,7 @@ and production gates. These diagrams do not certify enterprise readiness.
 
 ## Enterprise runtime
 
-![Enterprise multi-user runtime architecture](ccgc-enterprise-runtime-multiuser-litellm-flare-v4.png)
+![Enterprise multi-user runtime architecture](ccgc-enterprise-runtime-multiuser-litellm-flare-v5.png)
 
 The primary request path is **Claude Code -> private enterprise broker ->
 shared multi-user worker Container App -> private LiteLLM Gateway Container App
@@ -30,6 +30,11 @@ PostgreSQL database and owns Copilot token exchange, transport, streaming, and
 token counting. Node.js marks identify the broker and worker; Container Apps
 marks identify all three deployable services; the LiteLLM logo identifies the
 gateway.
+
+The presentation poster consolidates the worker and LiteLLM cards inside one
+**Shared inference plane - Azure Container Apps** boundary. They remain two
+separate peer Container Apps with independent 2-30 and 2-10 replica ranges; the
+shared outer box is a visual/scaling-plane grouping, not a merged process.
 
 The compatibility labels reflect the latest verified implementation: images,
 PDFs, adaptive thinking, exact token counts, coordinated agent branches,
@@ -77,12 +82,13 @@ PaaS modules, per-user services or acceptance gates.
 |---|---|---|
 | Frozen specification/HTML hashes and byte counts | [Delivery receipt](ccgc-enterprise-runtime.delivery.json) | [Delivery receipt](ccgc-enterprise-provisioning.delivery.json) |
 | Desktop light/dark evidence | [Contact sheet](ccgc-enterprise-runtime.visual-check.html) | [Contact sheet](ccgc-enterprise-provisioning.visual-check.html) |
-| Initial image brief | [LiteLLM architecture prompt](ccgc-enterprise-runtime-multiuser-litellm-flare-v4.prompt.txt), [Archify runtime prompt](ccgc-enterprise-runtime.prompt.txt), and historical correction prompts | [Provisioning prompt](ccgc-enterprise-provisioning.prompt.txt) |
-| Image generation provenance | [Current LiteLLM Flare receipt](ccgc-enterprise-runtime-multiuser-litellm-flare-v4.receipt.json) and retained historical receipts | [Selected-image receipt](ccgc-enterprise-provisioning.receipt.json) |
+| Initial image brief | [Shared inference-plane prompt](ccgc-enterprise-runtime-multiuser-litellm-flare-v5.prompt.txt), [topology correction prompt](ccgc-enterprise-runtime-multiuser-litellm-flare-v5-correction.prompt.txt), [Archify runtime prompt](ccgc-enterprise-runtime.prompt.txt), and historical prompts | [Provisioning prompt](ccgc-enterprise-provisioning.prompt.txt) |
+| Image generation provenance | [Current LiteLLM Flare receipt](ccgc-enterprise-runtime-multiuser-litellm-flare-v5.receipt.json) and retained historical receipts | [Selected-image receipt](ccgc-enterprise-provisioning.receipt.json) |
 
 The runtime presentation PNG was generated from the validated Archify
 light-theme capture and official Microsoft Entra/Azure icon references. It
-shows the independently scaled broker, worker, and LiteLLM Gateway services. The validated
+shows the independently scaled broker plus a shared inference-plane boundary
+containing the separate worker and LiteLLM Gateway services. The validated
 [technical runtime capture](ccgc-enterprise-runtime.png),
 reviewed JSON, and interactive HTML remain authoritative when presentation
 artwork and implementation details differ. The earlier
