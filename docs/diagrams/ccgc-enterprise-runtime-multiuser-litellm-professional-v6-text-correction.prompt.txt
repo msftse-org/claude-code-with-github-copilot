@@ -1,0 +1,9 @@
+Make one exact text correction in the supplied poster and preserve every other
+pixel, color, component, logo, arrow, label, and layout.
+
+Inside the "Multi-user worker" card, replace the bullet text:
+"branch factory"
+with:
+"branch restore"
+
+Do not change anything else. Keep the restrained professional navy/slate style.

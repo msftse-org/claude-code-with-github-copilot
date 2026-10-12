@@ -1,0 +1,39 @@
+Restyle the supplied enterprise architecture poster into a restrained,
+professional Microsoft enterprise architecture visual. Preserve the topology,
+component positions, labels, arrows, logos, scaling ranges, and shared
+inference-plane composition. This is a visual refinement, not a redesign.
+
+STYLE DIRECTION:
+- Use a solid deep navy and charcoal palette with subtle slate-blue panels.
+- Use white and light gray for primary text.
+- Reserve cyan for primary request-flow arrows and a few key headings only.
+- Reserve muted amber only for the limitations icon and bullets.
+- Remove neon gradients, rainbow effects, excessive glow, bright purple,
+  decorative lighting, and saturated outlines.
+- Prefer flat fills, thin 1-2 px borders, modest corner radii, quiet shadows,
+  consistent spacing, and a clean executive-presentation finish.
+- Use one consistent visual hierarchy: title, group heading, component title,
+  detail text.
+- Keep official logos recognizable but do not let their colors dominate.
+- Make the large Azure workload boundary subtle and the
+  "SHARED INFERENCE PLANE - AZURE CONTAINER APPS" boundary clearly visible
+  without glowing.
+- Keep the background nearly solid rather than textured or luminous.
+
+MANDATORY ARCHITECTURE TO PRESERVE:
+- Enterprise broker remains its own Container App, 2-10 replicas.
+- One shared inference-plane outer box contains two separate peer cards:
+  Multi-user worker Container App, 2-30 replicas, Node.js; and LiteLLM Gateway
+  Container App, 2-10 replicas, LiteLLM.
+- Worker and LiteLLM remain separate deployables with independent scaling.
+- Request path remains Claude Code -> broker -> worker -> LiteLLM -> employee's
+  GitHub Copilot seat -> Anthropic Claude models.
+- Keep Microsoft Entra ID, Azure Key Vault, Azure Monitor, Enterprise PostgreSQL
+  HA, Encrypted Blob checkpoints, and LiteLLM PostgreSQL HA with their existing
+  correct relationships.
+- Preserve "IMPLEMENTED FOUNDATION - NOT DEPLOYED".
+- Preserve Isolation & Security, Key Capabilities, and Limitations content.
+
+Do not introduce new components, remove storage services, merge worker and
+LiteLLM processes, or alter wording. Avoid misspellings. Render at 2560x1600
+with strong readability at 1280x800.
