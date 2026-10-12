@@ -8,7 +8,7 @@ Bicep/Terraform VM automation remain the single-user alpha documented below.
 
 | Enterprise diagram | Presentation PNG | Interactive HTML | Technical source |
 |---|---|---|---|
-| Runtime architecture | [LiteLLM presentation poster](ccgc-enterprise-runtime-multiuser-litellm-professional-v6.png) | [Runtime viewer](ccgc-enterprise-runtime.html) | [Architecture JSON](ccgc-enterprise-runtime.architecture.json) |
+| Runtime architecture | [LiteLLM presentation poster](ccgc-enterprise-runtime-multiuser-litellm-presentation-v7.png) | [Runtime viewer](ccgc-enterprise-runtime.html) | [Architecture JSON](ccgc-enterprise-runtime.architecture.json) |
 | Provisioning and rollout | [Provisioning poster](ccgc-enterprise-provisioning.png) | [Workflow viewer](ccgc-enterprise-provisioning.html) | [Workflow JSON](ccgc-enterprise-provisioning.workflow.json) |
 
 The [PRD enterprise target contract](../PRD.md#enterprise-target-revision-017)
@@ -17,7 +17,7 @@ and production gates. These diagrams do not certify enterprise readiness.
 
 ## Enterprise runtime
 
-![Enterprise multi-user runtime architecture](ccgc-enterprise-runtime-multiuser-litellm-professional-v6.png)
+![Enterprise multi-user runtime architecture](ccgc-enterprise-runtime-multiuser-litellm-presentation-v7.png)
 
 The primary request path is **Claude Code -> private enterprise broker ->
 shared multi-user worker Container App -> private LiteLLM Gateway Container App
@@ -82,11 +82,12 @@ PaaS modules, per-user services or acceptance gates.
 |---|---|---|
 | Frozen specification/HTML hashes and byte counts | [Delivery receipt](ccgc-enterprise-runtime.delivery.json) | [Delivery receipt](ccgc-enterprise-provisioning.delivery.json) |
 | Desktop light/dark evidence | [Contact sheet](ccgc-enterprise-runtime.visual-check.html) | [Contact sheet](ccgc-enterprise-provisioning.visual-check.html) |
-| Initial image brief | [Professional restyle prompt](ccgc-enterprise-runtime-multiuser-litellm-professional-v6.prompt.txt), [color correction](ccgc-enterprise-runtime-multiuser-litellm-professional-v6-correction.prompt.txt), [text correction](ccgc-enterprise-runtime-multiuser-litellm-professional-v6-text-correction.prompt.txt), [Archify runtime prompt](ccgc-enterprise-runtime.prompt.txt), and historical prompts | [Provisioning prompt](ccgc-enterprise-provisioning.prompt.txt) |
-| Image generation provenance | [Current professional poster receipt](ccgc-enterprise-runtime-multiuser-litellm-professional-v6.receipt.json) and retained historical receipts | [Selected-image receipt](ccgc-enterprise-provisioning.receipt.json) |
+| Initial image brief | [Light presentation and icon-scale prompt](ccgc-enterprise-runtime-multiuser-litellm-presentation-v7.prompt.txt), [Archify runtime prompt](ccgc-enterprise-runtime.prompt.txt), and historical prompts | [Provisioning prompt](ccgc-enterprise-provisioning.prompt.txt) |
+| Image generation provenance | [Current presentation poster receipt](ccgc-enterprise-runtime-multiuser-litellm-presentation-v7.receipt.json) and retained historical receipts | [Selected-image receipt](ccgc-enterprise-provisioning.receipt.json) |
 
 The runtime presentation PNG was restyled from the approved shared
-inference-plane poster into a restrained navy/slate executive presentation. It
+inference-plane poster into a light executive presentation with smaller icons,
+white and light blue-gray cards, dark slate text, and restrained blue accents. It
 shows the independently scaled broker plus a shared inference-plane boundary
 containing the separate worker and LiteLLM Gateway services. The validated
 [technical runtime capture](ccgc-enterprise-runtime.png),

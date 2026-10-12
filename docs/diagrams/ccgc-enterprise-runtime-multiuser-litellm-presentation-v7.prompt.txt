@@ -1,0 +1,39 @@
+Restyle the supplied architecture poster for a polished executive presentation.
+Preserve every component, label, arrow, relationship, replica count, and the
+shared inference-plane composition. This is a visual refinement only.
+
+PRESENTATION STYLE:
+- Replace the deep navy/charcoal treatment with a warm off-white or very light
+  cool-gray canvas.
+- Use white cards with subtle light-gray or muted blue-gray fills.
+- Use dark slate text for strong contrast.
+- Use muted Microsoft blue for primary borders, section headings, and request
+  flow arrows; use a softer secondary blue-gray for supporting connectors.
+- Keep amber only for the Limitations warning.
+- Use thin borders, very subtle shadows, generous whitespace, consistent
+  alignment, and a clean consulting/enterprise presentation aesthetic.
+- Avoid neon color, heavy glow, dark full-card surfaces, gradients, or overly
+  saturated outlines.
+
+ICON SCALE:
+- Reduce every service and product icon/logo by approximately 20-30 percent:
+  Claude, Microsoft Entra ID, Azure Key Vault, Azure Container Apps, Node.js,
+  LiteLLM, GitHub, Anthropic, Azure Monitor, PostgreSQL, Blob checkpoints,
+  security, capabilities, and limitations icons.
+- Icons should support the labels, not dominate the cards.
+- Keep logos recognizable and proportional; do not enlarge cards to compensate.
+
+MANDATORY ARCHITECTURE TO PRESERVE:
+- Enterprise broker is a separate Container App, 2-10 replicas.
+- One shared inference-plane outer box contains separate Multi-user worker
+  Container App (2-30 replicas, Node.js) and LiteLLM Gateway Container App
+  (2-10 replicas, LiteLLM).
+- Request path remains Claude Code -> broker -> worker -> LiteLLM -> employee's
+  GitHub Copilot seat -> Anthropic Claude models.
+- Keep Entra ID, Key Vault, Azure Monitor, Enterprise PostgreSQL HA, Encrypted
+  Blob checkpoints, and LiteLLM PostgreSQL HA with existing relationships.
+- Keep "IMPLEMENTED FOUNDATION - NOT DEPLOYED".
+- Keep all Isolation & Security, Key Capabilities, and Limitations wording.
+
+Do not add, remove, merge, or rename components. Avoid misspellings. Render at
+2560x1600 with excellent readability at 1280x800.

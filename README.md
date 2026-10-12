@@ -268,7 +268,7 @@ The foundation must not be described as production-ready until these gates pass.
 
 ## Architecture poster
 
-![Enterprise multi-user architecture](docs/diagrams/ccgc-enterprise-runtime-multiuser-litellm-professional-v6.png)
+![Enterprise multi-user architecture](docs/diagrams/ccgc-enterprise-runtime-multiuser-litellm-presentation-v7.png)
 
 The current poster shows an independently scaled broker and one shared inference
 plane containing separate multi-user worker and LiteLLM Gateway Container Apps.
