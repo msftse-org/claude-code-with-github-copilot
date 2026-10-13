@@ -1,4 +1,4 @@
-import { randomBytes, randomUUID } from 'node:crypto';
+import { createHash, randomBytes, randomUUID } from 'node:crypto';
 import { Pool, type PoolClient } from 'pg';
 import { BridgeError } from './protocol.ts';
 import type { EnterprisePrincipal } from './enterprise-auth.ts';
@@ -22,9 +22,52 @@ export interface DispatchReservation {
   binding: AccountBinding;
 }
 
+export interface EnterpriseEnrollment {
+  id: string;
+  tenantId: string;
+  objectId: string;
+  userEmail: string;
+  userAlias: string;
+  githubAccountId: number;
+  githubLogin: string;
+  credentialSecretName: string;
+  pendingSecretName: string;
+  outputSecretName?: string;
+  models: string[];
+  flowHandle?: string;
+  flowExpiresAt?: string;
+  status: 'pending' | 'authorizing' | 'finalizing' | 'completed';
+  expiresAt: string;
+}
+
 export interface EnterpriseStore {
   initialize(): Promise<void>;
   binding(principal: EnterprisePrincipal): Promise<AccountBinding>;
+  authenticateApiKey(token: string): Promise<EnterprisePrincipal>;
+  issueApiKey(tenantId: string, objectId: string, label: string, ttlSeconds: number): Promise<{
+    id: string;
+    apiKey: string;
+    expiresAt: string;
+  }>;
+  revokeApiKey(id: string, evidenceDigest: string): Promise<void>;
+  createEnrollment(input: {
+    codeHash: string;
+    tenantId: string;
+    objectId: string;
+    userEmail: string;
+    userAlias: string;
+    githubAccountId: number;
+    githubLogin: string;
+    credentialSecretName: string;
+    pendingSecretName: string;
+    models: string[];
+    ttlSeconds: number;
+  }): Promise<{ id: string; expiresAt: string }>;
+  enrollment(codeHash: string): Promise<EnterpriseEnrollment>;
+  setEnrollmentFlow(id: string, flowHandle: string, expiresIn: number): Promise<void>;
+  beginEnrollmentCompletion(id: string): Promise<boolean>;
+  completeEnrollment(id: string, outputSecretName: string): Promise<void>;
+  consumeEnrollment(id: string): Promise<void>;
   createAdmission(principal: EnterprisePrincipal, ttlSeconds: number, maxAttempts: number): Promise<{ id: string; token: string; expiresAt: string }>;
   admissionBinding(tokenHash: string): Promise<{ admissionId: string; binding: AccountBinding }>;
   reserveDispatch(tokenHash: string, requestHash: string, model: string, branchId: string): Promise<DispatchReservation>;
@@ -74,6 +117,47 @@ BEGIN
   END IF;
 END $$;
 ALTER TABLE enterprise_account_bindings ALTER COLUMN credential_secret_name SET NOT NULL;
+CREATE TABLE IF NOT EXISTS enterprise_api_keys (
+  id uuid PRIMARY KEY,
+  tenant_id uuid NOT NULL,
+  object_id uuid NOT NULL,
+  key_hash text NOT NULL UNIQUE,
+  label text NOT NULL,
+  expires_at timestamptz NOT NULL,
+  revoked_at timestamptz,
+  created_at timestamptz NOT NULL DEFAULT now(),
+  last_used_at timestamptz,
+  CHECK (length(key_hash) = 64),
+  CHECK (length(label) BETWEEN 1 AND 64)
+);
+CREATE INDEX IF NOT EXISTS enterprise_api_keys_principal
+  ON enterprise_api_keys (tenant_id, object_id, expires_at);
+CREATE TABLE IF NOT EXISTS enterprise_enrollments (
+  id uuid PRIMARY KEY,
+  code_hash text NOT NULL UNIQUE,
+  tenant_id uuid NOT NULL,
+  object_id uuid NOT NULL,
+  user_email text NOT NULL,
+  user_alias text NOT NULL,
+  github_account_id bigint NOT NULL,
+  github_login text NOT NULL,
+  credential_secret_name text NOT NULL,
+  pending_secret_name text NOT NULL,
+  output_secret_name text,
+  models jsonb NOT NULL,
+  flow_handle text,
+  flow_expires_at timestamptz,
+  status text NOT NULL DEFAULT 'pending',
+  expires_at timestamptz NOT NULL,
+  consumed_at timestamptz,
+  created_at timestamptz NOT NULL DEFAULT now(),
+  CHECK (length(code_hash) = 64),
+  CHECK (github_account_id > 0),
+  CHECK (jsonb_typeof(models) = 'array'),
+  CHECK (status IN ('pending', 'authorizing', 'completed'))
+);
+CREATE INDEX IF NOT EXISTS enterprise_enrollments_expiry
+  ON enterprise_enrollments (expires_at) WHERE consumed_at IS NULL;
 CREATE TABLE IF NOT EXISTS enterprise_admissions (
   id uuid PRIMARY KEY,
   tenant_id uuid NOT NULL,
@@ -89,6 +173,7 @@ CREATE TABLE IF NOT EXISTS enterprise_admissions (
   CHECK (max_attempts > 0 AND attempts >= 0 AND attempts <= max_attempts)
 );
 ALTER TABLE enterprise_admissions ADD COLUMN IF NOT EXISTS token_hash text;
+ALTER TABLE enterprise_admissions ADD COLUMN IF NOT EXISTS auth_subject text NOT NULL DEFAULT 'entra';
 CREATE UNIQUE INDEX IF NOT EXISTS enterprise_admissions_token_hash ON enterprise_admissions (token_hash) WHERE token_hash IS NOT NULL;
 CREATE INDEX IF NOT EXISTS enterprise_admissions_principal ON enterprise_admissions (tenant_id, object_id, expires_at);
 CREATE TABLE IF NOT EXISTS enterprise_dispatches (
@@ -186,6 +271,8 @@ export class PostgresEnterpriseStore implements EnterpriseStore {
     const result = await this.pool.query(`
       SELECT
         to_regclass('public.enterprise_account_bindings') IS NOT NULL
+        AND to_regclass('public.enterprise_api_keys') IS NOT NULL
+        AND to_regclass('public.enterprise_enrollments') IS NOT NULL
         AND to_regclass('public.enterprise_admissions') IS NOT NULL
         AND to_regclass('public.enterprise_dispatches') IS NOT NULL
         AND to_regclass('public.enterprise_audit_outbox') IS NOT NULL
@@ -205,6 +292,284 @@ export class PostgresEnterpriseStore implements EnterpriseStore {
     );
     if (result.rowCount !== 1) throw new BridgeError('ACCESS_DENIED', 'This Entra principal has no active same-user GitHub account binding.', 403);
     return bindingRow(result.rows[0] as Record<string, unknown>);
+  }
+
+  async authenticateApiKey(token: string): Promise<EnterprisePrincipal> {
+    if (!/^ccgc_sk_[A-Za-z0-9_-]{43}$/.test(token)) {
+      throw new BridgeError('GATEWAY_AUTH_REQUIRED', 'A valid enterprise API key is required.', 401);
+    }
+    const keyHash = createHash('sha256').update(token).digest('hex');
+    const result = await this.pool.query(
+      `UPDATE enterprise_api_keys k
+       SET last_used_at = now()
+       FROM enterprise_account_bindings b
+       WHERE k.key_hash = $1
+         AND k.revoked_at IS NULL
+         AND k.expires_at > now()
+         AND b.tenant_id = k.tenant_id
+         AND b.object_id = k.object_id
+         AND b.revoked_at IS NULL
+       RETURNING k.id, k.tenant_id, k.object_id`,
+      [keyHash],
+    );
+    if (result.rowCount !== 1) {
+      throw new BridgeError('GATEWAY_AUTH_REQUIRED', 'Enterprise API key is missing, expired, or revoked.', 401);
+    }
+    const row = result.rows[0] as Record<string, unknown>;
+    return {
+      tenantId: String(row.tenant_id),
+      objectId: String(row.object_id),
+      subject: `api-key:${String(row.id)}`,
+      authentication: 'apiKey',
+    };
+  }
+
+  async issueApiKey(tenantId: string, objectId: string, label: string, ttlSeconds: number): Promise<{
+    id: string;
+    apiKey: string;
+    expiresAt: string;
+  }> {
+    if (!/^[0-9a-f-]{36}$/i.test(tenantId) || !/^[0-9a-f-]{36}$/i.test(objectId)
+      || !/^[A-Za-z0-9][A-Za-z0-9 ._-]{0,63}$/.test(label)
+      || !Number.isInteger(ttlSeconds) || ttlSeconds < 3600 || ttlSeconds > 7_776_000) {
+      throw new BridgeError('INVALID_REQUEST', 'Enterprise API-key input is invalid.');
+    }
+    const client = await this.pool.connect();
+    try {
+      await client.query('BEGIN');
+      const binding = await client.query(
+        `SELECT 1 FROM enterprise_account_bindings
+         WHERE tenant_id = $1 AND object_id = $2 AND revoked_at IS NULL FOR SHARE`,
+        [tenantId, objectId],
+      );
+      if (binding.rowCount !== 1) {
+        throw new BridgeError('ACCESS_DENIED', 'An active account binding is required before issuing an API key.', 403);
+      }
+      const id = randomUUID();
+      const apiKey = `ccgc_sk_${randomBytes(32).toString('base64url')}`;
+      const keyHash = createHash('sha256').update(apiKey).digest('hex');
+      const result = await client.query(
+        `INSERT INTO enterprise_api_keys (id, tenant_id, object_id, key_hash, label, expires_at)
+         VALUES ($1, $2, $3, $4, $5, now() + ($6 * interval '1 second'))
+         RETURNING expires_at`,
+        [id, tenantId.toLowerCase(), objectId.toLowerCase(), keyHash, label, ttlSeconds],
+      );
+      await client.query(
+        `INSERT INTO enterprise_audit_outbox (event_type, tenant_id, object_id, subject_id, metadata)
+         VALUES ('api_key.created', $1, $2, $3, $4::jsonb)`,
+        [tenantId, objectId, id, JSON.stringify({ label, ttlSeconds })],
+      );
+      await client.query('COMMIT');
+      return { id, apiKey, expiresAt: new Date(result.rows[0].expires_at as string).toISOString() };
+    } catch (error) {
+      await rollback(client);
+      throw error;
+    } finally {
+      client.release();
+    }
+  }
+
+  async revokeApiKey(id: string, evidenceDigest: string): Promise<void> {
+    if (!/^[0-9a-f-]{36}$/i.test(id) || !/^[a-f0-9]{64}$/.test(evidenceDigest)) {
+      throw new BridgeError('INVALID_REQUEST', 'Enterprise API-key revocation input is invalid.');
+    }
+
+    const client = await this.pool.connect();
+    try {
+      await client.query('BEGIN');
+      const result = await client.query(
+        `UPDATE enterprise_api_keys
+         SET revoked_at = now()
+         WHERE id = $1 AND revoked_at IS NULL
+         RETURNING tenant_id, object_id`,
+        [id],
+      );
+      if (result.rowCount !== 1) throw new BridgeError('ACCESS_DENIED', 'Active enterprise API key was not found.', 404);
+      const row = result.rows[0] as Record<string, unknown>;
+      await client.query(
+        `UPDATE enterprise_admissions SET revoked_at = now()
+         WHERE tenant_id = $1 AND object_id = $2 AND auth_subject = $3 AND revoked_at IS NULL`,
+        [row.tenant_id, row.object_id, `api-key:${id}`],
+      );
+      await client.query(
+        `INSERT INTO enterprise_audit_outbox (event_type, tenant_id, object_id, subject_id, metadata)
+         VALUES ('api_key.revoked', $1, $2, $3, $4::jsonb)`,
+        [row.tenant_id, row.object_id, id, JSON.stringify({ evidenceDigest })],
+      );
+      await client.query('COMMIT');
+    } catch (error) {
+      await rollback(client);
+      throw error;
+    } finally {
+      client.release();
+    }
+  }
+
+  async createEnrollment(input: {
+    codeHash: string;
+    tenantId: string;
+    objectId: string;
+    userEmail: string;
+    userAlias: string;
+    githubAccountId: number;
+    githubLogin: string;
+    credentialSecretName: string;
+    pendingSecretName: string;
+    models: string[];
+    ttlSeconds: number;
+  }): Promise<{ id: string; expiresAt: string }> {
+    if (!/^[a-f0-9]{64}$/.test(input.codeHash)
+      || !/^[0-9a-f-]{36}$/i.test(input.tenantId)
+      || !/^[0-9a-f-]{36}$/i.test(input.objectId)
+      || !input.userEmail.includes('@')
+      || !/^[A-Za-z0-9._-]{1,64}$/.test(input.userAlias)
+      || !Number.isSafeInteger(input.githubAccountId) || input.githubAccountId <= 0
+      || !/^[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})$/.test(input.githubLogin)
+      || !/^[0-9A-Za-z-]{1,127}$/.test(input.credentialSecretName)
+      || !/^[0-9A-Za-z-]{1,127}$/.test(input.pendingSecretName)
+      || !input.models.length || input.models.some(model => !/^claude-[a-z0-9.-]+$/.test(model))
+      || !Number.isInteger(input.ttlSeconds) || input.ttlSeconds < 300 || input.ttlSeconds > 3600) {
+      throw new BridgeError('INVALID_REQUEST', 'Enterprise enrollment input is invalid.');
+    }
+    const id = randomUUID();
+    const result = await this.pool.query(
+      `WITH enrolled AS (
+         INSERT INTO enterprise_enrollments
+           (id, code_hash, tenant_id, object_id, user_email, user_alias, github_account_id,
+            github_login, credential_secret_name, pending_secret_name, models, expires_at)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11::jsonb,
+                 now() + ($12 * interval '1 second'))
+         RETURNING id, tenant_id, object_id, expires_at
+       ), audited AS (
+         INSERT INTO enterprise_audit_outbox (event_type, tenant_id, object_id, subject_id, metadata)
+         SELECT 'enrollment.created', tenant_id, object_id, id,
+                jsonb_build_object('githubLogin', $8::text, 'githubAccountId', $7::bigint)
+         FROM enrolled
+       )
+       SELECT expires_at FROM enrolled`,
+      [
+        id,
+        input.codeHash,
+        input.tenantId.toLowerCase(),
+        input.objectId.toLowerCase(),
+        input.userEmail,
+        input.userAlias,
+        input.githubAccountId,
+        input.githubLogin,
+        input.credentialSecretName,
+        input.pendingSecretName,
+        JSON.stringify([...new Set(input.models)]),
+        input.ttlSeconds,
+      ],
+    );
+    return { id, expiresAt: new Date(result.rows[0].expires_at as string).toISOString() };
+  }
+
+  async enrollment(codeHash: string): Promise<EnterpriseEnrollment> {
+    if (!/^[a-f0-9]{64}$/.test(codeHash)) throw new BridgeError('GATEWAY_AUTH_REQUIRED', 'Enrollment code is invalid.', 401);
+    const result = await this.pool.query(
+      `SELECT id, tenant_id, object_id, user_email, user_alias, github_account_id, github_login,
+              credential_secret_name, pending_secret_name, output_secret_name, models,
+              flow_handle, flow_expires_at, status, expires_at
+       FROM enterprise_enrollments
+       WHERE code_hash = $1 AND consumed_at IS NULL AND expires_at > now()`,
+      [codeHash],
+    );
+    if (result.rowCount !== 1) {
+      throw new BridgeError('GATEWAY_AUTH_REQUIRED', 'Enrollment code is missing, expired, or already used.', 401);
+    }
+    const row = result.rows[0] as Record<string, unknown>;
+    const models = Array.isArray(row.models) ? row.models.filter(value => typeof value === 'string') : [];
+    return {
+      id: String(row.id),
+      tenantId: String(row.tenant_id),
+      objectId: String(row.object_id),
+      userEmail: String(row.user_email),
+      userAlias: String(row.user_alias),
+      githubAccountId: Number(row.github_account_id),
+      githubLogin: String(row.github_login),
+      credentialSecretName: String(row.credential_secret_name),
+      pendingSecretName: String(row.pending_secret_name),
+      ...(row.output_secret_name ? { outputSecretName: String(row.output_secret_name) } : {}),
+      models,
+      ...(row.flow_handle ? { flowHandle: String(row.flow_handle) } : {}),
+      ...(row.flow_expires_at ? { flowExpiresAt: new Date(row.flow_expires_at as string).toISOString() } : {}),
+      status: String(row.status) as EnterpriseEnrollment['status'],
+      expiresAt: new Date(row.expires_at as string).toISOString(),
+    };
+  }
+
+  async setEnrollmentFlow(id: string, flowHandle: string, expiresIn: number): Promise<void> {
+    if (!/^[0-9a-f-]{36}$/i.test(id) || !/^[A-Za-z0-9._-]{8,512}$/.test(flowHandle)
+      || !Number.isInteger(expiresIn) || expiresIn < 60 || expiresIn > 1800) {
+      throw new BridgeError('INVALID_REQUEST', 'Enrollment authorization flow is invalid.');
+    }
+    const result = await this.pool.query(
+      `WITH updated AS (
+         UPDATE enterprise_enrollments
+         SET flow_handle = $2, flow_expires_at = now() + ($3 * interval '1 second'), status = 'authorizing'
+         WHERE id = $1 AND consumed_at IS NULL AND expires_at > now() AND status IN ('pending', 'authorizing')
+         RETURNING id, tenant_id, object_id
+       )
+       INSERT INTO enterprise_audit_outbox (event_type, tenant_id, object_id, subject_id, metadata)
+       SELECT 'enrollment.authorization_started', tenant_id, object_id, id, '{}'::jsonb FROM updated
+       RETURNING id`,
+      [id, flowHandle, expiresIn],
+    );
+    if (result.rowCount !== 1) throw new BridgeError('GATEWAY_AUTH_REQUIRED', 'Enrollment is no longer active.', 401);
+  }
+
+  async beginEnrollmentCompletion(id: string): Promise<boolean> {
+    if (!/^[0-9a-f-]{36}$/i.test(id)) throw new BridgeError('INVALID_REQUEST', 'Enrollment ID is invalid.');
+    const result = await this.pool.query(
+      `WITH updated AS (
+         UPDATE enterprise_enrollments
+         SET status = 'finalizing'
+         WHERE id = $1 AND consumed_at IS NULL AND expires_at > now() AND status = 'authorizing'
+         RETURNING id, tenant_id, object_id
+       )
+       INSERT INTO enterprise_audit_outbox (event_type, tenant_id, object_id, subject_id, metadata)
+       SELECT 'enrollment.authorization_verified', tenant_id, object_id, id, '{}'::jsonb FROM updated
+       RETURNING id`,
+      [id],
+    );
+    return result.rowCount === 1;
+  }
+
+  async completeEnrollment(id: string, outputSecretName: string): Promise<void> {
+    if (!/^[0-9a-f-]{36}$/i.test(id) || !/^[0-9A-Za-z-]{1,127}$/.test(outputSecretName)) {
+      throw new BridgeError('INVALID_REQUEST', 'Enrollment completion input is invalid.');
+    }
+    const result = await this.pool.query(
+      `WITH updated AS (
+         UPDATE enterprise_enrollments
+         SET output_secret_name = $2, status = 'completed'
+         WHERE id = $1 AND consumed_at IS NULL AND expires_at > now() AND status = 'finalizing'
+         RETURNING id, tenant_id, object_id
+       )
+       INSERT INTO enterprise_audit_outbox (event_type, tenant_id, object_id, subject_id, metadata)
+       SELECT 'enrollment.completed', tenant_id, object_id, id, '{}'::jsonb FROM updated
+       RETURNING id`,
+      [id, outputSecretName],
+    );
+    if (result.rowCount !== 1) throw new BridgeError('GATEWAY_AUTH_REQUIRED', 'Enrollment is no longer active.', 401);
+  }
+
+  async consumeEnrollment(id: string): Promise<void> {
+    if (!/^[0-9a-f-]{36}$/i.test(id)) throw new BridgeError('INVALID_REQUEST', 'Enrollment ID is invalid.');
+    const result = await this.pool.query(
+      `WITH updated AS (
+         UPDATE enterprise_enrollments
+         SET consumed_at = now()
+         WHERE id = $1 AND consumed_at IS NULL AND status = 'completed'
+         RETURNING id, tenant_id, object_id
+       )
+       INSERT INTO enterprise_audit_outbox (event_type, tenant_id, object_id, subject_id, metadata)
+       SELECT 'enrollment.consumed', tenant_id, object_id, id, '{}'::jsonb FROM updated
+       RETURNING id`,
+      [id],
+    );
+    if (result.rowCount !== 1) throw new BridgeError('GATEWAY_AUTH_REQUIRED', 'Enrollment is not ready to complete.', 401);
   }
 
   async linkAccount(input: LinkAccountInput): Promise<AccountBinding> {
@@ -240,6 +605,11 @@ export class PostgresEnterpriseStore implements EnterpriseStore {
       );
       await client.query(
         `UPDATE enterprise_admissions SET revoked_at = now()
+         WHERE tenant_id = $1 AND object_id = $2 AND revoked_at IS NULL`,
+        [input.tenantId, input.objectId],
+      );
+      await client.query(
+        `UPDATE enterprise_api_keys SET revoked_at = now()
          WHERE tenant_id = $1 AND object_id = $2 AND revoked_at IS NULL`,
         [input.tenantId, input.objectId],
       );
@@ -287,6 +657,11 @@ export class PostgresEnterpriseStore implements EnterpriseStore {
         [tenantId, objectId],
       );
       await client.query(
+        `UPDATE enterprise_api_keys SET revoked_at = now()
+         WHERE tenant_id = $1 AND object_id = $2 AND revoked_at IS NULL`,
+        [tenantId, objectId],
+      );
+      await client.query(
         `INSERT INTO enterprise_audit_outbox (event_type, tenant_id, object_id, subject_id, metadata)
          VALUES ('binding.revoked', $1, $2, $2, $3::jsonb)`,
         [tenantId, objectId, JSON.stringify({ evidenceDigest })],
@@ -321,15 +696,26 @@ export class PostgresEnterpriseStore implements EnterpriseStore {
       const tokenHash = await crypto.subtle.digest('SHA-256', Buffer.from(token));
       const encodedHash = Buffer.from(tokenHash).toString('hex');
       const result = await client.query(
-        `INSERT INTO enterprise_admissions (id, tenant_id, object_id, binding_revision, token_hash, expires_at, max_attempts)
-         VALUES ($1, $2, $3, $4, $5, now() + ($6 * interval '1 second'), $7)
+        `INSERT INTO enterprise_admissions
+           (id, tenant_id, object_id, binding_revision, token_hash, auth_subject, expires_at, max_attempts)
+         VALUES ($1, $2, $3, $4, $5, $6, now() + ($7 * interval '1 second'), $8)
          RETURNING expires_at`,
-        [id, principal.tenantId, principal.objectId, revision, encodedHash, ttlSeconds, maxAttempts],
+        [id, principal.tenantId, principal.objectId, revision, encodedHash, principal.subject, ttlSeconds, maxAttempts],
       );
       await client.query(
         `INSERT INTO enterprise_audit_outbox (event_type, tenant_id, object_id, subject_id, metadata)
          VALUES ('admission.created', $1, $2, $3, $4::jsonb)`,
-        [principal.tenantId, principal.objectId, id, JSON.stringify({ maxAttempts, ttlSeconds, bindingRevision: revision })],
+        [
+          principal.tenantId,
+          principal.objectId,
+          id,
+          JSON.stringify({
+            maxAttempts,
+            ttlSeconds,
+            bindingRevision: revision,
+            authentication: principal.authentication ?? 'entra',
+          }),
+        ],
       );
       await client.query('COMMIT');
       return { id, token, expiresAt: new Date(result.rows[0].expires_at as string).toISOString() };

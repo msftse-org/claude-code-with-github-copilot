@@ -1,18 +1,20 @@
 #!/usr/bin/env node
 import { parseArgs } from 'node:util';
 import { EnterpriseClient, configureEnterprise } from './enterprise-client.ts';
-import { BridgeError, safeError } from './protocol.ts';
+import { BridgeError, object, parseJson, safeError, text } from './protocol.ts';
+import { readPrivate } from './private-state.ts';
 
-const help = `ccgc enterprise - Entra-authenticated enterprise client profile
+const help = `ccgc enterprise - enterprise client profile
 
   ccgc-enterprise login --gateway https://private-gateway --audience api://APP-ID
+  ccgc-enterprise login-api-key --gateway https://private-gateway --api-key-file /private/key.json
   ccgc-enterprise configure [--apply]
   ccgc-enterprise token
   ccgc-enterprise models
 
-The token command is the Claude apiKeyHelper. It obtains an Entra token through
-DefaultAzureCredential, creates a bounded gateway admission, and stores only the
-opaque admission credential in macOS Keychain.
+The token command is the Claude apiKeyHelper. It uses the configured Entra or
+API-key employee identity to create a bounded gateway admission. Long-lived API
+keys and opaque admission credentials are stored only in macOS Keychain.
 `;
 
 async function main(argv = process.argv.slice(2)): Promise<void> {
@@ -24,21 +26,32 @@ async function main(argv = process.argv.slice(2)): Promise<void> {
       help: { type: 'boolean', short: 'h' },
       gateway: { type: 'string' },
       audience: { type: 'string' },
+      'api-key-file': { type: 'string' },
       apply: { type: 'boolean' },
     },
   });
   if (values.help || !positionals.length) { console.log(help); return; }
   const command = positionals[0];
-  if (positionals.length !== 1 || !['login', 'configure', 'token', 'models'].includes(command ?? '')) {
+  if (positionals.length !== 1 || !['login', 'login-api-key', 'configure', 'token', 'models'].includes(command ?? '')) {
     throw new BridgeError('INVALID_OPTIONS', 'Unknown enterprise command.');
   }
   const client = new EnterpriseClient();
   if (command === 'login') {
-    if (!values.gateway || !values.audience || values.apply) throw new BridgeError('INVALID_OPTIONS', 'login requires --gateway and --audience.');
+    if (!values.gateway || !values.audience || values['api-key-file'] || values.apply) {
+      throw new BridgeError('INVALID_OPTIONS', 'login requires --gateway and --audience.');
+    }
     console.log(JSON.stringify(await client.login(values.gateway, values.audience), null, 2));
     return;
   }
-  if (values.gateway || values.audience || (command !== 'configure' && values.apply)) {
+  if (command === 'login-api-key') {
+    if (!values.gateway || !values['api-key-file'] || values.audience || values.apply) {
+      throw new BridgeError('INVALID_OPTIONS', 'login-api-key requires --gateway and --api-key-file.');
+    }
+    const input = object(parseJson(await readPrivate(values['api-key-file'])));
+    console.log(JSON.stringify(await client.loginApiKey(values.gateway, text(input.apiKey, 'enterprise API key')), null, 2));
+    return;
+  }
+  if (values.gateway || values.audience || values['api-key-file'] || (command !== 'configure' && values.apply)) {
     throw new BridgeError('INVALID_OPTIONS', 'Options do not apply to this enterprise command.');
   }
   if (command === 'token') {

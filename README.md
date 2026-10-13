@@ -7,7 +7,7 @@ employee's own GitHub Copilot seat**.
 ```text
 Employee Claude Code
         |
-        | Microsoft Entra identity
+        | Microsoft Entra identity or employee API key
         v
 Enterprise admission broker
         |
@@ -29,9 +29,9 @@ exchange, Anthropic Messages transport, streaming conversion, and provider
 session caches.
 
 > [!IMPORTANT]
-> The enterprise foundation is implemented and locally validated, but it is not
-> deployed or approved for production use. The remaining release gates are
-> documented in [docs/ENTERPRISE.md](docs/ENTERPRISE.md).
+> The enterprise pilot is deployed and validated. Production rollout still
+> requires the release gates documented in
+> [docs/ENTERPRISE.md](docs/ENTERPRISE.md).
 
 > [!WARNING]
 > The Copilot connector is unofficial and is not endorsed by GitHub or
@@ -43,7 +43,7 @@ The enterprise path has two required project components:
 
 | Component | What it is | Why it is required |
 |---|---|---|
-| Enterprise admission broker | Project-developed TypeScript/Node.js service. | Validates Entra identity, resolves the employee binding, issues bounded admissions, reserves attempts, fences dispatches, and records audit metadata. |
+| Enterprise admission broker | Project-developed TypeScript/Node.js service. | Validates Entra identity or a user-scoped API key, resolves the employee binding, issues bounded admissions, reserves attempts, fences dispatches, and records audit metadata. |
 | Shared multi-user worker | Project-developed TypeScript/Node.js service. | Verifies short-lived broker-signed dispatches, enforces per-user fairness, restores encrypted branch checkpoints on any replica, and forwards each call with the bound LiteLLM user key. |
 | LiteLLM Gateway | Separate private Container App. | Implements per-user GitHub OAuth, encrypted user connections, Copilot token exchange, Anthropic Messages transport, streaming, token counting, and provider session caching. |
 
@@ -64,7 +64,7 @@ controls.
 | Component | Purpose |
 |---|---|
 | Azure Container Apps | Independently scales the public broker (2-10), internal worker (2-30), and internal LiteLLM Gateway (2-10), and runs a one-shot Bicep-managed bootstrap job. |
-| Microsoft Entra ID | Authenticates employees and supplies immutable tenant/object identity. |
+| Microsoft Entra ID | Authenticates employees and all administrators; employee API keys are an optional broker-managed alternative. |
 | Azure Database for PostgreSQL | Uses an Entra-only server for enterprise control state and a dedicated private server for LiteLLM's encrypted OAuth connections and gateway state. |
 | Azure Key Vault | Stores account-scoped LiteLLM user keys, LiteLLM master/salt keys, dispatch signing, database connection material, and checkpoint encryption. |
 | Azure Blob Storage | Stores client-side-encrypted branch checkpoints with ETag conditional writes. |
@@ -73,8 +73,10 @@ controls.
 | Azure Monitor and Application Insights | Records operational metadata without prompt or response bodies. |
 
 The broker is the only public service. Employee inference and admission routes
-require `CCGC.Access`; lifecycle routes on the same broker require `CCGC.Admin`,
-assigned only to the enterprise IT administrator group. LiteLLM, worker, Key
+accept either `CCGC.Access` or a 30-day, user-scoped, revocable API key stored
+only as a SHA-256 digest. Lifecycle routes on the same broker remain Entra-only
+and require `CCGC.Admin`, assigned only to the enterprise IT administrator
+group. LiteLLM, worker, Key
 Vault, storage, ACR, both PostgreSQL servers, and the one-shot bootstrap job
 remain private. Administrators receive only GitHub's public verification URL
 and one-time code during employee connection.
@@ -87,12 +89,12 @@ Each employee needs:
 - The project-developed enterprise `ccgc` command-line helper
 - A bounded opaque admission credential stored in macOS Keychain
 - `~/.claude/settings.json` pointing Claude Code to the enterprise broker
-- A private, non-secret profile containing Entra, GitHub, model, and binding
-  metadata
+- A private, non-secret profile containing authentication method, GitHub,
+  model, and binding metadata
 
-The Mac uses Microsoft Entra to request an admission. GitHub OAuth tokens remain
-encrypted in LiteLLM PostgreSQL. The worker loads only the matching LiteLLM user
-key from Key Vault.
+The Mac uses Microsoft Entra or a Keychain-held employee API key to request an
+admission. GitHub OAuth tokens remain encrypted in LiteLLM PostgreSQL. The
+worker loads only the matching LiteLLM user key from Key Vault.
 
 See [Mac enterprise setup and operation](docs/mac/README.md) for installation,
 Entra sign-in, configuration, Keychain behavior, verification, and daily use.
@@ -173,7 +175,7 @@ replace the sentinel on connected requests.
 
 ## Enterprise pilot automation
 
-The pilot exposes one Entra-authenticated broker to the public internet. Worker
+The pilot exposes one employee-authenticated broker to the public internet. Worker
 and LiteLLM ingress and every data service remain private. The assignment-required
 Enterprise Application gives the employee group only `CCGC.Access` and the IT
 administrator group only `CCGC.Admin`; the broker validates the required role
@@ -217,11 +219,56 @@ and idempotently creates the LiteLLM per-user OAuth credential and approved
 `github_copilot/<model>` mappings. No public bootstrap endpoint or manual
 database command exists.
 
-Employee onboarding then has two approvals. The employee key must belong to a
-LiteLLM `internal_user`; an unowned raw virtual key cannot use the per-user
-connection endpoints.
+For API-key employees, the normal onboarding path is a single-use self-service
+enrollment. The administrator approves the immutable GitHub account and model
+catalog but never receives the employee's 30-day API key:
 
-### 1. Administrator connects the employee's GitHub account
+```bash
+cp docs/examples/enterprise-create-enrollment.example.json \
+  /private/path/create-enrollment.json
+chmod 600 /private/path/create-enrollment.json
+
+npm run enterprise:manage -- create-enrollment \
+  --url https://PUBLIC_BROKER_FQDN \
+  --audience api://ENTRA-APPLICATION-ID \
+  --input /private/path/create-enrollment.json \
+  --output /private/path/enrollment.json
+```
+
+The administrator gives the employee only the broker URL and the `CCGC-...`
+code from the private output. The code expires after 30 minutes and is consumed
+after one successful setup.
+
+The employee downloads the native binary for their operating system and runs:
+
+```bash
+./ccgc-enterprise enroll \
+  --gateway https://PUBLIC_BROKER_FQDN \
+  --code CCGC-ONE-TIME-CODE
+```
+
+The executable opens GitHub device authorization, requires the exact approved
+GitHub login and immutable account ID, verifies the employee binding, stores
+the 30-day key directly in macOS Keychain or Windows DPAPI storage, writes the
+non-secret profile, configures Claude Code, and acknowledges consumption of the
+one-time enrollment. The administrator never transfers or sees the key.
+
+The executable remains installed because Claude uses
+`ccgc-enterprise token` as its `apiKeyHelper`. The same source builds:
+
+```bash
+GOOS=darwin GOARCH=arm64 go build -trimpath -o dist/ccgc-enterprise-darwin-arm64 ./cmd/ccgc-enterprise
+GOOS=windows GOARCH=amd64 go build -trimpath -o dist/ccgc-enterprise-windows-amd64.exe ./cmd/ccgc-enterprise
+```
+
+Initial pilot artifacts are unsigned. Publish SHA-256 checksums and distribute
+through an approved channel; Apple Developer ID signing/notarization and
+Windows Authenticode signing should replace manual trust steps for production.
+
+The older administrator-driven create/connect/link flow remains available for
+Entra employees and recovery operations:
+
+### Manual administrator connection
 
 Create the employee's LiteLLM `internal_user` and its private output file, then
 start the device flow through the broker's `CCGC.Admin` lifecycle routes while
@@ -245,7 +292,7 @@ GitHub login differs from `connect-user.json`. Input files must be user-owned
 mode-0600 regular files; `create-user` creates its output exclusively with mode
 0600.
 
-### 2. Administrator links the employee
+### Manual administrator binding
 
 The administrator verifies that the Entra principal and GitHub account belong to the
 same employee, then writes the approved private binding:
@@ -263,7 +310,7 @@ first verifies `/credentials/user_connections` reports that the key is connected
 to the confirmed GitHub login, then stores the key in Key Vault. Updating a
 binding increments its revision and revokes existing admissions.
 
-### 3. Employee configures the Mac
+### Entra employee configuration
 
 ```bash
 npm run enterprise:client -- login \

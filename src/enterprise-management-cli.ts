@@ -4,12 +4,12 @@ import { lstat, open, readFile } from 'node:fs/promises';
 import { DefaultAzureCredential } from '@azure/identity';
 import { BridgeError, object, parseJson, positive, safeError, text, type ObjectValue } from './protocol.ts';
 
-type Command = 'status' | 'create-user' | 'connect' | 'link' | 'revoke';
+type Command = 'status' | 'create-user' | 'connect' | 'link' | 'revoke' | 'create-api-key' | 'revoke-api-key' | 'create-enrollment';
 
 function usage(): never {
   throw new BridgeError(
     'INVALID_OPTIONS',
-    'Usage: enterprise:manage <status|create-user|connect|link|revoke> --url <broker-https-url> --audience <app-id-uri> [--input <0600-json>] [--output <new-json>]',
+    'Usage: enterprise:manage <status|create-user|connect|link|revoke|create-api-key|revoke-api-key|create-enrollment> --url <broker-https-url> --audience <app-id-uri> [--input <0600-json>] [--output <new-json>]',
   );
 }
 
@@ -41,7 +41,7 @@ async function writePrivate(path: string, value: unknown): Promise<void> {
 
 function argumentsFrom(argv: string[]) {
   const command = argv[0] as Command;
-  if (!['status', 'create-user', 'connect', 'link', 'revoke'].includes(command)) usage();
+  if (!['status', 'create-user', 'connect', 'link', 'revoke', 'create-api-key', 'revoke-api-key', 'create-enrollment'].includes(command)) usage();
   const values = new Map<string, string>();
   for (let index = 1; index < argv.length; index += 2) {
     const flag = argv[index];
@@ -98,6 +98,19 @@ async function execute(): Promise<ObjectValue> {
   }
   if (options.command === 'link') return request('/ccgc/admin/link', input);
   if (options.command === 'revoke') return request('/ccgc/admin/revoke', input);
+  if (options.command === 'create-api-key') {
+    if (!options.output) usage();
+    const created = await request('/ccgc/admin/api-keys', input);
+    await writePrivate(options.output, created);
+    return { status: 'created', output: options.output };
+  }
+  if (options.command === 'revoke-api-key') return request('/ccgc/admin/api-keys/revoke', input);
+  if (options.command === 'create-enrollment') {
+    if (!options.output) usage();
+    const created = await request('/ccgc/admin/enrollments', input);
+    await writePrivate(options.output, created);
+    return { status: 'created', output: options.output };
+  }
 
   const started = await request('/ccgc/admin/connections/start', input);
   if (started.status === 'connected') return started;

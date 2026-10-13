@@ -5,10 +5,15 @@ export interface EnterprisePrincipal {
   tenantId: string;
   objectId: string;
   subject: string;
+  authentication?: 'entra' | 'apiKey';
 }
 
 export interface EnterpriseAuthenticator {
   authenticate(token: string): Promise<EnterprisePrincipal>;
+}
+
+export interface ApiKeyPrincipalResolver {
+  authenticateApiKey(token: string): Promise<EnterprisePrincipal>;
 }
 
 export interface EntraAuthenticatorOptions {
@@ -65,11 +70,27 @@ export class EntraAuthenticator implements EnterpriseAuthenticator {
         || !hasEnterpriseRole(payload, this.requiredRole)) {
         throw new BridgeError('ACCESS_DENIED', 'The Entra principal, tenant, audience, or required app role is not approved.', 403);
       }
-      return { tenantId, objectId, subject };
+      return { tenantId, objectId, subject, authentication: 'entra' };
     } catch (error) {
       if (error instanceof BridgeError) throw error;
       throw new BridgeError('GATEWAY_AUTH_REQUIRED', 'Entra token validation failed.', 401);
     }
+  }
+}
+
+export class DualEnterpriseAuthenticator implements EnterpriseAuthenticator {
+  readonly entra: EnterpriseAuthenticator;
+  readonly apiKeys: ApiKeyPrincipalResolver;
+
+  constructor(entra: EnterpriseAuthenticator, apiKeys: ApiKeyPrincipalResolver) {
+    this.entra = entra;
+    this.apiKeys = apiKeys;
+  }
+
+  authenticate(token: string): Promise<EnterprisePrincipal> {
+    return token.startsWith('ccgc_sk_')
+      ? this.apiKeys.authenticateApiKey(token)
+      : this.entra.authenticate(token);
   }
 }
 

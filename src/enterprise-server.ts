@@ -15,6 +15,12 @@ export interface EnterpriseAdministrationActions {
   pollConnection(input: ObjectValue): Promise<ObjectValue>;
   link(input: ObjectValue): Promise<ObjectValue>;
   revoke(input: ObjectValue): Promise<ObjectValue>;
+  createApiKey(input: ObjectValue): Promise<ObjectValue>;
+  revokeApiKey(input: ObjectValue): Promise<ObjectValue>;
+  createEnrollment(input: ObjectValue): Promise<ObjectValue>;
+  startEnrollment(input: ObjectValue): Promise<ObjectValue>;
+  pollEnrollment(input: ObjectValue): Promise<ObjectValue>;
+  completeEnrollment(input: ObjectValue): Promise<ObjectValue>;
   status(): Promise<ObjectValue>;
 }
 
@@ -96,11 +102,27 @@ export async function startEnterpriseServer(options: EnterpriseServerOptions) {
         '/ccgc/admin/connections/poll': input => options.adminActions!.pollConnection(input),
         '/ccgc/admin/link': input => options.adminActions!.link(input),
         '/ccgc/admin/revoke': input => options.adminActions!.revoke(input),
+        '/ccgc/admin/api-keys': input => options.adminActions!.createApiKey(input),
+        '/ccgc/admin/api-keys/revoke': input => options.adminActions!.revokeApiKey(input),
+        '/ccgc/admin/enrollments': input => options.adminActions!.createEnrollment(input),
         '/ccgc/admin/status': () => options.adminActions!.status(),
       };
       const route = routes[url.pathname];
       if (!route) throw new BridgeError('ROUTE_UNSUPPORTED', 'Unsupported administration route.', 404);
       await options.adminAuthenticator.authenticate(bearerToken(request.headers.authorization));
+      const input = object(parseJson((await requestBody(request, MAX_ADMIN_BODY)).toString('utf8')));
+      send(response, 200, await route(input));
+      return;
+    }
+    if (url.pathname.startsWith('/ccgc/enroll/') && request.method === 'POST') {
+      if (!options.adminActions) throw new BridgeError('ROUTE_UNSUPPORTED', 'Self-service enrollment is unavailable.', 404);
+      const routes: Record<string, (input: ObjectValue) => Promise<ObjectValue>> = {
+        '/ccgc/enroll/start': input => options.adminActions!.startEnrollment(input),
+        '/ccgc/enroll/poll': input => options.adminActions!.pollEnrollment(input),
+        '/ccgc/enroll/complete': input => options.adminActions!.completeEnrollment(input),
+      };
+      const route = routes[url.pathname];
+      if (!route) throw new BridgeError('ROUTE_UNSUPPORTED', 'Unsupported enrollment route.', 404);
       const input = object(parseJson((await requestBody(request, MAX_ADMIN_BODY)).toString('utf8')));
       send(response, 200, await route(input));
       return;
@@ -115,6 +137,7 @@ export async function startEnterpriseServer(options: EnterpriseServerOptions) {
         githubAccountId: binding.githubAccountId,
         models: binding.models,
         bindingRevision: binding.revision,
+        authentication: principal.authentication ?? 'entra',
       });
       return;
     }

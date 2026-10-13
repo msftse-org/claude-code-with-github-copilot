@@ -13,7 +13,8 @@ import { readState, writePrivate } from './private-state.ts';
 
 export interface EnterpriseProfile {
   gateway: string;
-  audience: string;
+  authMethod: 'entra' | 'apiKey';
+  audience?: string;
   tenantId: string;
   objectId: string;
   githubLogin: string;
@@ -22,6 +23,10 @@ export interface EnterpriseProfile {
   bindingRevision: number;
   grant?: { id: string; expires: number };
 }
+
+const apiKeyId = (gateway: string) => createHash('sha256')
+  .update(`enterprise-api-key\n${gatewayUrl(gateway)}`)
+  .digest('hex');
 
 interface TokenCredential {
   getToken(scope: string): Promise<{ token: string } | null>;
@@ -33,9 +38,20 @@ function profile(value: ObjectValue): EnterpriseProfile {
     throw new BridgeError('INVALID_RESPONSE', 'Enterprise profile has no valid Claude model catalog.');
   }
   const grant = value.grant === undefined ? undefined : object(value.grant);
+  const authMethod = value.authMethod === 'apiKey'
+    ? 'apiKey'
+    : value.authMethod === 'entra' || (value.authMethod === undefined && value.audience !== undefined)
+      ? 'entra'
+      : undefined;
+  if (!authMethod) throw new BridgeError('INVALID_RESPONSE', 'Enterprise profile authentication method is invalid.');
+  const audience = value.audience === undefined ? undefined : text(value.audience, 'audience');
+  if (authMethod === 'entra' && !audience) {
+    throw new BridgeError('INVALID_RESPONSE', 'Enterprise Entra profile has no audience.');
+  }
   return {
     gateway: gatewayUrl(text(value.gateway, 'gateway')),
-    audience: text(value.audience, 'audience'),
+    authMethod,
+    ...(audience ? { audience } : {}),
     tenantId: text(value.tenantId, 'tenant ID'),
     objectId: text(value.objectId, 'object ID'),
     githubLogin: text(value.githubLogin, 'GitHub login'),
@@ -91,8 +107,33 @@ export class EnterpriseClient {
       redirect: 'error',
       signal: AbortSignal.timeout(30_000),
     }));
-    const next = profile({ gateway: url, audience, ...info });
+    const next = profile({ gateway: url, authMethod: 'entra', audience, ...info });
+    await this.secrets.remove(profileKey(url));
+    await this.secrets.remove(apiKeyId(url));
     await writePrivate(this.statePath, { ...next });
+    return next;
+  }
+
+  async loginApiKey(gateway: string, apiKey: string): Promise<EnterpriseProfile> {
+    if (!/^ccgc_sk_[A-Za-z0-9_-]{43}$/.test(apiKey)) {
+      throw new BridgeError('GATEWAY_AUTH_REQUIRED', 'Enterprise API key is invalid.', 401);
+    }
+    const url = gatewayUrl(gateway);
+    const info = await responseJson(await this.fetcher(`${url}/ccgc/enterprise/info`, {
+      headers: { authorization: ['Bearer', apiKey].join(' ') },
+      redirect: 'error',
+      signal: AbortSignal.timeout(30_000),
+    }));
+    const next = profile({ gateway: url, authMethod: 'apiKey', ...info });
+    const keyId = apiKeyId(url);
+    await this.secrets.set(keyId, apiKey);
+    try {
+      await this.secrets.remove(profileKey(url));
+      await writePrivate(this.statePath, { ...next });
+    } catch (error) {
+      await this.secrets.remove(keyId);
+      throw error;
+    }
     return next;
   }
 
@@ -102,10 +143,12 @@ export class EnterpriseClient {
     if (current.grant && current.grant.expires > Date.now() + 5 * 60_000) {
       try { return await this.secrets.get(id); } catch { /* acquire a replacement below */ }
     }
-    const access = await this.entra(current.audience);
+    const access = current.authMethod === 'apiKey'
+      ? await this.secrets.get(apiKeyId(current.gateway))
+      : await this.entra(current.audience!);
     const value = await responseJson(await this.fetcher(`${current.gateway}/ccgc/enterprise/admissions`, {
       method: 'POST',
-      headers: { authorization: `Bearer ${access}`, 'content-type': 'application/json' },
+      headers: { authorization: ['Bearer', access].join(' '), 'content-type': 'application/json' },
       body: JSON.stringify({ ttlSeconds: 28_800, maxAttempts: 50 }),
       redirect: 'error',
       signal: AbortSignal.timeout(30_000),

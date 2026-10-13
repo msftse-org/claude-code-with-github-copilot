@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { EntraAuthenticator } from './enterprise-auth.ts';
+import { DualEnterpriseAuthenticator, EntraAuthenticator } from './enterprise-auth.ts';
 import { DefaultAzureCredential } from '@azure/identity';
 import { SecretClient } from '@azure/keyvault-secrets';
 import { startEnterpriseServer } from './enterprise-server.ts';
@@ -17,25 +17,26 @@ function required(name: string): string {
 
 const credential = new DefaultAzureCredential();
 const vaultUrl = required('CCGC_KEY_VAULT_URL');
-const dispatchSecret = await new SecretClient(vaultUrl, credential)
-  .getSecret(required('CCGC_DISPATCH_SECRET_NAME'));
+const vault = new SecretClient(vaultUrl, credential);
+const dispatchSecret = await vault.getSecret(required('CCGC_DISPATCH_SECRET_NAME'));
 if (!dispatchSecret.value) throw new BridgeError('STARTUP_FAILED', 'Dispatch signing secret is unavailable.');
 const workerUrl = required('CCGC_WORKER_URL');
-const litellmMasterKey = await new SecretClient(vaultUrl, credential)
-  .getSecret(required('CCGC_LITELLM_MASTER_KEY_SECRET_NAME'));
+const litellmMasterKey = await vault.getSecret(required('CCGC_LITELLM_MASTER_KEY_SECRET_NAME'));
 if (!litellmMasterKey.value) throw new BridgeError('STARTUP_FAILED', 'LiteLLM administration secret is unavailable.');
+const store = new PostgresEnterpriseStore(
+  required('CCGC_POSTGRES_URL'),
+  process.env.CCGC_POSTGRES_ENTRA === 'true' ? credential : undefined,
+  false,
+  false,
+);
+const employeeEntra = new EntraAuthenticator({
+  tenantId: required('CCGC_ENTRA_TENANT_ID'),
+  audience: required('CCGC_ENTRA_AUDIENCE'),
+  requiredRole: process.env.CCGC_ENTRA_ROLE,
+});
 const server = await startEnterpriseServer({
-  authenticator: new EntraAuthenticator({
-    tenantId: required('CCGC_ENTRA_TENANT_ID'),
-    audience: required('CCGC_ENTRA_AUDIENCE'),
-    requiredRole: process.env.CCGC_ENTRA_ROLE,
-  }),
-  store: new PostgresEnterpriseStore(
-    required('CCGC_POSTGRES_URL'),
-    process.env.CCGC_POSTGRES_ENTRA === 'true' ? credential : undefined,
-    false,
-    false,
-  ),
+  authenticator: new DualEnterpriseAuthenticator(employeeEntra, store),
+  store,
   workers: new SharedWorkerResolver(workerUrl, required('CCGC_WORKER_DNS_SUFFIX')),
   dispatchSigner: new DispatchSigner(dispatchSecret.value, required('CCGC_BROKER_ORIGIN'), workerUrl),
   adminAuthenticator: new EntraAuthenticator({
@@ -48,6 +49,29 @@ const server = await startEnterpriseServer({
     litellmMasterKey: litellmMasterKey.value,
     postgresUrl: required('CCGC_POSTGRES_URL'),
     credential,
+    enrollmentSecrets: {
+      async set(name, value, expiresAt) {
+        await vault.setSecret(name, value, {
+          expiresOn: expiresAt,
+          contentType: 'application/vnd.ccgc.enrollment-secret',
+        });
+      },
+      async get(name) {
+        const secret = await vault.getSecret(name);
+        if (!secret.value) throw new BridgeError('GATEWAY_UNAVAILABLE', 'Enrollment secret is unavailable.', 503);
+        return secret.value;
+      },
+      async remove(name) {
+        try {
+          await vault.beginDeleteSecret(name);
+        } catch (error) {
+          const statusCode = error instanceof Error && 'statusCode' in error
+            ? Number(error.statusCode)
+            : undefined;
+          if (statusCode !== 404 && statusCode !== 409) throw error;
+        }
+      },
+    },
   }),
   host: process.env.CCGC_BIND_HOST ?? '0.0.0.0',
   port: Number(process.env.PORT ?? '8080'),

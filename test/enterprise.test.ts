@@ -1,6 +1,11 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { bearerToken, type EnterpriseAuthenticator, type EnterprisePrincipal } from '../src/enterprise-auth.ts';
+import {
+  bearerToken,
+  DualEnterpriseAuthenticator,
+  type EnterpriseAuthenticator,
+  type EnterprisePrincipal,
+} from '../src/enterprise-auth.ts';
 import { startEnterpriseServer } from '../src/enterprise-server.ts';
 import type { AccountBinding, DispatchReservation, EnterpriseStore } from '../src/enterprise-store.ts';
 import type { WorkerResolver } from '../src/enterprise-worker.ts';
@@ -48,11 +53,25 @@ class FakeStore implements EnterpriseStore {
 
   async initialize() { this.initialized = true; }
   async binding(value: EnterprisePrincipal) {
-    assert.deepEqual(value, principal);
+    assert.equal(value.tenantId, principal.tenantId);
+    assert.equal(value.objectId, principal.objectId);
     return binding;
   }
+  async authenticateApiKey(token: string) {
+    if (token !== `ccgc_sk_${'a'.repeat(43)}`) throw new BridgeError('GATEWAY_AUTH_REQUIRED', 'invalid', 401);
+    return { ...principal, authentication: 'apiKey' as const };
+  }
+  async issueApiKey(): Promise<{ id: string; apiKey: string; expiresAt: string }> { throw new Error('not used'); }
+  async revokeApiKey() { throw new Error('not used'); }
+  async createEnrollment(): Promise<{ id: string; expiresAt: string }> { throw new Error('not used'); }
+  async enrollment(): Promise<never> { throw new Error('not used'); }
+  async setEnrollmentFlow() { throw new Error('not used'); }
+  async beginEnrollmentCompletion(): Promise<boolean> { throw new Error('not used'); }
+  async completeEnrollment() { throw new Error('not used'); }
+  async consumeEnrollment() { throw new Error('not used'); }
   async createAdmission(value: EnterprisePrincipal, ttlSeconds: number, maxAttempts: number) {
-    assert.deepEqual(value, principal);
+    assert.equal(value.tenantId, principal.tenantId);
+    assert.equal(value.objectId, principal.objectId);
     assert.equal(ttlSeconds, 3600);
     assert.equal(maxAttempts, 10);
     return { id: '33333333-3333-3333-3333-333333333333', token: 'a'.repeat(64), expiresAt: '2026-10-10T00:00:00.000Z' };
@@ -118,6 +137,37 @@ test('enterprise bearer parsing fails closed', () => {
   assert.throws(() => bearerToken(undefined), /bearer token/i);
   assert.throws(() => bearerToken('Basic abc'), /bearer token/i);
   assert.throws(() => bearerToken('Bearer bad\nvalue'), /bearer token/i);
+});
+
+test('enterprise broker gives API-key employees the same bound profile and admission path', async () => {
+  const store = new FakeStore();
+  const server = await startEnterpriseServer({
+    authenticator: new DualEnterpriseAuthenticator(new FakeAuthenticator(), store),
+    store,
+    workers: new FakeWorkers(),
+    dispatchSigner: new DispatchSigner(dispatchSecret, brokerOrigin, workerOrigin),
+  });
+  const apiKey = `ccgc_sk_${'a'.repeat(43)}`;
+  try {
+    const base = `http://127.0.0.1:${server.port}`;
+    const info = await fetch(`${base}/ccgc/enterprise/info`, {
+      headers: { authorization: ['Bearer', apiKey].join(' ') },
+    });
+    assert.equal(info.status, 200);
+    assert.equal((await info.json()).authentication, 'apiKey');
+
+    const admission = await fetch(`${base}/ccgc/enterprise/admissions`, {
+      method: 'POST',
+      headers: {
+        authorization: ['Bearer', apiKey].join(' '),
+        'content-type': 'application/json',
+      },
+      body: JSON.stringify({ ttlSeconds: 3600, maxAttempts: 10 }),
+    });
+    assert.equal(admission.status, 201);
+  } finally {
+    await server.close();
+  }
 });
 
 test('isolated enterprise worker restores an exact pending tool batch after restart', async () => {
@@ -212,6 +262,7 @@ test('enterprise broker binds principal, admission, dispatch fence and isolated 
       githubAccountId: binding.githubAccountId,
       models: binding.models,
       bindingRevision: 1,
+      authentication: 'entra',
     });
 
     const admission = await fetch(`${base}/ccgc/enterprise/admissions`, {
@@ -537,6 +588,7 @@ test('enterprise client uses Entra for control and an opaque admission token for
   try {
     const profile = await client.login('https://enterprise.example', 'api://ccgc');
     assert.equal(profile.objectId, principal.objectId);
+    assert.equal(profile.authMethod, 'entra');
     assert.equal(await client.token(), 'a'.repeat(64));
     assert.equal(await client.token(), 'a'.repeat(64));
     assert.equal(admissions, 1);
@@ -552,6 +604,59 @@ test('enterprise client uses Entra for control and an opaque admission token for
     assert.equal(settings.disableAllHooks, undefined);
     assert.deepEqual(settings.permissions, { defaultMode: 'manual' });
     assert.match(String(settings.apiKeyHelper), /enterprise-cli\.ts' token$/);
+  } finally {
+    await rm(home, { recursive: true });
+  }
+});
+
+test('enterprise client keeps a long-lived API key only in Keychain and exchanges it for admissions', async () => {
+  const home = await mkdtemp(join(tmpdir(), 'ccgc-enterprise-api-key-client-'));
+  const values = new Map<string, string>();
+  const secrets: Secrets = {
+    async get(id) {
+      const value = values.get(id);
+      if (!value) throw new BridgeError('GATEWAY_AUTH_REQUIRED', 'missing', 401);
+      return value;
+    },
+    async set(id, value) { values.set(id, value); },
+    async remove(id) { values.delete(id); },
+  };
+  const apiKey = `ccgc_sk_${'k'.repeat(43)}`;
+  let admissions = 0;
+  const client = new EnterpriseClient(
+    home,
+    secrets,
+    { async getToken() { throw new Error('Entra must not be used for API-key profiles'); } },
+    async (input, init) => {
+      assert.equal(new Headers(init?.headers).get('authorization'), ['Bearer', apiKey].join(' '));
+      if (String(input).endsWith('/ccgc/enterprise/info')) {
+        return Response.json({
+          tenantId: principal.tenantId,
+          objectId: principal.objectId,
+          githubLogin: binding.githubLogin,
+          githubAccountId: binding.githubAccountId,
+          models: binding.models,
+          bindingRevision: 1,
+          authentication: 'apiKey',
+        });
+      }
+      admissions++;
+      return Response.json({
+        id: '33333333-3333-3333-3333-333333333333',
+        token: 'b'.repeat(64),
+        expiresAt: new Date(Date.now() + 60 * 60_000).toISOString(),
+      }, { status: 201 });
+    },
+  );
+  try {
+    const loggedIn = await client.loginApiKey('https://enterprise.example', apiKey);
+    assert.equal(loggedIn.authMethod, 'apiKey');
+    assert.equal(loggedIn.audience, undefined);
+    const persisted = await readFile(join(home, '.local', 'share', 'ccgc', 'enterprise', 'profile.json'), 'utf8');
+    assert.equal(persisted.includes(apiKey), false);
+    assert.equal([...values.values()].includes(apiKey), true);
+    assert.equal(await client.token(), 'b'.repeat(64));
+    assert.equal(admissions, 1);
   } finally {
     await rm(home, { recursive: true });
   }

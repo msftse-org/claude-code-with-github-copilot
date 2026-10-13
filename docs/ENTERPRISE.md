@@ -37,9 +37,11 @@ sessions are owned by LiteLLM and are never loaded into Node.js worker memory.
 ## Implemented request path
 
 1. `ccgc-enterprise login` obtains a gateway-audience Entra token through
-   `DefaultAzureCredential` and verifies the tenant/object binding.
+   `DefaultAzureCredential`, or `login-api-key` loads an administrator-issued
+   30-day employee API key from a private file into macOS Keychain.
 2. Claude's `apiKeyHelper` creates or renews a bounded admission and stores only
-   its random 256-bit token in macOS Keychain.
+   its random 256-bit token in macOS Keychain. API keys are stored only as
+   SHA-256 digests by the broker and never authorize administration routes.
 3. Claude sends native `/v1/messages` and `/v1/models` requests to the broker.
 4. PostgreSQL locks the admission, verifies binding revision, model and limits,
    rejects an already-active branch, increments the attempt and fence, and
@@ -255,13 +257,52 @@ enterprise database and idempotently creates the database-backed LiteLLM
 credential and approved model mappings. Deployment fails if the job does not
 reach `Succeeded` within 15 minutes.
 
-An administrator creates the employee's LiteLLM `internal_user` identity and
-user key through the broker administration routes. Raw keys without an owning LiteLLM user role
-cannot access the per-user connection endpoints. IT then initiates the GitHub
-device flow through the same public broker endpoint and gives the employee
-only GitHub's public verification URL and one-time code. The employee never
-needs private Azure connectivity and never receives the LiteLLM master key or
-another user's key.
+API-key employees use a single-use, 30-minute self-service enrollment. The
+administrator approves the employee metadata, immutable GitHub identity, and
+models, then creates an enrollment code:
+
+```bash
+cp docs/examples/enterprise-create-enrollment.example.json \
+  /private/path/create-enrollment.json
+chmod 600 /private/path/create-enrollment.json
+
+npm run enterprise:manage -- create-enrollment \
+  --url https://PUBLIC_BROKER_FQDN \
+  --audience api://ENTRA-APPLICATION-ID \
+  --input /private/path/create-enrollment.json \
+  --output /private/path/enrollment.json
+```
+
+Only the broker URL and `CCGC-...` code are sent to the employee. The employee
+runs the native executable:
+
+```bash
+./ccgc-enterprise enroll \
+  --gateway https://PUBLIC_BROKER_FQDN \
+  --code CCGC-ONE-TIME-CODE
+```
+
+The executable opens GitHub device authorization and the broker rejects any
+GitHub login or immutable account ID other than the administrator-approved
+identity. The broker creates and binds the LiteLLM internal user, then issues a
+30-day API key directly to the employee process. The key is stored only in
+macOS Keychain or Windows DPAPI storage. The executable writes the non-secret
+profile, configures Claude Code, and acknowledges the enrollment; acknowledgment
+deletes the temporary Key Vault values and consumes the code. Completed output
+is held temporarily in Key Vault until acknowledgment so a lost HTTP response
+can be retried without losing the only copy of the key.
+
+The executable remains installed as Claude's `apiKeyHelper` and supports
+`token`, `models`, and `configure`. Build targets are macOS ARM64 and Windows
+x64:
+
+```bash
+GOOS=darwin GOARCH=arm64 go build -trimpath -o dist/ccgc-enterprise-darwin-arm64 ./cmd/ccgc-enterprise
+GOOS=windows GOARCH=amd64 go build -trimpath -o dist/ccgc-enterprise-windows-amd64.exe ./cmd/ccgc-enterprise
+```
+
+The manual administrator-driven device flow remains available for Entra
+employees and recovery:
 
 ```bash
 npm run enterprise:manage -- create-user \
@@ -405,8 +446,16 @@ cp docs/examples/enterprise-create-user.example.json \
 chmod 600 "$HOME/.config/ccgc/pilot/employee-one/create-user.json"
 ```
 
-Set `userId` to that employee's Entra object ID, use their corporate email,
-choose the approved Claude model list, then create the LiteLLM internal user:
+For an Entra employee, set `userId` to their Entra object ID. For an API-key
+employee, generate a dedicated UUID and use it consistently as `userId` and the
+binding `objectId`:
+
+```bash
+API_USER_ID="$(uuidgen | tr '[:upper:]' '[:lower:]')"
+```
+
+Use the employee email, choose the approved Claude model list, then create the
+LiteLLM internal user:
 
 ```bash
 npm run enterprise:manage -- create-user \
@@ -438,10 +487,11 @@ GITHUB_ACCOUNT_ID="$(curl -fsSL \
 test "$GITHUB_ACCOUNT_ID" -gt 0
 ```
 
-Use the Entra tenant/object IDs, verified GitHub login/account ID, same
-LiteLLM user key, approved models, and a unique secret name such as
+Use the deployment tenant ID and the employee's Entra object ID or dedicated
+API-user UUID, verified GitHub login/account ID, same LiteLLM user key,
+approved models, and a unique secret name such as
 `ccgc-user-<object-id-without-hyphens>`. Link only after the administrator has
-verified that the Entra and GitHub identities belong to the same employee:
+verified that the enterprise and GitHub identities belong to the same employee:
 
 ```bash
 npm run enterprise:manage -- link \
@@ -454,8 +504,8 @@ Do not reuse any of these three files for the second employee.
 
 ### 4. Each employee configures their own workstation
 
-Each tester signs into Azure CLI as themselves, from their own macOS account
-and machine:
+An Entra-authenticated tester signs into Azure CLI as themselves, from their
+own macOS account and machine:
 
 ```bash
 az logout
@@ -469,9 +519,35 @@ npm run enterprise:client -- models
 claude
 ```
 
-The login result must show that employee's own Entra object ID, GitHub login,
-GitHub account ID, model list, and binding revision. Stop if either tester sees
-the other tester's identity or models.
+For an API-key employee, Enterprise IT creates a single-use enrollment instead
+of receiving and transferring the employee key:
+
+```bash
+cp docs/examples/enterprise-create-enrollment.example.json \
+  "$HOME/.config/ccgc/pilot/employee-one/create-enrollment.json"
+chmod 600 "$HOME/.config/ccgc/pilot/employee-one/create-enrollment.json"
+
+npm run enterprise:manage -- create-enrollment \
+  --url "$BROKER_URL" \
+  --audience "$ENTRA_AUDIENCE" \
+  --input "$HOME/.config/ccgc/pilot/employee-one/create-enrollment.json" \
+  --output "$HOME/.config/ccgc/pilot/employee-one/enrollment.json"
+```
+
+Transfer only the broker URL and one-time code through an approved channel. The
+employee runs:
+
+```bash
+./ccgc-enterprise enroll \
+  --gateway "$BROKER_URL" \
+  --code CCGC-ONE-TIME-CODE
+./ccgc-enterprise models
+claude
+```
+
+The login result must show that employee's own object ID, authentication
+method, GitHub login, GitHub account ID, model list, and binding revision. Stop
+if either tester sees the other tester's identity or models.
 
 ### 5. Run the isolation acceptance
 

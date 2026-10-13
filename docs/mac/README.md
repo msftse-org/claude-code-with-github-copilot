@@ -3,17 +3,12 @@
 This guide covers the employee Mac configuration for the enterprise CCGC
 architecture.
 
-> [!IMPORTANT]
-> The enterprise environment is not deployed yet. These commands describe the
-> implemented client flow and become usable after enterprise IT completes the
-> enterprise deployment and employee binding.
-
 ## What is installed or stored on the Mac
 
 | Item | What it does | Required action |
 |---|---|---|
 | Official Claude Code `2.1.296` | Provides the unchanged coding interface and runs local Read, Edit, Bash, and permission decisions. | Install and verify the exact supported version. |
-| Enterprise CCGC helper | Uses Entra for broker control requests and acts as Claude's `apiKeyHelper`. | Keep this repository and Node.js at stable paths. |
+| Enterprise CCGC helper | Native self-enrollment client and Claude `apiKeyHelper`. | Keep the executable at a stable path. |
 | Admission credential in macOS Keychain | Authenticates Claude requests for one employee and one bounded admission. | Allow the helper to create and renew it; never copy it manually. |
 | `~/.claude/settings.json` | Routes Claude to the enterprise broker and installs the credential helper. | Preview and explicitly apply the generated patch. |
 | Enterprise profile | Stores non-secret Entra/GitHub binding, catalog, revision, and admission metadata. | Let the helper create it; do not hand-edit or restore stale grants. |
@@ -24,22 +19,20 @@ matching LiteLLM user key used by workers.
 
 ## 1. Install prerequisites
 
-Required:
+Required for self-service API-key enrollment:
 
-- macOS
-- Node.js 24
-- npm
+- macOS ARM64
 - Official Claude Code `2.1.296`
-- A stable checkout of this repository
-- An approved Microsoft Entra credential source
+- The approved `ccgc-enterprise-darwin-arm64` executable
+- A broker URL and unexpired single-use enrollment code from Enterprise IT
 
-From the repository root:
+Install the executable at a stable path:
 
 ```bash
-npm ci
-node --version
+mkdir -p "$HOME/.local/bin"
+install -m 0755 ccgc-enterprise-darwin-arm64 "$HOME/.local/bin/ccgc-enterprise"
 claude --version
-npm run enterprise:client -- --help
+"$HOME/.local/bin/ccgc-enterprise" --help
 ```
 
 If Claude Code is missing or has another version:
@@ -49,11 +42,25 @@ claude install 2.1.296
 claude --version
 ```
 
-Do not move the repository or replace the Node.js executable after applying the
-settings without previewing and applying configuration again. The generated
-`apiKeyHelper` uses their absolute paths.
+Do not move the executable after enrollment without running `configure` again.
+The generated `apiKeyHelper` uses its absolute path.
 
-## 2. Sign in with Microsoft Entra
+## 2. Self-enroll with the one-time code
+
+```bash
+"$HOME/.local/bin/ccgc-enterprise" enroll \
+  --gateway https://PUBLIC_BROKER_FQDN \
+  --code CCGC-ONE-TIME-CODE
+```
+
+The executable opens GitHub's device page, displays the expected GitHub login,
+and waits for authorization. The broker rejects a different GitHub identity or
+an account without an active Copilot entitlement. After verification, the
+executable stores the employee API key directly in Keychain, writes the
+non-secret profile, and configures Claude Code. The administrator never sees
+or transfers the API key.
+
+## 3. Alternative Entra or manual API-key login
 
 Enterprise IT provides:
 
@@ -81,7 +88,22 @@ The organization must define which `DefaultAzureCredential` source is allowed in
 production. Before login, remove unintended developer, CLI, IDE, or managed
 identity credentials that could select the wrong principal.
 
-## 3. Understand the enterprise profile
+If Enterprise IT assigned an employee API key instead, receive its private JSON
+file through an approved secret-delivery channel and ensure it has mode `0600`:
+
+```bash
+chmod 600 "$HOME/.config/ccgc/api-key.json"
+npm run enterprise:client -- login-api-key \
+  --gateway https://PUBLIC_BROKER_FQDN \
+  --api-key-file "$HOME/.config/ccgc/api-key.json"
+rm "$HOME/.config/ccgc/api-key.json"
+```
+
+The helper verifies the bound profile before storing the 30-day key in macOS
+Keychain. The key is never written to the enterprise profile or Claude
+settings. API keys cannot authorize enterprise administration routes.
+
+## 4. Understand the enterprise profile
 
 Login writes a private profile to:
 
@@ -109,12 +131,12 @@ It does not contain:
 The profile is private operational state. Do not commit it, synchronize it,
 hand-edit it, or copy an old admission to another Mac.
 
-## 4. Preview and apply Claude settings
+## 5. Preview and apply Claude settings
 
 Preview:
 
 ```bash
-npm run enterprise:client -- configure
+"$HOME/.local/bin/ccgc-enterprise" configure
 ```
 
 The preview shows the non-secret patch only. Review it before applying.
@@ -122,7 +144,7 @@ The preview shows the non-secret patch only. Review it before applying.
 Apply:
 
 ```bash
-npm run enterprise:client -- configure --apply
+"$HOME/.local/bin/ccgc-enterprise" configure
 ```
 
 This updates `~/.claude/settings.json` and:
@@ -142,10 +164,10 @@ Configuration fails without changing the file if it finds a conflicting shell
 environment variable, provider route, credential helper, or user setting.
 Resolve the conflict explicitly; do not overwrite organizational policy.
 
-## 5. Inspect the approved models
+## 6. Inspect the approved models
 
 ```bash
-npm run enterprise:client -- models
+"$HOME/.local/bin/ccgc-enterprise" models
 ```
 
 The command shows:
@@ -157,7 +179,7 @@ The command shows:
 The catalog comes from the employee binding. It is not an unrestricted provider
 catalog.
 
-## 6. Create an admission and start Claude
+## 7. Create an admission and start Claude
 
 Start Claude normally:
 
@@ -167,7 +189,8 @@ claude
 
 When Claude invokes the `apiKeyHelper`, the helper:
 
-1. obtains an Entra token for the broker audience
+1. obtains an Entra token for the broker audience or loads the employee API key
+   from macOS Keychain
 2. requests an eight-hour, 50-attempt bounded admission
 3. stores the random opaque admission token in macOS Keychain
 4. stores only the admission ID and expiry in the non-secret profile
@@ -179,7 +202,7 @@ credential is never written to the profile or Claude settings.
 Use `/model` inside Claude Code to select another approved model. Do not add
 provider keys or override the broker URL.
 
-## 7. Supported and unsupported behavior
+## 8. Supported and unsupported behavior
 
 ### Validated features
 
@@ -214,7 +237,7 @@ Anthropic safeguard results.
 The detailed reasons and enforcement points are in the root
 [feature compatibility table](../../README.md#claude-code-feature-compatibility).
 
-## 8. Keychain behavior
+## 9. Keychain behavior
 
 Only the opaque admission token is stored in macOS Keychain. It is:
 
@@ -233,15 +256,16 @@ If Keychain access fails, confirm that:
 - the `security` command is permitted
 - the profile still points to the expected broker
 
-## 9. Binding changes and revocation
+## 10. Binding changes and revocation
 
-An administrator binding update increments the binding revision and revokes existing
-admissions. The employee must obtain the updated profile through a reviewed
-enterprise login before continuing.
+An administrator binding update increments the binding revision and revokes
+existing admissions and API keys. The employee must obtain the updated profile
+through a reviewed enterprise login before continuing. API keys also expire
+after 30 days and can be revoked independently.
 
 Stop and contact enterprise IT if any of these change unexpectedly:
 
-- Entra tenant or object ID
+- tenant, object ID, or authentication method
 - GitHub account ID or login
 - model catalog
 - binding revision

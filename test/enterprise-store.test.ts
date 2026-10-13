@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { createHash } from 'node:crypto';
 import { test } from 'node:test';
 import { PostgresEnterpriseStore } from '../src/enterprise-store.ts';
 
@@ -40,7 +41,7 @@ test('PostgreSQL store atomically binds, reserves, fences, audits and revokes', 
   const store = new PostgresEnterpriseStore(connection!, undefined, true);
   await store.initialize();
   try {
-    await store.pool.query('TRUNCATE enterprise_audit_outbox, enterprise_dispatches, enterprise_admissions, enterprise_account_bindings RESTART IDENTITY CASCADE');
+    await store.pool.query('TRUNCATE enterprise_audit_outbox, enterprise_dispatches, enterprise_admissions, enterprise_api_keys, enterprise_account_bindings RESTART IDENTITY CASCADE');
     const principal = {
       tenantId: '11111111-1111-1111-1111-111111111111',
       objectId: '22222222-2222-2222-2222-222222222222',
@@ -56,7 +57,14 @@ test('PostgreSQL store atomically binds, reserves, fences, audits and revokes', 
     });
     assert.equal(linked.revision, 1);
     assert.equal((await store.binding(principal)).githubAccountId, 1234);
-    const admission = await store.createAdmission(principal, 3600, 2);
+    const issued = await store.issueApiKey(principal.tenantId, principal.objectId, 'developer pilot', 3600);
+    assert.match(issued.apiKey, /^ccgc_sk_[A-Za-z0-9_-]{43}$/);
+    const storedKey = await store.pool.query('SELECT key_hash FROM enterprise_api_keys WHERE id = $1', [issued.id]);
+    assert.equal(storedKey.rows[0]?.key_hash, createHash('sha256').update(issued.apiKey).digest('hex'));
+    assert.equal(JSON.stringify(storedKey.rows).includes(issued.apiKey), false);
+    const apiPrincipal = await store.authenticateApiKey(issued.apiKey);
+    assert.equal(apiPrincipal.authentication, 'apiKey');
+    const admission = await store.createAdmission(apiPrincipal, 3600, 2);
     const tokenHash = Buffer.from(await crypto.subtle.digest('SHA-256', Buffer.from(admission.token))).toString('hex');
     const reserved = await store.reserveDispatch(tokenHash, 'b'.repeat(64), 'claude-sonnet-5.5', 'main');
     assert.equal(reserved.fence, 1);
@@ -65,6 +73,8 @@ test('PostgreSQL store atomically binds, reserves, fences, audits and revokes', 
       /already reserved/i,
     );
     await store.finishDispatch(reserved.id, 'completed');
+    await store.revokeApiKey(issued.id, 'e'.repeat(64));
+    await assert.rejects(store.authenticateApiKey(issued.apiKey), /expired, or revoked/i);
     await store.revokeBinding(principal.tenantId, principal.objectId, 'c'.repeat(64));
     await assert.rejects(store.binding(principal), /no active same-user/i);
     await assert.rejects(
@@ -74,9 +84,11 @@ test('PostgreSQL store atomically binds, reserves, fences, audits and revokes', 
     const audit = await store.pool.query('SELECT event_type FROM enterprise_audit_outbox ORDER BY id');
     assert.deepEqual(audit.rows.map(row => row.event_type), [
       'binding.linked',
+      'api_key.created',
       'admission.created',
       'dispatch.reserved',
       'dispatch.finished',
+      'api_key.revoked',
       'binding.revoked',
     ]);
   } finally {
