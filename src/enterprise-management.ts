@@ -333,15 +333,24 @@ export class EnterpriseManagement {
       const githubLogin = text(input.githubLogin, 'GitHub login');
       const githubAccountId = positive(input.githubAccountId, 'GitHub account ID');
       const models = Array.isArray(input.models) ? input.models.map(value => text(value, 'model ID')) : [];
+      const existingObjectId = input.objectId === undefined ? undefined : text(input.objectId, 'existing user ID').toLowerCase();
+      const existingApiKey = input.litellmApiKey === undefined ? undefined : text(input.litellmApiKey, 'existing LiteLLM user key');
       if (!/^[0-9a-f-]{36}$/i.test(tenantId) || !userEmail.includes('@')
         || !/^[A-Za-z0-9._-]{1,64}$/.test(userAlias)
         || !/^[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})$/.test(githubLogin)
         || !models.length || models.some(model => !/^claude-[a-z0-9.-]+$/.test(model))) {
         throw new BridgeError('INVALID_REQUEST', 'Self-service enrollment input is invalid.');
       }
-      const objectId = randomUUID();
-      const created = await this.createUser({ userId: objectId, userEmail, userAlias, models });
-      const litellmApiKey = text(created.litellmApiKey, 'LiteLLM user key');
+      if ((existingObjectId === undefined) !== (existingApiKey === undefined)
+        || (existingObjectId !== undefined && !/^[0-9a-f-]{36}$/i.test(existingObjectId))
+        || (existingApiKey !== undefined && !/^sk-[A-Za-z0-9._-]{16,}$/.test(existingApiKey))) {
+        throw new BridgeError('INVALID_REQUEST', 'Existing LiteLLM recovery requires a valid user ID and user key together.');
+      }
+      const objectId = existingObjectId ?? randomUUID();
+      const litellmApiKey = existingApiKey ?? text(
+        (await this.createUser({ userId: objectId, userEmail, userAlias, models })).litellmApiKey,
+        'LiteLLM user key',
+      );
       const code = `CCGC-${randomBytes(18).toString('base64url')}`;
       const pendingSecretName = `ccgc-enrollment-pending-${objectId.replaceAll('-', '')}`;
       const credentialSecretName = `ccgc-user-${objectId.replaceAll('-', '')}`;

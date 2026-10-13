@@ -429,3 +429,41 @@ test('self-service enrollment is retry-safe and consumes temporary secrets after
     (error: unknown) => error instanceof BridgeError && error.code === 'GATEWAY_AUTH_REQUIRED',
   );
 });
+
+test('self-service enrollment can recover an existing isolated LiteLLM user', async () => {
+  const storedSecrets = new Map<string, string>();
+  let createdInput: Record<string, unknown> | undefined;
+  const management = new EnterpriseManagement({
+    litellmUrl: 'https://litellm.internal',
+    litellmMasterKey: `sk-${'m'.repeat(32)}`,
+    postgresUrl: 'postgresql://broker@postgres.internal/postgres?sslmode=require',
+    enrollmentSecrets: {
+      set: async (name, value) => { storedSecrets.set(name, value); },
+      get: async () => { throw new Error('not used'); },
+      remove: async name => { storedSecrets.delete(name); },
+    },
+    storeFactory: () => ({
+      createEnrollment: async (input: Record<string, unknown>) => {
+        createdInput = input;
+        return { id: '33333333-3333-3333-3333-333333333333', expiresAt: '2099-01-01T00:00:00.000Z' };
+      },
+      close: async () => undefined,
+    }) as unknown as PostgresEnterpriseStore,
+    fetcher: (async () => { throw new Error('existing user recovery must not create another LiteLLM user'); }) as typeof fetch,
+  });
+
+  const result = await management.createEnrollment({
+    tenantId: principal.tenantId,
+    objectId: principal.objectId,
+    litellmApiKey: `sk-${'u'.repeat(32)}`,
+    userEmail: 'developer@example.com',
+    userAlias: 'developer',
+    githubAccountId: 12345,
+    githubLogin: 'developer',
+    models: ['claude-sonnet-4-5'],
+  });
+
+  assert.equal(result.objectId, principal.objectId);
+  assert.equal(createdInput?.objectId, principal.objectId);
+  assert.deepEqual([...storedSecrets.values()], [`sk-${'u'.repeat(32)}`]);
+});
