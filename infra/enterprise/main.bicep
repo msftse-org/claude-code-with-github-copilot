@@ -14,20 +14,22 @@ param tenantId string
 @description('Application ID URI or client ID expected in broker access tokens.')
 param entraAudience string
 
-@description('Object ID of the separately governed PostgreSQL Entra administrator.')
-param postgresAdminObjectId string
-
-@description('Display name of the PostgreSQL Entra administrator.')
-param postgresAdminName string
+@description('Deploy the broker, bootstrap job, worker, and LiteLLM Container Apps after immutable images have been published.')
+param deployRuntime bool = true
 
 @description('Immutable broker container image, preferably an ACR digest.')
-param brokerImage string
+param brokerImage string = ''
 
 @description('Immutable shared multi-user worker container image, preferably an ACR digest.')
-param workerImage string
+param workerImage string = ''
 
 @description('Immutable LiteLLM Gateway container image built from server/Dockerfile.enterprise-litellm, preferably an ACR digest.')
-param litellmImage string
+param litellmImage string = ''
+
+@minValue(0)
+@maxValue(10)
+@description('Number of private ACR task agents. Use zero at rest and scale to one while publishing images.')
+param buildAgentPoolCount int = 0
 
 @description('Administrator login for the private LiteLLM PostgreSQL server.')
 param litellmPostgresAdminLogin string = 'litellmadmin'
@@ -82,11 +84,11 @@ module platform 'modules/platform.bicep' = {
     location: location
     tenantId: tenantId
     entraAudience: entraAudience
-    postgresAdminObjectId: postgresAdminObjectId
-    postgresAdminName: postgresAdminName
+    deployRuntime: deployRuntime
     brokerImage: brokerImage
     workerImage: workerImage
     litellmImage: litellmImage
+    buildAgentPoolCount: buildAgentPoolCount
     litellmPostgresAdminLogin: litellmPostgresAdminLogin
     litellmPostgresAdminPassword: litellmPostgresAdminPassword
     litellmMasterKey: litellmMasterKey
@@ -99,11 +101,14 @@ module platform 'modules/platform.bicep' = {
 }
 
 output resourceGroupName string = resourceGroup.name
-output brokerInternalFqdn string = platform.outputs.brokerInternalFqdn
+output brokerPublicFqdn string = platform.outputs.brokerPublicFqdn
+output bootstrapJobName string = platform.outputs.bootstrapJobName
 output workerInternalFqdn string = platform.outputs.workerInternalFqdn
 output litellmInternalFqdn string = platform.outputs.litellmInternalFqdn
 output keyVaultName string = platform.outputs.keyVaultName
 output postgresHost string = platform.outputs.postgresHost
 output litellmPostgresHost string = platform.outputs.litellmPostgresHost
 output registryName string = platform.outputs.registryName
+output registryLoginServer string = platform.outputs.registryLoginServer
+output buildAgentPoolName string = platform.outputs.buildAgentPoolName
 output checkpointStorageName string = platform.outputs.checkpointStorageName

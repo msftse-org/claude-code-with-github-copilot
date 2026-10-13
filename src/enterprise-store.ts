@@ -136,8 +136,14 @@ async function rollback(client: PoolClient): Promise<void> {
 
 export class PostgresEnterpriseStore implements EnterpriseStore {
   readonly pool: Pool;
+  readonly manageSchema: boolean;
 
-  constructor(connectionString: string, tokenProvider?: DatabaseTokenProvider, allowInsecureLocalhost = false) {
+  constructor(
+    connectionString: string,
+    tokenProvider?: DatabaseTokenProvider,
+    allowInsecureLocalhost = false,
+    manageSchema = true,
+  ) {
     if (!connectionString.startsWith('postgresql://') || /[\r\n]/.test(connectionString)) {
       throw new BridgeError('INVALID_OPTIONS', 'A PostgreSQL TLS connection string is required.');
     }
@@ -146,24 +152,48 @@ export class PostgresEnterpriseStore implements EnterpriseStore {
     if (allowInsecureLocalhost && !localTest) {
       throw new BridgeError('INVALID_OPTIONS', 'Insecure PostgreSQL is permitted only for explicit localhost tests.');
     }
+    const username = decodeURIComponent(endpoint.username);
+    const password = decodeURIComponent(endpoint.password);
+    const database = decodeURIComponent(endpoint.pathname.replace(/^\//, ''));
+    if (!username || !database || (tokenProvider && password)) {
+      throw new BridgeError('INVALID_OPTIONS', 'The PostgreSQL user and database are required, and Entra connections must not embed a password.');
+    }
     this.pool = new Pool({
-      connectionString,
+      host: endpoint.hostname,
+      port: endpoint.port ? Number(endpoint.port) : 5432,
+      user: username,
+      database,
       ...(tokenProvider ? {
         password: async () => {
           const access = await tokenProvider.getToken('https://ossrdbms-aad.database.windows.net/.default');
           if (!access?.token) throw new BridgeError('GATEWAY_UNAVAILABLE', 'PostgreSQL Entra token acquisition failed.', 503);
           return access.token;
         },
-      } : {}),
+      } : { password }),
       max: 10,
       idleTimeoutMillis: 30_000,
       connectionTimeoutMillis: 10_000,
       ssl: localTest ? false : { rejectUnauthorized: true },
     });
+    this.manageSchema = manageSchema;
   }
 
   async initialize(): Promise<void> {
-    await this.pool.query(SCHEMA);
+    if (this.manageSchema) {
+      await this.pool.query(SCHEMA);
+      return;
+    }
+    const result = await this.pool.query(`
+      SELECT
+        to_regclass('public.enterprise_account_bindings') IS NOT NULL
+        AND to_regclass('public.enterprise_admissions') IS NOT NULL
+        AND to_regclass('public.enterprise_dispatches') IS NOT NULL
+        AND to_regclass('public.enterprise_audit_outbox') IS NOT NULL
+        AS initialized
+    `);
+    if (result.rows[0]?.initialized !== true) {
+      throw new BridgeError('STARTUP_FAILED', 'Enterprise PostgreSQL schema has not been bootstrapped.', 503);
+    }
   }
 
   async binding(principal: EnterprisePrincipal): Promise<AccountBinding> {

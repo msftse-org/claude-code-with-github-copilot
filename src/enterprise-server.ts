@@ -1,25 +1,37 @@
 import { createHash } from 'node:crypto';
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
 import { bearerToken, type EnterpriseAuthenticator } from './enterprise-auth.ts';
-import { BridgeError, envelope, object, parseJson, safeError, text } from './protocol.ts';
+import { BridgeError, envelope, object, parseJson, safeError, text, type ObjectValue } from './protocol.ts';
 import type { EnterpriseStore } from './enterprise-store.ts';
 import type { WorkerResolver } from './enterprise-worker.ts';
 import type { DispatchSigner } from './enterprise-dispatch.ts';
 
 const MAX_BODY = 16 * 1024 * 1024;
+const MAX_ADMIN_BODY = 64 * 1024;
+
+export interface EnterpriseAdministrationActions {
+  createUser(input: ObjectValue): Promise<ObjectValue>;
+  startConnection(input: ObjectValue): Promise<ObjectValue>;
+  pollConnection(input: ObjectValue): Promise<ObjectValue>;
+  link(input: ObjectValue): Promise<ObjectValue>;
+  revoke(input: ObjectValue): Promise<ObjectValue>;
+  status(): Promise<ObjectValue>;
+}
 
 export interface EnterpriseServerOptions {
   authenticator: EnterpriseAuthenticator;
   store: EnterpriseStore;
   workers: WorkerResolver;
   dispatchSigner: DispatchSigner;
+  adminAuthenticator?: EnterpriseAuthenticator;
+  adminActions?: EnterpriseAdministrationActions;
   host?: string;
   port?: number;
   fetcher?: typeof fetch;
   onError?: (error: BridgeError) => void;
 }
 
-async function requestBody(request: IncomingMessage): Promise<Buffer> {
+async function requestBody(request: IncomingMessage, maximum = MAX_BODY): Promise<Buffer> {
   if (!request.headers['content-type']?.startsWith('application/json')) {
     throw new BridgeError('INVALID_REQUEST', 'Expected an application/json request.', 415);
   }
@@ -28,7 +40,13 @@ async function requestBody(request: IncomingMessage): Promise<Buffer> {
   for await (const chunk of request) {
     const value = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
     size += value.length;
-    if (size > MAX_BODY) throw new BridgeError('REQUEST_TOO_LARGE', 'Enterprise request exceeds 16 MiB.', 413);
+    if (size > maximum) throw new BridgeError(
+      'REQUEST_TOO_LARGE',
+      maximum === MAX_ADMIN_BODY
+        ? 'Administration request exceeds 64 KiB.'
+        : 'Enterprise request exceeds 16 MiB.',
+      413,
+    );
     chunks.push(value);
   }
   return Buffer.concat(chunks);
@@ -66,6 +84,25 @@ export async function startEnterpriseServer(options: EnterpriseServerOptions) {
     const url = new URL(request.url, 'https://enterprise.invalid');
     if (url.pathname === '/healthz' && request.method === 'GET') {
       send(response, 200, { status: 'listening', inference: 'not-verified' });
+      return;
+    }
+    if (url.pathname.startsWith('/ccgc/admin/')) {
+      if (!options.adminAuthenticator || !options.adminActions || request.method !== 'POST') {
+        throw new BridgeError('ROUTE_UNSUPPORTED', 'Unsupported administration route.', 404);
+      }
+      const routes: Record<string, (input: ObjectValue) => Promise<ObjectValue>> = {
+        '/ccgc/admin/users': input => options.adminActions!.createUser(input),
+        '/ccgc/admin/connections/start': input => options.adminActions!.startConnection(input),
+        '/ccgc/admin/connections/poll': input => options.adminActions!.pollConnection(input),
+        '/ccgc/admin/link': input => options.adminActions!.link(input),
+        '/ccgc/admin/revoke': input => options.adminActions!.revoke(input),
+        '/ccgc/admin/status': () => options.adminActions!.status(),
+      };
+      const route = routes[url.pathname];
+      if (!route) throw new BridgeError('ROUTE_UNSUPPORTED', 'Unsupported administration route.', 404);
+      await options.adminAuthenticator.authenticate(bearerToken(request.headers.authorization));
+      const input = object(parseJson((await requestBody(request, MAX_ADMIN_BODY)).toString('utf8')));
+      send(response, 200, await route(input));
       return;
     }
     if (url.pathname === '/ccgc/enterprise/info' && request.method === 'GET') {

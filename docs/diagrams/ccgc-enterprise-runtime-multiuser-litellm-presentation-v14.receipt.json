@@ -1,0 +1,109 @@
+{
+  "operation": "images/edits",
+  "provider": "Azure OpenAI",
+  "resource": "foundry-llm-demo-resource",
+  "region": "Sweden Central",
+  "deployment": "gpt-image-2.5-flare",
+  "model": "gpt-image-2.5-flare",
+  "modelVersion": "2026-09-08",
+  "apiVersion": "2025-04-01-preview",
+  "authentication": "Microsoft Entra ID bearer token",
+  "createdAt": "2026-10-12T12:09:46Z",
+  "request": {
+    "quality": "high",
+    "size": "2560x1600",
+    "outputFormat": "png",
+    "prompts": [
+      {
+        "role": "coherent alignment and connector-system cleanup",
+        "path": "docs/diagrams/ccgc-enterprise-runtime-multiuser-litellm-presentation-v14.prompt.txt",
+        "sha256": "1afb0718add1f4008d25581bee17685d51bae5156ce01c1b4990023643b43cf5",
+        "requestId": "0a81e0bf-96c3-4bff-a653-38214f9879db"
+      },
+      {
+        "role": "exclude the GitHub seat from the quiet Azure scope",
+        "path": "docs/diagrams/ccgc-enterprise-runtime-multiuser-litellm-presentation-v14-correction.prompt.txt",
+        "sha256": "4b7eb74228e3f29129707aa09c119b06af30adad0c1201ae047b0d0dee4e52f1",
+        "requestId": "cd3b9fa0-907a-413c-8905-328a81adf95f",
+        "createdAt": "2026-10-12T12:11:15Z"
+      }
+    ],
+    "reference": {
+      "role": "approved v13 poster with Azure scope",
+      "path": "docs/diagrams/ccgc-enterprise-runtime-multiuser-litellm-presentation-v13.png",
+      "sha256": "11a2b624f5f15205b741fe38f393a298280151d9a0c15a558c01156d017b432b"
+    }
+  },
+  "response": {
+    "generations": 2,
+    "usage": {
+      "inputTokens": 4697,
+      "imageInputTokens": 2880,
+      "textInputTokens": 1817,
+      "outputTokens": 4390,
+      "imageOutputTokens": 4390,
+      "textOutputTokens": 0,
+      "totalTokens": 9087
+    },
+    "stages": [
+      {
+        "name": "generation",
+        "requestId": "0a81e0bf-96c3-4bff-a653-38214f9879db",
+        "inputTokens": 2837,
+        "imageInputTokens": 1440,
+        "textInputTokens": 1397,
+        "outputTokens": 2195,
+        "totalTokens": 5032,
+        "outputSha256": "54d8662bc53dbfbbcc691fd2f89009589fcf26889eeb861ecd6734b0c0f58a27"
+      },
+      {
+        "name": "correction",
+        "requestId": "cd3b9fa0-907a-413c-8905-328a81adf95f",
+        "inputTokens": 1860,
+        "imageInputTokens": 1440,
+        "textInputTokens": 420,
+        "outputTokens": 2195,
+        "totalTokens": 4055,
+        "outputSha256": "e36d1674b4a4a5ced02ead40937a7f41c160c68f031715bddc9c0524c93a61ce"
+      }
+    ]
+  },
+  "manualPostProcessing": {
+    "tool": "Pillow",
+    "scope": "Removed residual duplicate Azure-scope segments from the correction output and reconstructed one thin concave scope notch between the Shared Inference Plane and the external GitHub card; restored only the primary request-arrow segment crossing the scope.",
+    "correctedGenerationSha256": "e36d1674b4a4a5ced02ead40937a7f41c160c68f031715bddc9c0524c93a61ce",
+    "metadata": "Embedded the exact final correction prompt in the PNG as a tEXt chunk with the established Impeccable embed-prompt workflow.",
+    "finalOutputSha256": "dfac848fed4d7603539ba757d79d94bbd0a34e08abce880183d098eafc00c98b"
+  },
+  "output": {
+    "path": "docs/diagrams/ccgc-enterprise-runtime-multiuser-litellm-presentation-v14.png",
+    "desktopCopy": "/Users/shironbabi/Desktop/CCGC-Enterprise-Multiuser-Architecture-Poster.png",
+    "width": 2560,
+    "height": 1600,
+    "bytes": 2010129,
+    "sha256": "dfac848fed4d7603539ba757d79d94bbd0a34e08abce880183d098eafc00c98b"
+  },
+  "visualReview": {
+    "status": "approved",
+    "inspectedAt": "2026-10-12T12:13:13Z",
+    "inspectionSizes": [
+      "native 2560x1600",
+      "presentation 1280x800"
+    ],
+    "correctionEditUsed": true,
+    "straightSixCardRuntimeSpine": true,
+    "consistentPrimaryArrows": true,
+    "threeConnectorClassesOnly": true,
+    "orthogonalUpperControlRail": true,
+    "alignedLowerStateRail": true,
+    "singleMetadataRailLabel": true,
+    "azureBoundaryQuietAndScoped": true,
+    "externalCardsOutsideAzure": true,
+    "sharedInferencePlaneNested": true,
+    "bottomPanelsAligned": true,
+    "architectureFactsPreserved": true,
+    "deploymentContentAbsent": true,
+    "readability": "approved"
+  },
+  "infrastructureChanged": false
+}

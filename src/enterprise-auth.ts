@@ -14,13 +14,24 @@ export interface EnterpriseAuthenticator {
 export interface EntraAuthenticatorOptions {
   tenantId: string;
   audience: string;
-  requiredScope?: string;
+  requiredRole?: string;
+}
+
+export function entraJwksUrl(tenantId: string): URL {
+  return new URL(`https://login.microsoftonline.com/${tenantId}/discovery/v2.0/keys`);
+}
+
+export function hasEnterpriseRole(payload: unknown, requiredRole: string): boolean {
+  if (!payload || typeof payload !== 'object') return false;
+  const roles = (payload as Record<string, unknown>).roles;
+  return Array.isArray(roles)
+    && roles.some(role => typeof role === 'string' && role === requiredRole);
 }
 
 export class EntraAuthenticator implements EnterpriseAuthenticator {
   readonly tenantId: string;
   readonly audience: string;
-  readonly requiredScope: string;
+  readonly requiredRole: string;
   readonly issuer: string;
   readonly keys: ReturnType<typeof createRemoteJWKSet>;
 
@@ -30,9 +41,9 @@ export class EntraAuthenticator implements EnterpriseAuthenticator {
     }
     this.tenantId = options.tenantId.toLowerCase();
     this.audience = options.audience;
-    this.requiredScope = options.requiredScope ?? 'CCGC.Access';
+    this.requiredRole = options.requiredRole ?? 'CCGC.Access';
     this.issuer = `https://login.microsoftonline.com/${this.tenantId}/v2.0`;
-    this.keys = createRemoteJWKSet(new URL(`${this.issuer}/discovery/v2.0/keys`), {
+    this.keys = createRemoteJWKSet(entraJwksUrl(this.tenantId), {
       cooldownDuration: 30_000,
       timeoutDuration: 10_000,
     });
@@ -50,11 +61,9 @@ export class EntraAuthenticator implements EnterpriseAuthenticator {
       const tenantId = typeof payload.tid === 'string' ? payload.tid.toLowerCase() : '';
       const objectId = typeof payload.oid === 'string' ? payload.oid.toLowerCase() : '';
       const subject = typeof payload.sub === 'string' ? payload.sub : '';
-      const scopes = typeof payload.scp === 'string' ? payload.scp.split(' ') : [];
-      const roles = Array.isArray(payload.roles) ? payload.roles.filter(value => typeof value === 'string') : [];
       if (tenantId !== this.tenantId || !/^[0-9a-f-]{36}$/i.test(objectId) || !subject
-        || (!scopes.includes(this.requiredScope) && !roles.includes(this.requiredScope))) {
-        throw new BridgeError('ACCESS_DENIED', 'The Entra principal, tenant, audience, or delegated permission is not approved.', 403);
+        || !hasEnterpriseRole(payload, this.requiredRole)) {
+        throw new BridgeError('ACCESS_DENIED', 'The Entra principal, tenant, audience, or required app role is not approved.', 403);
       }
       return { tenantId, objectId, subject };
     } catch (error) {

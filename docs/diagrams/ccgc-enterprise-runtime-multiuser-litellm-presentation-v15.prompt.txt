@@ -1,0 +1,124 @@
+Create a 2560x1600 executive architecture poster by editing from the supplied
+references. This is an Archify-first translation, not a continuation of the
+v14 layout.
+
+REFERENCE PRIORITY IS BINDING:
+1. FIRST IMAGE = PRIMARY STRUCTURE AND GEOMETRY AUTHORITY. Reproduce its node
+   positions, alignment rails, boundaries, connector count, orthogonal routes,
+   endpoints, labels, and bottom-panel structure.
+2. The supplied architecture specification defines the exact topology and text.
+3. SECOND IMAGE = VISUAL STYLE ONLY. Borrow only its warm professional palette,
+   executive typography character, white/pale blue-gray cards, compact official
+   icons, restrained Azure blue, dark slate text, and presentation polish.
+- Never copy structural drift, extra connectors, line fragments, rails, or
+  boundary geometry from the second image.
+
+REMOVE ARCHIFY VIEWER CHROME:
+- Remove the grid, viewer frame, browser-like stage, Light/Classic/Present/
+  Export controls, zoom controls, PATH/MAP/LENS dock, and all UI chrome.
+- Keep the architecture diagram and three bottom information panels only,
+  composed as a clean presentation poster on a warm off-white canvas.
+- Use the title "Claude Code with GitHub Copilot" and subtitle
+  "ENTERPRISE ARCHITECTURE - RUNTIME" in the established presentation style.
+
+PRESERVE THE ARCHIFY GEOMETRY:
+- One straight horizontal request spine, centered on one axis:
+  Claude Code -> Enterprise broker -> Multi-user worker -> LiteLLM Gateway ->
+  Copilot seat -> Claude models.
+- Preserve the Archify relative card widths, gaps, and positions: Claude Code
+  external at far left; broker inside Azure; worker and LiteLLM centered inside
+  the nested inference boundary; Copilot seat and Claude models external at
+  right.
+- Preserve the two aligned top controls: Microsoft Entra ID over the broker and
+  Azure Key Vault over LiteLLM.
+- Preserve the four aligned lower services in this exact order:
+  Azure Monitor, Enterprise PostgreSQL HA, Encrypted Blob checkpoints,
+  LiteLLM PostgreSQL HA.
+- Preserve the three aligned bottom information panels in this exact order:
+  Isolation and security, Claude Code compatibility, Current limitations.
+
+BOUNDARIES:
+- One quiet Microsoft Azure boundary encloses exactly:
+  Microsoft Entra ID, Azure Key Vault, Enterprise broker, Multi-user worker,
+  LiteLLM Gateway, Azure Monitor, Enterprise PostgreSQL HA,
+  Encrypted Blob checkpoints, and LiteLLM PostgreSQL HA.
+- Claude Code, Copilot seat, and Claude models remain fully outside Azure.
+- One nested boundary titled
+  "Shared inference plane - Azure Container Apps" encloses only
+  Multi-user worker and LiteLLM Gateway.
+- Keep boundaries thin, restrained, continuous, and subordinate. Use a compact
+  official Azure icon for the Azure title and one compact official Azure
+  Container Apps icon for the nested title.
+- No boundary may pass through a card or connector endpoint.
+
+USE EXACTLY THE ARCHIFY CONNECTION SET — NO MORE AND NO FEWER:
+PRIMARY REQUEST SPINE, solid emphasis:
+1. Claude Code -> Enterprise broker, label "Public HTTPS".
+2. Enterprise broker -> Multi-user worker, label "signed fenced dispatch".
+3. Multi-user worker -> LiteLLM Gateway, label "per-user virtual key".
+4. LiteLLM Gateway -> Copilot seat, label "GitHub OAuth / TLS / SSE".
+5. Copilot seat -> Claude models, label "entitled model".
+
+CONTROL DEPENDENCIES, restrained dashed orthogonal:
+6. Microsoft Entra ID -> Enterprise broker,
+   label "SSO / JWT validation".
+7. Enterprise broker -> Azure Key Vault,
+   label "signing + user keys", using the Archify orthogonal route.
+8. Azure Key Vault -> LiteLLM Gateway,
+   label "master + salt".
+
+STATE AND MONITORING, thin orthogonal:
+9. Enterprise broker -> Azure Monitor,
+   label "metadata telemetry".
+10. Enterprise broker -> Enterprise PostgreSQL HA,
+    label "bindings / admissions".
+11. Multi-user worker -> Encrypted Blob checkpoints,
+    label "encrypted branch state".
+12. LiteLLM Gateway -> LiteLLM PostgreSQL HA,
+    label "encrypted OAuth state".
+
+- Preserve these exact endpoints and labels.
+- Preserve the Archify orthogonal routing and connector count.
+- Do not add return arrows, shared rails, extra metadata loops, decorative
+  brackets, callouts, duplicated arrows, diagonal shortcuts, or line fragments.
+- No connector crosses a card, another connector, a title, an icon, or a
+  boundary label.
+
+COMPONENT CONTENT:
+- Claude Code: "Client / local tools".
+- Enterprise broker: "CCGC.Access + CCGC.Admin", "2-10 replicas", compact
+  subordinate Node.js mark.
+- Multi-user worker: "Fairness / branch restore", "2-30 replicas", compact
+  subordinate Node.js mark.
+- LiteLLM Gateway: "Per-user OAuth / 2-10 replicas", compact subordinate LiteLLM
+  mark.
+- Copilot seat: "Employee entitlement", compact official GitHub mark.
+- Claude models: "Entitled model catalog", compact Anthropic/Claude treatment.
+- Microsoft Entra ID: "SSO / conditional access".
+- Azure Key Vault: "Signing / user / master keys".
+- Azure Monitor: "Metadata / no prompt bodies".
+- Enterprise PostgreSQL HA: "Bindings / quotas / audit".
+- Encrypted Blob checkpoints: "Branch state / ETag compare-and-swap".
+- LiteLLM PostgreSQL HA: "Encrypted OAuth / gateway state".
+
+BOTTOM PANELS — PRESERVE ARCHIFY CONTENT:
+- Isolation and security:
+  "Same LiteLLM user who connected GitHub."
+  "No cross-user credentials, cache, or uncertain inference replay."
+- Claude Code compatibility:
+  "Images, PDFs, tools, streaming, compaction, Cron, agents, and model switching."
+  "Exact token counting and encrypted restart recovery."
+- Current limitations:
+  "Fixed-budget thinking remains model-limited."
+  "Advisor remains Anthropic API only."
+
+VISUAL TRANSLATION:
+- Warm off-white canvas, white and very pale blue-gray cards, dark slate
+  typography, restrained Microsoft/Azure blue, and subtle secondary colors only
+  where they improve semantic distinction.
+- Compact official icons; logos remain subordinate to labels.
+- No dark surfaces, gradients, neon, oversized logos, or ornamental effects.
+- Preserve excellent readability at 1280x800.
+- No provisioning, bootstrap, deployment status, IaC, CI/CD, operator,
+  API Management, VPN, or new services.
+- Do not improvise architecture topology.

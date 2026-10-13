@@ -5,43 +5,43 @@
     "title": "Enterprise Claude Code - LiteLLM runtime foundation",
     "locale": "en",
     "quality_profile": "showcase",
-    "viewBox": [1390, 820]
+    "viewBox": [1390, 815]
   },
   "components": [
-    {"id": "managed-client", "type": "frontend", "label": "Claude Code", "sublabel": "Agents / local tools", "brand": "claude", "pos": [20, 365], "size": [175, 90]},
+    {"id": "iac-bootstrap", "type": "cloud", "label": "Bicep bootstrap job", "sublabel": "One-shot DB + LiteLLM initialization", "pos": [1090, 65], "size": [245, 90]},
+    {"id": "managed-client", "type": "frontend", "label": "Claude Code", "sublabel": "Agents / local tools", "brand": "claude", "pos": [20, 405], "size": [175, 90]},
     {"id": "enterprise-identity", "type": "security", "label": "Microsoft Entra ID", "sublabel": "SSO / conditional access", "pos": [265, 65], "size": [185, 90]},
-    {"id": "principal-seat-broker", "type": "backend", "label": "Enterprise broker", "sublabel": "Entra admission / dispatch fence", "brand": "node-js", "pos": [245, 365], "size": [195, 90]},
-    {"id": "multiuser-worker-fleet", "type": "backend", "label": "Multi-user worker", "sublabel": "Node.js / branch restore / fairness", "brand": "node-js", "pos": [500, 365], "size": [200, 90]},
-    {"id": "litellm-gateway", "type": "backend", "label": "LiteLLM Gateway", "sublabel": "Per-user OAuth / Copilot transport", "pos": [760, 365], "size": [225, 90]},
-    {"id": "individual-copilot-seat", "type": "external", "label": "GitHub Copilot", "sublabel": "Employee's Anthropic models", "brand": "github", "pos": [1065, 365], "size": [205, 90]},
+    {"id": "principal-seat-broker", "type": "backend", "label": "Enterprise broker", "sublabel": "CCGC.Access + CCGC.Admin", "brand": "node-js", "pos": [245, 405], "size": [195, 90]},
+    {"id": "multiuser-worker-fleet", "type": "backend", "label": "Multi-user worker", "sublabel": "Node.js / branch restore / fairness", "brand": "node-js", "pos": [500, 405], "size": [200, 90]},
+    {"id": "litellm-gateway", "type": "backend", "label": "LiteLLM Gateway", "sublabel": "Per-user OAuth / Copilot transport", "pos": [760, 405], "size": [225, 90]},
+    {"id": "individual-copilot-seat", "type": "external", "label": "GitHub Copilot", "sublabel": "Employee's Anthropic models", "brand": "github", "pos": [1065, 405], "size": [205, 90]},
     {"id": "private-credential-store", "type": "security", "label": "Azure Key Vault", "sublabel": "User keys / signing / encryption", "pos": [815, 65], "size": [225, 90]},
-    {"id": "durable-admission-ledger", "type": "database", "label": "Enterprise PostgreSQL HA", "sublabel": "Bindings / fences / quotas / audit", "pos": [240, 645], "size": [260, 90]},
-    {"id": "encrypted-checkpoints", "type": "database", "label": "Encrypted Blob checkpoints", "sublabel": "Branch state / ETag compare-and-swap", "pos": [510, 645], "size": [275, 90]},
-    {"id": "litellm-database", "type": "database", "label": "LiteLLM PostgreSQL HA", "sublabel": "Encrypted OAuth connections / gateway state", "pos": [800, 645], "size": [275, 90]},
-    {"id": "restricted-observability", "type": "cloud", "label": "Azure Monitor", "sublabel": "Audit / alerts / no prompt bodies", "pos": [30, 645], "size": [200, 90]}
+    {"id": "durable-admission-ledger", "type": "database", "label": "Enterprise PostgreSQL HA", "sublabel": "Bindings / fences / quotas / audit", "pos": [240, 685], "size": [260, 90]},
+    {"id": "encrypted-checkpoints", "type": "database", "label": "Encrypted Blob checkpoints", "sublabel": "Branch state / ETag compare-and-swap", "pos": [510, 685], "size": [275, 90]},
+    {"id": "litellm-database", "type": "database", "label": "LiteLLM PostgreSQL HA", "sublabel": "Encrypted OAuth connections / gateway state", "pos": [800, 685], "size": [275, 90]}
   ],
   "boundaries": [
+    {"kind": "region", "label": "One-shot Container Apps bootstrap job", "wraps": ["iac-bootstrap"], "pad": 20},
     {"kind": "region", "label": "Multi-user worker Container App / 2-30 replicas", "wraps": ["multiuser-worker-fleet"], "pad": 20},
     {"kind": "region", "label": "LiteLLM Gateway Container App / 2-10 replicas", "wraps": ["litellm-gateway"], "pad": 20},
-    {"kind": "region", "label": "Private Azure workload / zone-redundant target", "wraps": ["principal-seat-broker", "multiuser-worker-fleet", "litellm-gateway", "durable-admission-ledger", "litellm-database", "encrypted-checkpoints", "restricted-observability"], "pad": 28}
+    {"kind": "region", "label": "Azure workload / one public broker + private inference and data", "wraps": ["iac-bootstrap", "principal-seat-broker", "multiuser-worker-fleet", "litellm-gateway", "durable-admission-ledger", "litellm-database", "encrypted-checkpoints"], "pad": 28}
   ],
   "connections": [
-    {"id": "private-client-access", "from": "managed-client", "to": "principal-seat-broker", "label": "VPN / TLS / Messages", "variant": "emphasis", "labelAt": [220, 469]},
-    {"id": "user-bound-dispatch", "from": "principal-seat-broker", "to": "multiuser-worker-fleet", "label": "signed fenced dispatch", "variant": "emphasis", "labelAt": [470, 469]},
-    {"id": "user-keyed-gateway-call", "from": "multiuser-worker-fleet", "to": "litellm-gateway", "label": "per-user virtual key / Anthropic Messages", "variant": "emphasis", "labelAt": [730, 469]},
-    {"id": "copilot-oauth-stream", "from": "litellm-gateway", "to": "individual-copilot-seat", "label": "GitHub OAuth / TLS / SSE", "variant": "emphasis", "labelAt": [1025, 469]},
-    {"id": "trusted-token-validation", "from": "principal-seat-broker", "to": "enterprise-identity", "label": "JWT trust", "variant": "security", "fromSide": "top", "toSide": "bottom"},
+    {"id": "public-client-access", "from": "managed-client", "to": "principal-seat-broker", "label": "Public TLS / Entra role", "variant": "emphasis", "labelAt": [220, 509]},
+    {"id": "user-bound-dispatch", "from": "principal-seat-broker", "to": "multiuser-worker-fleet", "label": "signed fenced dispatch", "variant": "emphasis", "labelAt": [470, 509]},
+    {"id": "user-keyed-gateway-call", "from": "multiuser-worker-fleet", "to": "litellm-gateway", "label": "per-user virtual key / Anthropic Messages", "variant": "emphasis", "labelAt": [730, 509]},
+    {"id": "copilot-oauth-stream", "from": "litellm-gateway", "to": "individual-copilot-seat", "label": "GitHub OAuth / TLS / SSE", "variant": "emphasis", "labelAt": [1025, 509]},
+    {"id": "trusted-token-validation", "from": "principal-seat-broker", "to": "enterprise-identity", "label": "CCGC.Access or CCGC.Admin", "variant": "security", "fromSide": "top", "toSide": "bottom"},
     {"id": "worker-secret-access", "from": "multiuser-worker-fleet", "to": "private-credential-store", "label": "MI / user key", "variant": "security", "fromSide": "top", "toSide": "bottom", "labelAt": [715, 235]},
     {"id": "litellm-secret-access", "from": "litellm-gateway", "to": "private-credential-store", "label": "MI / master + salt", "variant": "security", "fromSide": "top", "toSide": "bottom", "labelAt": [1030, 220]},
-    {"id": "atomic-admission-reservation", "from": "principal-seat-broker", "to": "durable-admission-ledger", "label": "reserve / fence", "fromSide": "bottom", "toSide": "top", "labelAt": [410, 520]},
-    {"id": "durable-attempt-outcome", "from": "multiuser-worker-fleet", "to": "durable-admission-ledger", "label": "branch capacity", "fromSide": "bottom", "toSide": "top", "labelAt": [495, 525]},
+    {"id": "atomic-admission-reservation", "from": "principal-seat-broker", "to": "durable-admission-ledger", "label": "reserve / fence", "fromSide": "bottom", "toSide": "top", "labelAt": [410, 560]},
+    {"id": "durable-attempt-outcome", "from": "multiuser-worker-fleet", "to": "durable-admission-ledger", "label": "branch capacity", "fromSide": "bottom", "toSide": "top", "labelAt": [495, 565]},
     {"id": "litellm-state", "from": "litellm-gateway", "to": "litellm-database", "label": "encrypted user connections", "variant": "security", "fromSide": "bottom", "toSide": "top"},
-    {"id": "checkpoint-state", "from": "multiuser-worker-fleet", "to": "encrypted-checkpoints", "label": "encrypted CAS", "variant": "security", "fromSide": "bottom", "toSide": "top", "labelAt": [680, 525]},
-    {"id": "metadata-only-telemetry", "from": "principal-seat-broker", "to": "restricted-observability", "label": "metadata only", "fromSide": "bottom", "toSide": "top", "labelAt": [180, 540]}
+    {"id": "checkpoint-state", "from": "multiuser-worker-fleet", "to": "encrypted-checkpoints", "label": "encrypted CAS", "variant": "security", "fromSide": "bottom", "toSide": "top", "labelAt": [680, 565]}
   ],
   "cards": [
     {"dot": "cyan", "title": "Verified Claude compatibility", "items": ["Native Messages, images, PDFs, streaming and token counts.", "Compaction, Cron, agents and automatic memory keep their lifecycles."]},
     {"dot": "violet", "title": "Shared compute, isolated accounts", "items": ["LiteLLM binds each request to the same user who connected GitHub.", "Broker admissions, quotas and encrypted checkpoints remain project-owned."]},
-    {"dot": "amber", "title": "Release evidence still required", "items": ["Two live Copilot users, revocation and long SSE must pass.", "No uncertain inference replay across scaling or revision draining."]}
+    {"dot": "amber", "title": "One public service, separated roles", "items": ["Employees receive CCGC.Access; enterprise administrators receive CCGC.Admin.", "The broker keeps inference and lifecycle routes distinct; Bicep owns bootstrap."]}
   ]
 }

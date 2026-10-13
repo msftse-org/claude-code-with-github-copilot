@@ -8,7 +8,7 @@ Bicep/Terraform VM automation remain the single-user alpha documented below.
 
 | Enterprise diagram | Presentation PNG | Interactive HTML | Technical source |
 |---|---|---|---|
-| Runtime architecture | [LiteLLM presentation poster](ccgc-enterprise-runtime-multiuser-litellm-presentation-v7.png) | [Runtime viewer](ccgc-enterprise-runtime.html) | [Architecture JSON](ccgc-enterprise-runtime.architecture.json) |
+| Runtime architecture | [LiteLLM presentation poster](ccgc-enterprise-runtime-multiuser-litellm-presentation-v16.png) | [Poster structure viewer](ccgc-enterprise-runtime-poster.html) | [Poster architecture JSON](ccgc-enterprise-runtime-poster.architecture.json) |
 | Provisioning and rollout | [Provisioning poster](ccgc-enterprise-provisioning.png) | [Workflow viewer](ccgc-enterprise-provisioning.html) | [Workflow JSON](ccgc-enterprise-provisioning.workflow.json) |
 
 The [PRD enterprise target contract](../PRD.md#enterprise-target-revision-017)
@@ -17,24 +17,29 @@ and production gates. These diagrams do not certify enterprise readiness.
 
 ## Enterprise runtime
 
-![Enterprise multi-user runtime architecture](ccgc-enterprise-runtime-multiuser-litellm-presentation-v7.png)
+![Enterprise multi-user runtime architecture](ccgc-enterprise-runtime-multiuser-litellm-presentation-v16.png)
 
-The primary request path is **Claude Code -> private enterprise broker ->
+The primary request path is **Claude Code -> public Entra-authorized enterprise broker ->
 shared multi-user worker Container App -> private LiteLLM Gateway Container App
--> GitHub Copilot -> Anthropic models**. Native Messages and streamed responses follow this route;
+-> the employee's GitHub Copilot seat -> entitled Claude models**. Native Messages and streamed responses follow this route;
 Claude's Read/Edit/Bash, hooks, and background execution remain local. The
 broker owns admission and branch fencing. Any worker replica can load the
 matching encrypted checkpoint and forwards with only that account's LiteLLM
 user key. LiteLLM stores encrypted per-user GitHub connections in its dedicated
 PostgreSQL database and owns Copilot token exchange, transport, streaming, and
-token counting. Node.js marks identify the broker and worker; Container Apps
-marks identify all three deployable services; the LiteLLM logo identifies the
-gateway.
+token counting. `CCGC.Admin` lifecycle routes on the same broker give enterprise
+IT internal-user creation, employee GitHub connection, binding, status, and
+revocation controls. A private one-shot Bicep bootstrap job initializes the
+enterprise database and LiteLLM configuration. Node.js marks identify the
+broker and worker; one Container Apps mark identifies the shared worker/LiteLLM
+boundary; the LiteLLM logo identifies the gateway.
 
 The presentation poster consolidates the worker and LiteLLM cards inside one
 **Shared inference plane - Azure Container Apps** boundary. They remain two
 separate peer Container Apps with independent 2-30 and 2-10 replica ranges; the
 shared outer box is a visual/scaling-plane grouping, not a merged process.
+Employee and administrator routes remain authorization-wise separate on the
+same public broker.
 
 The compatibility labels reflect the latest verified implementation: images,
 PDFs, adaptive thinking, exact token counts, coordinated agent branches,
@@ -44,8 +49,11 @@ Claude Code `2.1.296` does not expose an Advisor tool through this route.
 
 Entra authenticates broker access, not Copilot entitlement. Each immutable
 enterprise principal must be linked to that same employee's authorized GitHub
-account. Workers use managed identity to resolve the signed LiteLLM user-key reference
-from Key Vault; client caches remain account keyed. Enterprise PostgreSQL
+account. The broker reads signing and lifecycle secrets from Key Vault; workers
+use managed identity to resolve dispatch/checkpoint keys and the signed LiteLLM
+user-key reference; LiteLLM receives its database, master, and salt secrets
+through Key Vault-backed Container Apps secrets. Client caches remain account
+keyed. Enterprise PostgreSQL
 holds durable reservations, per-branch active locks, fences, quotas, and audit
 intent. LiteLLM PostgreSQL holds encrypted OAuth connections and gateway state.
 Private Blob Storage holds client-side-encrypted checkpoints with ETag
@@ -82,19 +90,27 @@ PaaS modules, per-user services or acceptance gates.
 |---|---|---|
 | Frozen specification/HTML hashes and byte counts | [Delivery receipt](ccgc-enterprise-runtime.delivery.json) | [Delivery receipt](ccgc-enterprise-provisioning.delivery.json) |
 | Desktop light/dark evidence | [Contact sheet](ccgc-enterprise-runtime.visual-check.html) | [Contact sheet](ccgc-enterprise-provisioning.visual-check.html) |
-| Initial image brief | [Light presentation and icon-scale prompt](ccgc-enterprise-runtime-multiuser-litellm-presentation-v7.prompt.txt), [Archify runtime prompt](ccgc-enterprise-runtime.prompt.txt), and historical prompts | [Provisioning prompt](ccgc-enterprise-provisioning.prompt.txt) |
-| Image generation provenance | [Current presentation poster receipt](ccgc-enterprise-runtime-multiuser-litellm-presentation-v7.receipt.json) and retained historical receipts | [Selected-image receipt](ccgc-enterprise-provisioning.receipt.json) |
+| Initial image brief | [Current Archify-first prompt](ccgc-enterprise-runtime-multiuser-litellm-presentation-v16.prompt.txt), [focused dependency correction](ccgc-enterprise-runtime-multiuser-litellm-presentation-v16-correction.prompt.txt), [Archify runtime prompt](ccgc-enterprise-runtime.prompt.txt), and historical prompts | [Provisioning prompt](ccgc-enterprise-provisioning.prompt.txt) |
+| Image generation provenance | [Current dual-provenance presentation receipt](ccgc-enterprise-runtime-multiuser-litellm-presentation-v16.receipt.json) and retained historical receipts | [Selected-image receipt](ccgc-enterprise-provisioning.receipt.json) |
 
-The runtime presentation PNG was restyled from the approved shared
-inference-plane poster into a light executive presentation with smaller icons,
-white and light blue-gray cards, dark slate text, and restrained blue accents. It
-shows the independently scaled broker plus a shared inference-plane boundary
-containing the separate worker and LiteLLM Gateway services. The validated
+The runtime presentation PNG preserves the approved light executive style while
+consolidating employee and administrator authorization on one public broker and
+excluding deployment-time status and bootstrap content. It shows the
+independently scaled broker plus a shared inference-plane
+boundary containing the separate worker and LiteLLM Gateway services. A single
+Container Apps icon labels that boundary rather than being repeated inside both
+cards. The validated
 [technical runtime capture](ccgc-enterprise-runtime.png),
 reviewed JSON, and interactive HTML remain authoritative when presentation
-artwork and implementation details differ. The earlier
+artwork and implementation details differ. The more detailed
+[implementation topology](ccgc-enterprise-runtime.html) and
+[implementation architecture JSON](ccgc-enterprise-runtime.architecture.json)
+remain available as engineering evidence. The previous
+[v8 operator presentation](ccgc-enterprise-runtime-multiuser-litellm-presentation-v8.png),
+[v7 light presentation](ccgc-enterprise-runtime-multiuser-litellm-presentation-v7.png),
+and earlier
 [native-connector Flare poster](ccgc-enterprise-runtime-multiuser-flare-v3.png)
-is retained only as historical presentation artwork.
+are retained only as historical presentation artwork.
 
 Inputs were sanitized Archify screenshots and architecture terminology, not
 repository source, credentials, account IDs or actual private endpoints.

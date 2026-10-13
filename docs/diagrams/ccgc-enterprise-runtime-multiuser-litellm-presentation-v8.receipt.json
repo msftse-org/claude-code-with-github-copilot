@@ -1,0 +1,113 @@
+{
+  "operation": "images/edits",
+  "provider": "Azure OpenAI",
+  "resource": "foundry-llm-demo-resource",
+  "region": "Sweden Central",
+  "deployment": "gpt-image-2.5-flare",
+  "model": "gpt-image-2.5-flare",
+  "modelVersion": "2026-09-08",
+  "apiVersion": "2025-04-01-preview",
+  "authentication": "Microsoft Entra ID bearer token",
+  "createdAt": "2026-10-12T09:05:21Z",
+  "request": {
+    "quality": "high",
+    "size": "2560x1600",
+    "outputFormat": "png",
+    "prompts": [
+      {
+        "role": "operator control plane, shared Container Apps boundary, and icon reduction",
+        "path": "docs/diagrams/ccgc-enterprise-runtime-multiuser-litellm-presentation-v8.prompt.txt",
+        "sha256": "7e78ece6f794416a6014859f4fb7f02cd37a2721a75d45bc28be3e16cb5ba5e1",
+        "requestId": "02e5fa79-be9c-4106-92c3-a99cb44df60a"
+      },
+      {
+        "role": "focused architecture and duplicate-icon correction",
+        "path": "docs/diagrams/ccgc-enterprise-runtime-multiuser-litellm-presentation-v8-correction.prompt.txt",
+        "sha256": "af6c9d2c3ff3d8291cd1e99b057d796611fbc1e2118a3d925131ed33c47e9890",
+        "requestId": "3cced53a-5f10-4feb-97e7-9db6e7745144",
+        "createdAt": "2026-10-12T09:06:50Z"
+      }
+    ],
+    "references": [
+      {
+        "role": "approved light executive poster",
+        "path": "docs/diagrams/ccgc-enterprise-runtime-multiuser-litellm-presentation-v7.png",
+        "sha256": "bacd47592c0bb4f75e6d25c0388b4dc3ab73989c653a8cca69d59a4f4a0792a8"
+      },
+      {
+        "role": "current technical architecture truth",
+        "path": "docs/diagrams/ccgc-enterprise-runtime.visual-check.2048x1320.light.png",
+        "sha256": "38933b9e2647f8694f06071a218c59eabf7973f38fb1d264661815d55bc9f30f"
+      },
+      {
+        "role": "official Azure Container Apps icon",
+        "path": "session-state/files/litellm-poster-v8/container-apps.png",
+        "sha256": "e5c04dc443040d49a5974b126b2f60bedfe61543272e2b461db63b2fe92c17fb"
+      }
+    ]
+  },
+  "response": {
+    "generations": 2,
+    "usage": {
+      "inputTokens": 8658,
+      "imageInputTokens": 7300,
+      "textInputTokens": 1358,
+      "outputTokens": 4390,
+      "imageOutputTokens": 4390,
+      "totalTokens": 13048
+    },
+    "stages": [
+      {
+        "name": "generation",
+        "inputTokens": 3722,
+        "imageInputTokens": 2932,
+        "textInputTokens": 790,
+        "outputTokens": 2195,
+        "totalTokens": 5917,
+        "outputSha256": "776ee52af5e722ff66fb9982ec139ddcf18b87cc0865e405d075f091f010ac19"
+      },
+      {
+        "name": "correction",
+        "inputTokens": 4936,
+        "imageInputTokens": 4368,
+        "textInputTokens": 568,
+        "outputTokens": 2195,
+        "totalTokens": 7131,
+        "outputSha256": "fb3b0747c1f6d4c0fd214a07351e9ff9d15ef246c369d1a0cd4c291ec0601520"
+      }
+    ]
+  },
+  "manualPostProcessing": {
+    "tool": "Pillow",
+    "scope": "Removed an orphaned employee-path arrow and duplicate tiny platform marks, then corrected the Enterprise broker title without changing the architecture.",
+    "generatedOutputSha256": "776ee52af5e722ff66fb9982ec139ddcf18b87cc0865e405d075f091f010ac19",
+    "correctedOutputSha256": "fb3b0747c1f6d4c0fd214a07351e9ff9d15ef246c369d1a0cd4c291ec0601520"
+  },
+  "output": {
+    "path": "docs/diagrams/ccgc-enterprise-runtime-multiuser-litellm-presentation-v8.png",
+    "desktopCopy": "/Users/shironbabi/Desktop/CCGC-Enterprise-Multiuser-Architecture-Poster.png",
+    "width": 2560,
+    "height": 1600,
+    "bytes": 1864134,
+    "sha256": "feeea0d75d0cb3b61514461e5f26e1542f76cd28734d45697506cff273f77ac7"
+  },
+  "visualReview": {
+    "status": "approved",
+    "inspectedAt": [
+      "native 2560x1600",
+      "presentation 1280x800",
+      "broker detail",
+      "operator detail"
+    ],
+    "operatorControlPlaneVisible": true,
+    "employeeAndOperatorPathsSeparated": true,
+    "sharedInferencePlanePreserved": true,
+    "separateWorkerAndLiteLLMAppsPreserved": true,
+    "singleSharedBoundaryContainerAppsIcon": true,
+    "innerContainerAppsIconsRemoved": true,
+    "iconScaleReduction": "approximately 25-35 percent relative to v7",
+    "deploymentHeaderVerified": "gpt-image-2.5-flare",
+    "readability": "approved"
+  },
+  "infrastructureChanged": false
+}

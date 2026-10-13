@@ -1,0 +1,124 @@
+Create a 2560x1600 executive architecture poster using a strict
+Archify-first translation.
+
+REFERENCE PRIORITY IS BINDING:
+1. FIRST IMAGE = PRIMARY STRUCTURE AND GEOMETRY AUTHORITY. Reproduce its exact
+   node alignment, boundary membership, connector count, orthogonal routes,
+   endpoints, labels, and bottom-panel arrangement.
+2. The updated architecture JSON is the semantic truth.
+3. SECOND IMAGE = v15 VISUAL STYLE ONLY: warm off-white presentation canvas,
+   professional typography, compact official icons, restrained Azure blue,
+   dark slate type, and white/pale blue-gray cards.
+- Do not use v15 as the structural base.
+
+REMOVE ARCHIFY VIEWER CHROME:
+- Remove the grid, viewer frame, browser-like stage, Light/Classic/Present/
+  Export controls, PATH/MAP/LENS dock, zoom controls, and all UI chrome.
+- Keep only the architecture and three information panels as a polished poster.
+- Title: "Claude Code with GitHub Copilot".
+- Subtitle: "ENTERPRISE ARCHITECTURE - RUNTIME".
+
+MATCH THE UPDATED ARCHIFY GEOMETRY:
+- Straight horizontal request spine:
+  Claude Code -> Enterprise broker -> Multi-user worker -> LiteLLM Gateway ->
+  Copilot seat -> Claude models.
+- Preserve the Archify relative card positions, sizes, gaps, alignment rails,
+  and label positions.
+- Preserve two top controls: Microsoft Entra ID over the broker and Azure Key
+  Vault over LiteLLM.
+- Preserve four aligned lower services:
+  Azure Monitor, Enterprise PostgreSQL HA, Encrypted Blob checkpoints,
+  LiteLLM PostgreSQL HA.
+- Preserve three aligned bottom panels:
+  Isolation and security, Claude Code compatibility, Current limitations.
+
+BOUNDARIES:
+- Microsoft Azure encloses exactly Entra ID, Key Vault, Enterprise broker,
+  Multi-user worker, LiteLLM Gateway, Azure Monitor, Enterprise PostgreSQL HA,
+  Encrypted Blob checkpoints, and LiteLLM PostgreSQL HA.
+- Claude Code, Copilot seat, and Claude models remain fully outside Azure.
+- "Shared inference plane - Azure Container Apps" encloses only Multi-user
+  worker and LiteLLM Gateway.
+- Use thin restrained continuous boundaries with compact official Azure and
+  Azure Container Apps icons.
+- No boundary may cross or pass behind a component card.
+
+USE EXACTLY THE UPDATED ARCHIFY CONNECTION SET — 13 CONNECTORS:
+
+PRIMARY REQUEST PATH, solid emphasis:
+1. Claude Code -> Enterprise broker: "Public HTTPS".
+2. Enterprise broker -> Multi-user worker: "signed fenced dispatch".
+3. Multi-user worker -> LiteLLM Gateway: "per-user virtual key".
+4. LiteLLM Gateway -> Copilot seat: "GitHub OAuth / TLS / SSE".
+5. Copilot seat -> Claude models: "entitled model".
+
+CONTROL DEPENDENCIES, restrained dashed orthogonal:
+6. Microsoft Entra ID -> Enterprise broker:
+   "SSO / JWT validation".
+7. Enterprise broker -> Azure Key Vault:
+   "signing + user keys".
+8. Azure Key Vault -> LiteLLM Gateway:
+   "master + salt".
+9. Multi-user worker -> Azure Key Vault:
+   "dispatch + checkpoint + user keys".
+   This is implementation-required and must be clearly distinct from the broker
+   and LiteLLM Key Vault dependencies.
+   Match the updated Archify route exactly: leave the worker from its top edge,
+   route right along the upper control lane, then rise to the right side of Key
+   Vault with the arrowhead terminating on Key Vault.
+
+STATE AND MONITORING, thin orthogonal:
+10. Enterprise broker -> Azure Monitor:
+    "metadata telemetry".
+11. Enterprise broker -> Enterprise PostgreSQL HA:
+    "bindings / admissions".
+12. Multi-user worker -> Encrypted Blob checkpoints:
+    "encrypted branch state".
+13. LiteLLM Gateway -> LiteLLM PostgreSQL HA:
+    "encrypted OAuth state".
+
+- Preserve all 13 exact endpoints and labels.
+- Match the updated Archify orthogonal routing and directionality.
+- Do not add or remove connectors.
+- No return arrows, shared decorative rails, callouts, duplicated arrows,
+  diagonal shortcuts, or line fragments.
+- No connector crosses a card, another connector, a title, an icon, or a
+  boundary label.
+
+COMPONENT CONTENT:
+- Claude Code: "Client / local tools".
+- Enterprise broker: "CCGC.Access + CCGC.Admin", "2-10 replicas", compact
+  subordinate Node.js mark.
+- Multi-user worker: "Fairness / branch restore", "2-30 replicas", compact
+  subordinate Node.js mark.
+- LiteLLM Gateway: "Per-user OAuth / 2-10 replicas", compact subordinate LiteLLM
+  mark.
+- Copilot seat: "Employee entitlement", compact GitHub mark.
+- Claude models: "Entitled model catalog".
+- Entra ID: "SSO / conditional access".
+- Key Vault: "Signing / user / master keys".
+- Azure Monitor: "Metadata / no prompt bodies".
+- Enterprise PostgreSQL HA: "Bindings / quotas / audit".
+- Encrypted Blob checkpoints: "Branch state / ETag compare-and-swap".
+- LiteLLM PostgreSQL HA: "Encrypted OAuth / gateway state".
+
+BOTTOM PANELS — PRESERVE UPDATED ARCHIFY CONTENT:
+- Isolation and security:
+  "Same LiteLLM user who connected GitHub."
+  "No cross-user credentials, cache, or uncertain inference replay."
+- Claude Code compatibility:
+  "Images, PDFs, tools, streaming, compaction, Cron, agents, and model switching."
+  "Exact token counting and encrypted restart recovery."
+- Current limitations:
+  "Fixed-budget thinking remains model-limited."
+  "Advisor remains Anthropic API only."
+
+VISUAL TRANSLATION:
+- Preserve v15's warm professional light visual world without copying its
+  structure.
+- Compact official icons and subordinate Node.js/LiteLLM marks.
+- Excellent readability at 1280x800.
+- No gradients, dark cards, oversized logos, or ornamental effects.
+- No provisioning, bootstrap, deployment status, IaC, CI/CD, operator,
+  API Management, VPN, or new services.
+- Do not improvise architecture topology.

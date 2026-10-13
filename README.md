@@ -63,7 +63,7 @@ controls.
 
 | Component | Purpose |
 |---|---|
-| Azure Container Apps | Independently scales broker (2-10), worker (2-30), and LiteLLM Gateway (2-10) replicas. |
+| Azure Container Apps | Independently scales the public broker (2-10), internal worker (2-30), and internal LiteLLM Gateway (2-10), and runs a one-shot Bicep-managed bootstrap job. |
 | Microsoft Entra ID | Authenticates employees and supplies immutable tenant/object identity. |
 | Azure Database for PostgreSQL | Uses an Entra-only server for enterprise control state and a dedicated private server for LiteLLM's encrypted OAuth connections and gateway state. |
 | Azure Key Vault | Stores account-scoped LiteLLM user keys, LiteLLM master/salt keys, dispatch signing, database connection material, and checkpoint encryption. |
@@ -72,9 +72,12 @@ controls.
 | NAT Gateway | Gives the private workers controlled, stable outbound connectivity. |
 | Azure Monitor and Application Insights | Records operational metadata without prompt or response bodies. |
 
-The broker is the Claude Code ingress. LiteLLM exposes its private dashboard and
-per-user GitHub connection endpoints through approved corporate connectivity;
-the worker and both PostgreSQL servers remain private.
+The broker is the only public service. Employee inference and admission routes
+require `CCGC.Access`; lifecycle routes on the same broker require `CCGC.Admin`,
+assigned only to the enterprise IT administrator group. LiteLLM, worker, Key
+Vault, storage, ACR, both PostgreSQL servers, and the one-shot bootstrap job
+remain private. Administrators receive only GitHub's public verification URL
+and one-time code during employee connection.
 
 ## On the Mac
 
@@ -168,42 +171,90 @@ Copilot token sentinel permits router initialization only; disconnected users
 still fail closed before any upstream request, and real per-user sessions
 replace the sentinel on connected requests.
 
-## LiteLLM bootstrap and employee onboarding
+## Enterprise pilot automation
 
-After deployment, an operator creates the database-backed per-user OAuth
-credential and approved public model mappings. The LiteLLM image intentionally
-does not define them in `config.yaml`; doing so would select the direct,
-single-account SDK device flow during gateway startup.
+The pilot exposes one Entra-authenticated broker to the public internet. Worker
+and LiteLLM ingress and every data service remain private. The assignment-required
+Enterprise Application gives the employee group only `CCGC.Access` and the IT
+administrator group only `CCGC.Admin`; the broker validates the required role
+independently for inference and administration routes.
 
 ```bash
-export CCGC_LITELLM_URL='https://PRIVATE_LITELLM_GATEWAY/'
-export CCGC_LITELLM_MASTER_KEY='sk-PRIVATE-LITELLM-MASTER-KEY'
+npm run enterprise:entra -- \
+  --display-name 'CCGC Enterprise API' \
+  --pilot-group-object-id 00000000-0000-0000-0000-000000000000 \
+  --admin-group-object-id 11111111-1111-1111-1111-111111111111 \
+  --confirm-entra-changes
 
-npm run enterprise:admin -- bootstrap --confirm-bootstrap \
-  < /private/path/litellm-bootstrap.json
+npm run enterprise:pilot -- foundation \
+  --parameters /private/path/enterprise.parameters.json
+npm run enterprise:pilot -- foundation \
+  --parameters /private/path/enterprise.parameters.json \
+  --confirm-deploy
+
+npm run enterprise:pilot -- images \
+  --parameters /private/path/enterprise.parameters.json
+
+npm run enterprise:pilot -- runtime \
+  --parameters /private/path/enterprise.parameters.json \
+  --images .azure/enterprise-images.GIT_SHA.json
+npm run enterprise:pilot -- runtime \
+  --parameters /private/path/enterprise.parameters.json \
+  --images .azure/enterprise-images.GIT_SHA.json \
+  --confirm-deploy
 ```
 
-`litellm-bootstrap.json` contains `litellmCredentialName` and the approved
-Claude `models` array. The command idempotently creates the Per-user GitHub
-OAuth credential and missing `github_copilot/<model>` mappings through
-LiteLLM's management API.
+The no-confirm variants run Azure `what-if`. Foundation deployment creates the
+private Premium ACR and scale-to-zero VNet build pool first; image publication
+then produces digest-only references consumed by runtime deployment.
+
+## LiteLLM bootstrap and employee onboarding
+
+The confirmed runtime deployment starts the private Bicep-defined bootstrap job
+after the Container Apps revision is created. The job initializes the
+Entra-only control database, grants the broker its required database rights,
+and idempotently creates the LiteLLM per-user OAuth credential and approved
+`github_copilot/<model>` mappings. No public bootstrap endpoint or manual
+database command exists.
 
 Employee onboarding then has two approvals. The employee key must belong to a
 LiteLLM `internal_user`; an unowned raw virtual key cannot use the per-user
 connection endpoints.
 
-### 1. Operator links the employee
+### 1. Administrator connects the employee's GitHub account
 
-The operator verifies that the Entra principal and GitHub account belong to the
+Create the employee's LiteLLM `internal_user` and its private output file, then
+start the device flow through the broker's `CCGC.Admin` lifecycle routes while
+the employee is present:
+
+```bash
+npm run enterprise:manage -- create-user \
+  --url https://PUBLIC_BROKER_FQDN \
+  --audience api://ENTRA-APPLICATION-ID \
+  --input /private/path/create-user.json \
+  --output /private/path/created-user.json
+npm run enterprise:manage -- connect \
+  --url https://PUBLIC_BROKER_FQDN \
+  --audience api://ENTRA-APPLICATION-ID \
+  --input /private/path/connect-user.json
+```
+
+The command displays GitHub's public verification URL and one-time code, polls
+until completion, verifies the active Copilot seat, and fails if the connected
+GitHub login differs from `connect-user.json`. Input files must be user-owned
+mode-0600 regular files; `create-user` creates its output exclusively with mode
+0600.
+
+### 2. Administrator links the employee
+
+The administrator verifies that the Entra principal and GitHub account belong to the
 same employee, then writes the approved private binding:
 
 ```bash
-export CCGC_POSTGRES_URL='postgresql://BROKER_ID@PRIVATE_HOST:5432/postgres?sslmode=require'
-export CCGC_KEY_VAULT_URL='https://PRIVATE_VAULT.vault.azure.net/'
-export CCGC_LITELLM_URL='https://PRIVATE_LITELLM_GATEWAY/'
-
-npm run enterprise:admin -- link --confirm-same-user \
-  < /private/path/link.json
+npm run enterprise:manage -- link \
+  --url https://PUBLIC_BROKER_FQDN \
+  --audience api://ENTRA-APPLICATION-ID \
+  --input /private/path/link.json
 ```
 
 `link.json` supplies the immutable Entra and GitHub IDs, approved models,
@@ -212,11 +263,11 @@ first verifies `/credentials/user_connections` reports that the key is connected
 to the confirmed GitHub login, then stores the key in Key Vault. Updating a
 binding increments its revision and revokes existing admissions.
 
-### 2. Employee configures the Mac
+### 3. Employee configures the Mac
 
 ```bash
 npm run enterprise:client -- login \
-  --gateway https://PRIVATE_GATEWAY \
+  --gateway https://PUBLIC_BROKER_FQDN \
   --audience api://ENTRA-APPLICATION-ID
 
 npm run enterprise:client -- configure
@@ -268,16 +319,17 @@ The foundation must not be described as production-ready until these gates pass.
 
 ## Architecture poster
 
-![Enterprise multi-user architecture](docs/diagrams/ccgc-enterprise-runtime-multiuser-litellm-presentation-v7.png)
+![Enterprise multi-user architecture](docs/diagrams/ccgc-enterprise-runtime-multiuser-litellm-presentation-v16.png)
 
-The current poster shows an independently scaled broker and one shared inference
-plane containing separate multi-user worker and LiteLLM Gateway Container Apps.
-The worker and LiteLLM retain independent replica ranges and responsibilities.
-The poster also includes the separate control and LiteLLM databases, private Key
-Vault, and encrypted checkpoint store. The reviewed Archify JSON and interactive
-HTML remain the authoritative technical architecture; the GPT-image poster is
-its presentation companion. Diagram sources, model provenance, and validation receipts are in
-[docs/diagrams](docs/diagrams/README.md).
+The current poster and technical architecture show one public Entra-authorized broker
+with separate `CCGC.Access` and `CCGC.Admin` route groups and one shared Azure
+Container Apps inference-plane boundary containing the independently scaled
+multi-user worker and LiteLLM Gateway apps. The runtime-only poster
+also includes the separate enterprise and LiteLLM databases, private Key Vault,
+and encrypted checkpoint store. The reviewed Archify JSON and interactive HTML
+remain the authoritative technical architecture; the GPT-image poster is its
+presentation companion. Diagram sources, model provenance, and validation
+receipts are in [docs/diagrams](docs/diagrams/README.md).
 
 ## Documentation
 

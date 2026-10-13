@@ -3,6 +3,7 @@ import { createHash } from 'node:crypto';
 import { DefaultAzureCredential } from '@azure/identity';
 import { SecretClient } from '@azure/keyvault-secrets';
 import { parseArgs } from 'node:util';
+import { pathToFileURL } from 'node:url';
 import { object, parseJson, safeError, text, BridgeError, positive } from './protocol.ts';
 import { PostgresEnterpriseStore } from './enterprise-store.ts';
 
@@ -13,11 +14,11 @@ function required(name: string): string {
 }
 
 async function stdin(): Promise<string> {
-  if (process.stdin.isTTY) throw new BridgeError('INVALID_OPTIONS', 'Supply private operator input through stdin.');
+  if (process.stdin.isTTY) throw new BridgeError('INVALID_OPTIONS', 'Supply private administrator input through stdin.');
   let value = '';
   for await (const chunk of process.stdin) {
     value += String(chunk);
-    if (value.length > 32 * 1024) throw new BridgeError('REQUEST_TOO_LARGE', 'Operator input exceeds 32 KiB.');
+    if (value.length > 32 * 1024) throw new BridgeError('REQUEST_TOO_LARGE', 'Administrator input exceeds 32 KiB.');
   }
   return value;
 }
@@ -60,6 +61,120 @@ async function verifyLiteLLMConnection(
   }
 }
 
+export async function connectLiteLLMUser(
+  input: Record<string, unknown>,
+  fetcher: typeof fetch = fetch,
+  wait: (milliseconds: number) => Promise<unknown> = milliseconds =>
+    new Promise(resolve => setTimeout(resolve, milliseconds)),
+): Promise<void> {
+  const apiKey = text(input.litellmApiKey, 'LiteLLM user key');
+  const credentialName = text(input.litellmCredentialName, 'LiteLLM credential name');
+  const expectedLogin = text(input.githubLogin, 'GitHub login');
+  if (!/^sk-[A-Za-z0-9._-]{16,}$/.test(apiKey)
+    || !/^[A-Za-z0-9._-]{1,128}$/.test(credentialName)
+    || !/^[A-Za-z0-9](?:[A-Za-z0-9-]{0,37}[A-Za-z0-9])?$/.test(expectedLogin)) {
+    throw new BridgeError('INVALID_REQUEST', 'The LiteLLM key, credential name, or GitHub login is invalid.');
+  }
+  const headers = {
+    authorization: ['Bearer', apiKey].join(' '),
+    'content-type': 'application/json',
+  };
+  const connections = await fetcher(`${litellmOrigin()}/credentials/user_connections`, {
+    headers,
+    redirect: 'error',
+    signal: AbortSignal.timeout(30_000),
+  });
+  if (!connections.ok) {
+    throw new BridgeError('GATEWAY_UNAVAILABLE', `LiteLLM connection lookup failed with HTTP ${connections.status}.`, 502);
+  }
+  const connectionPayload = object(parseJson(await connections.text()));
+  if (!Array.isArray(connectionPayload.connections)) {
+    throw new BridgeError('GATEWAY_UNAVAILABLE', 'LiteLLM returned an invalid connection list.', 502);
+  }
+  const current = connectionPayload.connections
+    .map(value => object(value))
+    .find(value => value.credential_name === credentialName);
+  if (current?.connected === true) {
+    const login = text(current.github_login, 'connected GitHub login');
+    if (login.toLowerCase() !== expectedLogin.toLowerCase()) {
+      throw new BridgeError('IDENTITY_CONFLICT', 'The LiteLLM user is already connected to another GitHub account.', 409);
+    }
+    console.log(JSON.stringify({ status: 'already_connected', githubLogin: login, credentialName }, null, 2));
+    return;
+  }
+
+  const encodedCredential = encodeURIComponent(credentialName);
+  const started = await fetcher(
+    `${litellmOrigin()}/credentials/${encodedCredential}/user_connection/start`,
+    {
+      method: 'POST',
+      headers,
+      redirect: 'error',
+      signal: AbortSignal.timeout(30_000),
+    },
+  );
+  if (!started.ok) {
+    throw new BridgeError('GATEWAY_UNAVAILABLE', `LiteLLM device flow start failed with HTTP ${started.status}.`, 502);
+  }
+  const flow = object(parseJson(await started.text()));
+  const verificationUri = text(flow.verification_uri, 'GitHub verification URI');
+  const userCode = text(flow.user_code, 'GitHub device code');
+  const flowHandle = text(flow.flow_handle, 'LiteLLM flow handle');
+  const expiresIn = positive(flow.expires_in, 'device flow expiry');
+  let interval = positive(flow.interval, 'device flow interval');
+  if (verificationUri !== 'https://github.com/login/device' || expiresIn > 1800 || interval > 60) {
+    throw new BridgeError('ENDPOINT_REJECTED', 'LiteLLM returned an unexpected GitHub device authorization contract.');
+  }
+  console.log(JSON.stringify({
+    status: 'authorization_required',
+    verificationUri,
+    userCode,
+    expiresIn,
+    expectedGithubLogin: expectedLogin,
+  }, null, 2));
+
+  const deadline = Date.now() + expiresIn * 1000;
+  while (Date.now() < deadline) {
+    await wait(interval * 1000);
+    const polled = await fetcher(
+      `${litellmOrigin()}/credentials/${encodedCredential}/user_connection/poll`,
+      {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({ flow_handle: flowHandle }),
+        redirect: 'error',
+        signal: AbortSignal.timeout(30_000),
+      },
+    );
+    if (!polled.ok) {
+      throw new BridgeError('GATEWAY_UNAVAILABLE', `LiteLLM device flow poll failed with HTTP ${polled.status}.`, 502);
+    }
+    const result = object(parseJson(await polled.text()));
+    const status = text(result.status, 'device flow status');
+    if (status === 'pending') continue;
+    if (status === 'slow_down') {
+      interval = Math.min(60, positive(result.interval, 'device flow interval'));
+      continue;
+    }
+    if (status === 'connected') {
+      const login = text(result.github_login, 'connected GitHub login');
+      if (login.toLowerCase() !== expectedLogin.toLowerCase()) {
+        throw new BridgeError('IDENTITY_CONFLICT', 'The authorized GitHub account does not match the expected employee.', 409);
+      }
+      console.log(JSON.stringify({ status: 'connected', githubLogin: login, credentialName }, null, 2));
+      return;
+    }
+    if (status === 'no_copilot_seat') {
+      throw new BridgeError('ACCESS_DENIED', 'The authorized GitHub account has no active Copilot seat.', 403);
+    }
+    if (status === 'denied' || status === 'expired') {
+      throw new BridgeError('ACCESS_DENIED', `GitHub device authorization was ${status}.`, 403);
+    }
+    throw new BridgeError('INVALID_RESPONSE', `LiteLLM returned unsupported device flow status ${status}.`, 502);
+  }
+  throw new BridgeError('ACCESS_DENIED', 'GitHub device authorization expired.', 403);
+}
+
 async function litellmAdminRequest(path: string, init: RequestInit = {}): Promise<Response> {
   const masterKey = required('CCGC_LITELLM_MASTER_KEY');
   if (!/^sk-[A-Za-z0-9._-]{16,}$/.test(masterKey)) {
@@ -76,7 +191,7 @@ async function litellmAdminRequest(path: string, init: RequestInit = {}): Promis
   });
 }
 
-async function bootstrapLiteLLM(input: Record<string, unknown>): Promise<void> {
+export async function bootstrapLiteLLM(input: Record<string, unknown>): Promise<void> {
   const credentialName = text(input.litellmCredentialName, 'LiteLLM credential name');
   const models = Array.isArray(input.models) ? input.models.map(value => text(value, 'model ID')) : [];
   if (!/^[A-Za-z0-9._-]{1,128}$/.test(credentialName)
@@ -173,27 +288,27 @@ async function main(argv = process.argv.slice(2)): Promise<void> {
     options: {
       'confirm-same-user': { type: 'boolean' },
       'confirm-revoke': { type: 'boolean' },
-      'confirm-bootstrap': { type: 'boolean' },
+      'confirm-user-present': { type: 'boolean' },
     },
   });
   const command = positionals[0];
-  if (positionals.length !== 1 || !['bootstrap', 'link', 'revoke'].includes(command ?? '')) {
-    throw new BridgeError('INVALID_OPTIONS', 'Use enterprise-admin bootstrap, link, or revoke with the matching confirmation flag and JSON on stdin.');
+  if (positionals.length !== 1 || !['connect', 'link', 'revoke'].includes(command ?? '')) {
+    throw new BridgeError('INVALID_OPTIONS', 'Use enterprise-admin connect, link, or revoke with the matching confirmation flag and JSON on stdin.');
   }
   const raw = await stdin();
   const input = object(parseJson(raw));
-  if (command === 'bootstrap') {
-    if (!values['confirm-bootstrap']) {
-      throw new BridgeError('ACCESS_UNVERIFIED', 'LiteLLM bootstrap requires --confirm-bootstrap.');
+  if (command === 'connect') {
+    if (!values['confirm-user-present']) {
+      throw new BridgeError('ACCESS_UNVERIFIED', 'GitHub connection requires --confirm-user-present.');
     }
-    await bootstrapLiteLLM(input);
+    await connectLiteLLMUser(input);
     return;
   }
   const credential = new DefaultAzureCredential();
   const store = new PostgresEnterpriseStore(required('CCGC_POSTGRES_URL'), credential);
   await store.initialize();
   try {
-    const evidence = text(input.evidence, 'operator evidence');
+    const evidence = text(input.evidence, 'administrator evidence');
     const evidenceDigest = createHash('sha256').update(evidence).digest('hex');
     const tenantId = text(input.tenantId, 'tenant ID').toLowerCase();
     const objectId = text(input.objectId, 'object ID').toLowerCase();
@@ -204,7 +319,7 @@ async function main(argv = process.argv.slice(2)): Promise<void> {
       return;
     }
     if (!values['confirm-same-user']) {
-      throw new BridgeError('ACCESS_UNVERIFIED', 'Linking requires operator confirmation that Entra and GitHub identities belong to the same user.');
+      throw new BridgeError('ACCESS_UNVERIFIED', 'Linking requires administrator confirmation that Entra and GitHub identities belong to the same user.');
     }
     const githubLogin = text(input.githubLogin, 'GitHub login');
     const credentialSecretName = text(input.credentialSecretName, 'credential secret name');
@@ -255,8 +370,10 @@ async function main(argv = process.argv.slice(2)): Promise<void> {
   }
 }
 
-main().catch(error => {
-  const failure = safeError(error);
-  console.error(`${failure.code}: ${failure.message}`);
-  process.exitCode = 1;
-});
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+  main().catch(error => {
+    const failure = safeError(error);
+    console.error(`${failure.code}: ${failure.message}`);
+    process.exitCode = 1;
+  });
+}

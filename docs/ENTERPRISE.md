@@ -2,24 +2,33 @@
 
 The repository contains an **implemented, locally validated multi-user
 enterprise foundation** based on Azure Container Apps. It is not deployed and
-is not yet approved for production use. The enterprise path now uses a private,
-shared LiteLLM Gateway with per-user GitHub OAuth. The historical single-user VM
-remains independent as rollback evidence.
+is not yet approved for production use. Employees and enterprise administrators
+reach one public HTTPS broker. Employee routes require `CCGC.Access`; lifecycle
+routes require `CCGC.Admin`. The assignment-required Enterprise Application
+grants those roles to separate security groups. Worker, LiteLLM, PostgreSQL, Key
+Vault, ACR, checkpoint storage, and the one-shot bootstrap job remain private.
 
 ## Required runtime components
 
 | Component | Responsibility |
 |---|---|
-| Enterprise broker | Validates Microsoft Entra identity, resolves the immutable GitHub binding, issues bounded admissions, reserves attempts transactionally, fences each branch dispatch, signs a 60-second worker assertion, and emits audit intent. |
+| Enterprise broker | Validates Microsoft Entra identity. `CCGC.Access` routes resolve immutable GitHub bindings, issue bounded admissions, reserve attempts transactionally, fence dispatches, sign worker assertions, and emit audit intent. `CCGC.Admin` routes manage internal users, split GitHub device authorization, binding, status, and revocation. |
+| Bootstrap job | A one-shot private Container Apps job defined by Bicep initializes the enterprise database, grants broker permissions, and creates the LiteLLM per-user OAuth credential and model mappings. |
 | Shared multi-user worker fleet | Runs as one Container App scaled across 2-30 replicas. Each replica verifies broker assertions, enforces per-user and global capacity, restores durable branch state, and forwards native Messages calls with the bound LiteLLM user key. |
 | LiteLLM Gateway | Runs as a separate private Container App scaled across 2-10 replicas. It owns per-user GitHub OAuth, encrypted user connections, Copilot token exchange/session caching, Anthropic Messages transport, streaming, and token counting. |
 | PostgreSQL | Stores account bindings, admission budgets, active branch reservations, monotonic fences, outcomes, and the audit outbox. |
 | LiteLLM PostgreSQL | Dedicated private database for encrypted per-user GitHub connections, virtual keys, and gateway state. |
 | Encrypted Blob checkpoints | Stores pending tool lineage and other branch state encrypted by the worker. Blob ETags reject concurrent or stale writes. |
 
-The broker is the Claude Code ingress. LiteLLM's private ingress is used for
-approved dashboard/onboarding and worker traffic. API Management is omitted
-because it would duplicate broker controls and add another streaming hop.
+The broker is the only public service. Its administration routes accept only
+assigned `CCGC.Admin` principals and are distinct from inference routes.
+LiteLLM has internal ingress and is used only by workers, broker lifecycle
+operations, and the Bicep-managed bootstrap job.
+API Management is
+omitted because it would duplicate broker controls and add another streaming
+hop. Public access does not bypass authorization: Entra gates profile and
+admission creation, while each model request requires a bounded opaque admission
+issued to that immutable principal and binding revision.
 
 The broker and worker are TypeScript modules running on Node.js 24. The worker
 keeps only account-keyed `LiteLLMBackend` clients; GitHub tokens and Copilot
@@ -80,33 +89,45 @@ strict input validation, no dynamic user code, and adversarial two-user tests.
 | `src/enterprise-auth.ts` | Entra issuer/audience/tenant/scope and immutable object-ID validation |
 | `src/enterprise-store.ts` | PostgreSQL bindings, admissions, per-branch reservations/fences, per-user concurrency, and audit outbox |
 | `src/enterprise-dispatch.ts` | Short-lived broker dispatch signing and worker verification |
-| `src/enterprise-server.ts` | Broker control, native Messages/model routes, and signed worker dispatch |
+| `src/enterprise-server.ts` | Broker control, role-separated administration, native Messages/model routes, and signed worker dispatch |
 | `src/enterprise-connector.ts` | Key Vault LiteLLM user-key resolution and account-scoped LiteLLM client pool |
 | `src/litellm.ts` | Fixed-origin Anthropic Messages and token-count forwarding to LiteLLM |
 | `src/enterprise-checkpoint.ts` | Client-side encrypted Azure Blob checkpoints with ETag conditional writes |
 | `src/enterprise-worker-server.ts` | Shared multi-user worker authorization, fairness, branch state, and LiteLLM routing |
 | `src/enterprise-client.ts` | Entra enrollment, admission renewal, Keychain, and Claude settings patch |
-| `src/enterprise-admin.ts` | Explicit same-user credential link and binding revocation |
-| `infra/enterprise/` | Private, zone-redundant Container Apps foundation |
+| `src/enterprise-admin.ts` | Explicit same-user credential link, binding revocation, and reusable LiteLLM bootstrap logic |
+| `src/enterprise-management*.ts` | `CCGC.Admin` client and broker lifecycle actions for status, internal users, GitHub connection, binding, and revocation |
+| `src/enterprise-bootstrap.ts` | One-shot database and LiteLLM initialization run by the private bootstrap job |
+| `infra/enterprise/` | One public role-separated broker plus private, zone-redundant inference/data foundation and bootstrap job |
+| `scripts/enterprise-entra.mjs` | Idempotent Entra API, access/admin roles, assignment-required service principal, and separate employee/admin group assignments |
+| `scripts/enterprise-pilot.mjs` | Foundation what-if/deploy, private ACR image publication, and runtime what-if/deploy |
 
 ## Infrastructure
 
 `infra/enterprise/main.bicep` creates a new enterprise resource group and does
 not reference, modify, or adopt `rg-ccgc-dev-87b7`. The topology includes:
 
-- Internal, zone-redundant Container Apps workload-profile environment.
-- Broker Container App with 2-10 replicas.
-- Shared worker Container App with 2-30 replicas.
-- LiteLLM Gateway Container App with 2-10 replicas and private dashboard/API.
+- Internet-reachable, zone-redundant Container Apps workload-profile
+  environment with only the broker configured for external ingress.
+- Public HTTPS broker Container App with 2-10 replicas and application-level
+  Entra tenant/audience/permission validation for separate `CCGC.Access` and
+  `CCGC.Admin` route groups.
+- Private one-shot Container Apps bootstrap job with a dedicated managed
+  identity that is PostgreSQL Entra administrator only for initialization.
+- Internal shared worker Container App with 2-30 replicas.
+- Internal LiteLLM Gateway Container App with 2-10 replicas.
 - Entra-only PostgreSQL for enterprise control state.
 - Dedicated private password-authenticated PostgreSQL for LiteLLM's Prisma state.
 - NAT Gateway for deterministic connector egress.
 - Private Key Vault with RBAC, soft delete, and purge protection.
 - Private GZRS StorageV2 account with shared-key access disabled and a private
   `checkpoints` Blob container.
-- Private Premium ACR with admin and anonymous access disabled.
-- Separate user-assigned broker, worker, and LiteLLM identities. The worker receives only
-  Key Vault Secrets User, Storage Blob Data Contributor, and ACR pull roles.
+- Private Premium ACR with admin and anonymous access disabled, plus a
+  scale-to-zero VNet-attached ACR task agent pool for image publication.
+- Separate user-assigned broker, bootstrap, worker, and LiteLLM identities. The
+  worker receives only Key Vault Secrets User, Storage Blob Data Contributor,
+  and ACR pull roles. The broker receives Key Vault Secrets Officer because its
+  `CCGC.Admin` routes create and rotate account-scoped LiteLLM user-key secrets.
 - Log Analytics and workspace-based Application Insights. Application payload
   logging remains prohibited.
 
@@ -153,66 +174,126 @@ an unconnected user fails with `401 Connect GitHub Copilot` before an upstream
 request. The sentinel must never be replaced with a real shared token and can
 be removed when a verified upstream release no longer requires it.
 
+## Automated pilot deployment
+
+Create or update the Entra API first. The script defines both the delegated
+permission and app role `CCGC.Access`, adds the separate `CCGC.Admin` app role,
+preauthorizes Azure CLI, marks the Enterprise Application assignment-required,
+and assigns the employee and administrator groups independently. Run it as a tenant
+administrator permitted to create app registrations/service principals, read the
+group, and create app-role assignments:
+
+```bash
+npm run enterprise:entra -- \
+  --display-name 'CCGC Enterprise API' \
+  --pilot-group-object-id 00000000-0000-0000-0000-000000000000 \
+  --admin-group-object-id 11111111-1111-1111-1111-111111111111 \
+  --confirm-entra-changes
+```
+
+Copy `infra/enterprise/main.parameters.example.json` to a private path and
+replace every identity and secret placeholder, then run `chmod 600` on it. Do
+not commit that file. The deployment is deliberately two-stage:
+
+```bash
+# What-if only; review before applying.
+npm run enterprise:pilot -- foundation \
+  --parameters /private/path/enterprise.parameters.json
+
+# Explicitly create the foundation: VNet, private services, ACR, build pool,
+# identities, databases, secrets, and the public Container Apps environment.
+npm run enterprise:pilot -- foundation \
+  --parameters /private/path/enterprise.parameters.json \
+  --confirm-deploy
+
+# Scale the private ACR task pool to one, build all three images, resolve their
+# immutable digests, write a mode-0600 image manifest, and scale the pool to zero.
+npm run enterprise:pilot -- images \
+  --parameters /private/path/enterprise.parameters.json
+
+# Review the runtime deployment with the generated manifest.
+npm run enterprise:pilot -- runtime \
+  --parameters /private/path/enterprise.parameters.json \
+  --images .azure/enterprise-images.GIT_SHA.json
+
+# Apply only after reviewing runtime what-if and cost.
+npm run enterprise:pilot -- runtime \
+  --parameters /private/path/enterprise.parameters.json \
+  --images .azure/enterprise-images.GIT_SHA.json \
+  --confirm-deploy
+```
+
+The public output is `brokerPublicFqdn` for employees and assigned enterprise IT
+administrators. `bootstrapJobName`, `workerInternalFqdn`, and
+`litellmInternalFqdn` are not public endpoints.
+
 ## Deployment gate
 
 No enterprise Azure resources were deployed by this implementation task. Before
 deployment:
 
-1. Create the Entra API registration, permission, and Conditional Access policy.
-2. Bootstrap a least-privilege PostgreSQL principal for the broker.
-3. Build, scan, sign, and push immutable broker, worker, and LiteLLM image digests through
-   a private runner.
+1. Run the Entra automation, verify assignment-required is enabled, and apply
+   the approved Conditional Access policy to the pilot group.
+2. Verify that the confirmed runtime deployment completed the private bootstrap
+   job and granted the broker only its required table and sequence privileges.
+3. Scan/sign the immutable images produced by the private ACR build pool.
 4. Generate secure random dispatch and checkpoint-encryption values in an
    approved secret-handling workflow.
 5. Run subscription `what-if`, verify create-only changes, review Container Apps
    and PostgreSQL cost, and obtain explicit deployment approval.
 
 ```bash
-az deployment sub what-if \
-  --location swedencentral \
-  --template-file infra/enterprise/main.bicep \
-  --parameters @/private/path/enterprise.parameters.json
+npm run enterprise:pilot -- foundation \
+  --parameters /private/path/enterprise.parameters.json
 ```
 
 ## User onboarding
 
-First bootstrap the database-backed LiteLLM credential and model mappings:
+The confirmed runtime deployment starts the Bicep-defined bootstrap job after
+creating the Container Apps revision. The job initializes the Entra-only
+enterprise database and idempotently creates the database-backed LiteLLM
+credential and approved model mappings. Deployment fails if the job does not
+reach `Succeeded` within 15 minutes.
+
+An administrator creates the employee's LiteLLM `internal_user` identity and
+user key through the broker administration routes. Raw keys without an owning LiteLLM user role
+cannot access the per-user connection endpoints. IT then initiates the GitHub
+device flow through the same public broker endpoint and gives the employee
+only GitHub's public verification URL and one-time code. The employee never
+needs private Azure connectivity and never receives the LiteLLM master key or
+another user's key.
 
 ```bash
-export CCGC_LITELLM_URL='https://PRIVATE_LITELLM_GATEWAY/'
-export CCGC_LITELLM_MASTER_KEY='sk-PRIVATE-LITELLM-MASTER-KEY'
-
-npm run enterprise:admin -- bootstrap --confirm-bootstrap \
-  < /private/path/litellm-bootstrap.json
+npm run enterprise:manage -- create-user \
+  --url https://PUBLIC_BROKER_FQDN \
+  --audience api://ENTRA-APPLICATION-ID \
+  --input /private/path/create-user.json \
+  --output /private/path/created-user.json
+npm run enterprise:manage -- connect \
+  --url https://PUBLIC_BROKER_FQDN \
+  --audience api://ENTRA-APPLICATION-ID \
+  --input /private/path/connect-user.json
 ```
 
-The bootstrap JSON contains `litellmCredentialName` and `models`. The command is
-idempotent: it creates the Per-user GitHub OAuth credential when absent and adds
-only missing `github_copilot/<model>` mappings. The runtime image keeps these
-objects out of `config.yaml` so gateway startup never falls into LiteLLM's
-single-account SDK device flow.
+`connect-user.json` contains `litellmApiKey`, `litellmCredentialName`, and the
+expected `githubLogin`. The command is idempotent, prints only the public GitHub
+verification URL/code, polls within the server-supplied expiry, verifies the
+active Copilot seat, and rejects a different GitHub account.
 
-An administrator then creates the employee's LiteLLM `internal_user` identity
-and user key through the approved LiteLLM identity workflow. Raw keys without
-an owning LiteLLM user role cannot access the per-user connection endpoints.
-The employee uses that identity to connect GitHub under **Models + Endpoints ->
-LLM Credentials -> Your connections**.
-
-The operator independently verifies that the Entra principal and GitHub account
+The administrator independently verifies that the Entra principal and GitHub account
 belong to the same employee and that the organization permits the unofficial
 Copilot connector.
 
 ```bash
-export CCGC_POSTGRES_URL='postgresql://BROKER_ID@PRIVATE_HOST:5432/postgres?sslmode=require'
-export CCGC_KEY_VAULT_URL='https://PRIVATE_VAULT.vault.azure.net/'
-export CCGC_LITELLM_URL='https://PRIVATE_LITELLM_GATEWAY/'
-
-npm run enterprise:admin -- link --confirm-same-user < /private/path/link.json
+npm run enterprise:manage -- link \
+  --url https://PUBLIC_BROKER_FQDN \
+  --audience api://ENTRA-APPLICATION-ID \
+  --input /private/path/link.json
 ```
 
 `link.json` contains tenant/object IDs, immutable GitHub account ID/login,
 approved model IDs, `credentialSecretName`, `litellmCredentialName`,
-`litellmApiKey`, and concise operator evidence. The admin command verifies that
+`litellmApiKey`, and concise administrator evidence. The admin command verifies that
 the LiteLLM key's user connection is currently connected to the confirmed
 GitHub login before storing only the LiteLLM key in Key Vault. The GitHub token
 remains encrypted in LiteLLM PostgreSQL. Evidence is stored only as SHA-256.
@@ -221,19 +302,213 @@ The employee then runs:
 
 ```bash
 npm run enterprise:client -- login \
-  --gateway https://PRIVATE_GATEWAY \
+  --gateway https://PUBLIC_BROKER_FQDN \
   --audience api://ENTRA-APPLICATION-ID
 npm run enterprise:client -- configure --apply
 npm run enterprise:client -- models
 claude
 ```
 
+## Two-person enterprise simulation
+
+Use two separate Entra security groups even when the same person acts as both
+enterprise IT and an employee:
+
+- `CCGC-Pilot-Employees`: add both testers. This group receives
+  `CCGC.Access`.
+- `CCGC-Pilot-Admins`: add only the person acting as enterprise IT. This group
+  receives `CCGC.Admin`.
+
+The groups must remain distinct, but an IT tester may be a member of both. Each
+tester must use their own Entra identity, GitHub identity, GitHub Copilot seat,
+macOS user profile, Keychain, and Claude Code installation. Never exchange
+admission tokens, LiteLLM user keys, GitHub device codes after use, Claude
+settings, or local conversation directories.
+
+### 1. Create groups and add the two testers
+
+Run as the tenant administrator:
+
+```bash
+SELF_ID="$(az ad user show --id it-admin@example.com --query id -o tsv)"
+COLLEAGUE_ID="$(az ad user show --id colleague@example.com --query id -o tsv)"
+
+EMPLOYEE_GROUP_ID="$(az ad group create \
+  --display-name CCGC-Pilot-Employees \
+  --mail-nickname ccgc-pilot-employees \
+  --query id -o tsv)"
+ADMIN_GROUP_ID="$(az ad group create \
+  --display-name CCGC-Pilot-Admins \
+  --mail-nickname ccgc-pilot-admins \
+  --query id -o tsv)"
+
+az ad group member add --group "$EMPLOYEE_GROUP_ID" --member-id "$SELF_ID"
+az ad group member add --group "$EMPLOYEE_GROUP_ID" --member-id "$COLLEAGUE_ID"
+az ad group member add --group "$ADMIN_GROUP_ID" --member-id "$SELF_ID"
+```
+
+If the groups already exist, retrieve their object IDs instead of recreating
+them. Run the Entra automation with those two IDs and save its `tenantId`,
+`audience`, and application client ID:
+
+```bash
+npm run enterprise:entra -- \
+  --display-name 'CCGC Enterprise API' \
+  --pilot-group-object-id "$EMPLOYEE_GROUP_ID" \
+  --admin-group-object-id "$ADMIN_GROUP_ID" \
+  --confirm-entra-changes
+```
+
+Allow Entra assignment propagation, then force both testers to sign out and
+sign back in before requesting broker tokens. Do not reuse an Azure CLI token
+issued before the group-role assignments.
+
+### 2. Deploy once as enterprise IT
+
+Create the mode-0600 parameter file from
+`infra/enterprise/main.parameters.example.json`, use the Entra automation's
+tenant and audience values, and replace every secret placeholder with an
+independently generated random value. Run foundation and runtime `what-if`
+before either confirmed deployment. The confirmed runtime deployment starts
+and waits for the private bootstrap job.
+
+After deployment:
+
+```bash
+PREFIX=ccgc-pilot
+RESOURCE_GROUP="rg-${PREFIX}-enterprise"
+BROKER_FQDN="$(az deployment sub show \
+  --name "${PREFIX}-enterprise-runtime" \
+  --query properties.outputs.brokerPublicFqdn.value -o tsv)"
+BROKER_URL="https://${BROKER_FQDN}"
+```
+
+Require successful administrator status before onboarding either employee:
+
+```bash
+npm run enterprise:manage -- status \
+  --url "$BROKER_URL" \
+  --audience "$ENTRA_AUDIENCE"
+```
+
+### 3. Onboard each employee independently
+
+Repeat the following process once for the IT tester and once for the
+colleague. Start from the templates under `docs/examples/`, copy them outside
+the repository, and protect every working file:
+
+```bash
+umask 077
+mkdir -p "$HOME/.config/ccgc/pilot/employee-one"
+cp docs/examples/enterprise-create-user.example.json \
+  "$HOME/.config/ccgc/pilot/employee-one/create-user.json"
+chmod 600 "$HOME/.config/ccgc/pilot/employee-one/create-user.json"
+```
+
+Set `userId` to that employee's Entra object ID, use their corporate email,
+choose the approved Claude model list, then create the LiteLLM internal user:
+
+```bash
+npm run enterprise:manage -- create-user \
+  --url "$BROKER_URL" \
+  --audience "$ENTRA_AUDIENCE" \
+  --input "$HOME/.config/ccgc/pilot/employee-one/create-user.json" \
+  --output "$HOME/.config/ccgc/pilot/employee-one/created-user.json"
+```
+
+Copy the returned `litellmApiKey` into a private copy of
+`enterprise-connect-user.example.json`, set the employee's expected GitHub
+login, and run the connection command. Enterprise IT may start and poll the
+flow, but the named employee must personally open GitHub's verification URL,
+enter the one-time code, and authorize their own account:
+
+```bash
+npm run enterprise:manage -- connect \
+  --url "$BROKER_URL" \
+  --audience "$ENTRA_AUDIENCE" \
+  --input "$HOME/.config/ccgc/pilot/employee-one/connect-user.json"
+```
+
+Retrieve the immutable numeric GitHub account ID from the public GitHub API,
+then complete a private copy of `enterprise-link-user.example.json`:
+
+```bash
+GITHUB_ACCOUNT_ID="$(curl -fsSL \
+  "https://api.github.com/users/employee-github-login" | jq -r '.id')"
+test "$GITHUB_ACCOUNT_ID" -gt 0
+```
+
+Use the Entra tenant/object IDs, verified GitHub login/account ID, same
+LiteLLM user key, approved models, and a unique secret name such as
+`ccgc-user-<object-id-without-hyphens>`. Link only after the administrator has
+verified that the Entra and GitHub identities belong to the same employee:
+
+```bash
+npm run enterprise:manage -- link \
+  --url "$BROKER_URL" \
+  --audience "$ENTRA_AUDIENCE" \
+  --input "$HOME/.config/ccgc/pilot/employee-one/link-user.json"
+```
+
+Do not reuse any of these three files for the second employee.
+
+### 4. Each employee configures their own workstation
+
+Each tester signs into Azure CLI as themselves, from their own macOS account
+and machine:
+
+```bash
+az logout
+az login --tenant "$ENTRA_TENANT_ID"
+npm ci
+npm run enterprise:client -- login \
+  --gateway "$BROKER_URL" \
+  --audience "$ENTRA_AUDIENCE"
+npm run enterprise:client -- configure --apply
+npm run enterprise:client -- models
+claude
+```
+
+The login result must show that employee's own Entra object ID, GitHub login,
+GitHub account ID, model list, and binding revision. Stop if either tester sees
+the other tester's identity or models.
+
+### 5. Run the isolation acceptance
+
+Run both Claude Code clients concurrently for at least 15 minutes:
+
+1. Start separate conversations with distinct non-secret marker strings.
+2. Exercise streaming, tools, one agent branch, compaction, and a client
+   restart on both accounts.
+3. Confirm neither user sees the other's marker, history, GitHub login, models,
+   tool results, or restart state.
+4. Confirm both remain usable during concurrent long responses and that a
+   cancelled request is not replayed.
+5. As IT, revoke only the colleague's binding using a private copy of
+   `docs/examples/enterprise-revoke-user.example.json`.
+6. Confirm the colleague's current/new admissions fail while the IT tester
+   continues successfully.
+7. Re-link the colleague through the full verified device flow; do not restore
+   or copy the previous user's key material.
+
+Review Container Apps and Azure Monitor metadata after the test. Logs may
+contain service, status, capacity, and opaque identifiers, but must not contain
+authorization headers, prompts, responses, tool bodies, LiteLLM keys, GitHub
+tokens, or device codes.
+
+```bash
+npm run enterprise:manage -- revoke \
+  --url "$BROKER_URL" \
+  --audience "$ENTRA_AUDIENCE" \
+  --input "$HOME/.config/ccgc/pilot/colleague/revoke-user.json"
+```
+
 ## Remaining release gates
 
 - Vendor and organization approval for the unofficial Copilot route.
-- Approved LiteLLM dashboard/SSO access, virtual-key rotation, disconnect, and
-  license/edition review.
-- Real private Azure deployment and managed-identity/PostgreSQL bootstrap.
+- Live validation of the broker's `CCGC.Admin` lifecycle workflow, virtual-key rotation,
+  disconnect, and license/edition review.
+- Real Azure deployment and Bicep-managed PostgreSQL/LiteLLM bootstrap.
 - A real 10-15 minute Container Apps SSE proof, including first-token stalls,
   cancellation, scale-out, revision draining, and replica termination.
 - Live two-account credential isolation, revoked-seat/model, noisy-neighbor,

@@ -2,11 +2,11 @@ param prefix string
 param location string
 param tenantId string
 param entraAudience string
-param postgresAdminObjectId string
-param postgresAdminName string
+param deployRuntime bool
 param brokerImage string
 param workerImage string
 param litellmImage string
+param buildAgentPoolCount int
 param litellmPostgresAdminLogin string
 @secure()
 param litellmPostgresAdminPassword string
@@ -23,17 +23,22 @@ param modelsJson string
 
 var compact = replace(prefix, '-', '')
 var unique = toLower(uniqueString(subscription().id, resourceGroup().id, prefix))
+var entraTokenAudience = startsWith(entraAudience, 'api://') ? substring(entraAudience, 6) : entraAudience
 var vnetName = 'vnet-${prefix}-enterprise'
 var brokerIdentityName = 'id-${prefix}-broker'
+var bootstrapIdentityName = 'id-${prefix}-bootstrap'
 var workerIdentityName = 'id-${prefix}-worker'
 var litellmIdentityName = 'id-${prefix}-litellm'
 var postgresName = take('psql-${compact}-${unique}', 63)
 var litellmPostgresName = take('psql-${compact}-litellm-${unique}', 63)
 var vaultName = take('kv-${compact}-${unique}', 24)
 var registryName = take('cr${compact}${unique}', 50)
+var buildAgentPoolName = take('build-${compact}', 20)
 var storageName = take('st${compact}${unique}', 24)
 var environmentName = 'cae-${prefix}-enterprise'
+var privateEnvironmentDomain = 'internal.${environment.properties.defaultDomain}'
 var brokerName = 'ca-${prefix}-broker'
+var bootstrapJobName = 'caj-${prefix}-bootstrap'
 var workerName = 'ca-${prefix}-worker'
 var litellmName = 'ca-${prefix}-litellm'
 var workspaceName = 'log-${prefix}-enterprise'
@@ -47,6 +52,12 @@ var tags = {
 
 resource brokerIdentity 'Microsoft.ManagedIdentity/userAssignedIdentities@2024-11-30' = {
   name: brokerIdentityName
+  location: location
+  tags: tags
+}
+
+resource bootstrapIdentity 'Microsoft.ManagedIdentity/userAssignedIdentities@2024-11-30' = {
+  name: bootstrapIdentityName
   location: location
   tags: tags
 }
@@ -234,6 +245,19 @@ resource vnet 'Microsoft.Network/virtualNetworks@2024-07-01' = {
           }
         }
       }
+      {
+        name: 'snet-acr-agent-pool'
+        properties: {
+          addressPrefix: '10.80.2.96/27'
+          natGateway: {
+            id: natGateway.id
+          }
+          networkSecurityGroup: {
+            id: workloadNsg.id
+          }
+          privateEndpointNetworkPolicies: 'Disabled'
+        }
+      }
     ]
   }
 }
@@ -256,6 +280,11 @@ resource privateEndpointSubnet 'Microsoft.Network/virtualNetworks/subnets@2024-0
 resource litellmPostgresSubnet 'Microsoft.Network/virtualNetworks/subnets@2024-07-01' existing = {
   parent: vnet
   name: 'snet-litellm-postgres'
+}
+
+resource buildAgentPoolSubnet 'Microsoft.Network/virtualNetworks/subnets@2024-07-01' existing = {
+  parent: vnet
+  name: 'snet-acr-agent-pool'
 }
 
 resource postgresDns 'Microsoft.Network/privateDnsZones@2024-06-01' = {
@@ -286,7 +315,7 @@ resource postgres 'Microsoft.DBforPostgreSQL/flexibleServers@2024-08-01' = {
   }
   properties: {
     version: '16'
-    administratorLogin: postgresAdminName
+    administratorLogin: 'ccgcbootstrap'
     authConfig: {
       activeDirectoryAuth: 'Enabled'
       passwordAuth: 'Disabled'
@@ -318,13 +347,13 @@ resource postgres 'Microsoft.DBforPostgreSQL/flexibleServers@2024-08-01' = {
   ]
 }
 
-resource postgresAdmin 'Microsoft.DBforPostgreSQL/flexibleServers/administrators@2024-08-01' = {
-  parent: postgres
-  name: postgresAdminObjectId
-  properties: {
-    principalName: postgresAdminName
-    principalType: 'ServicePrincipal'
+module postgresAdmin 'postgres-admin.bicep' = {
+  name: '${prefix}-postgres-entra-admin'
+  params: {
+    serverName: postgres.name
     tenantId: tenantId
+    principalObjectId: bootstrapIdentity.properties.principalId
+    principalName: bootstrapIdentity.name
   }
 }
 
@@ -472,7 +501,7 @@ resource registry 'Microsoft.ContainerRegistry/registries@2025-04-01' = {
     zoneRedundancy: 'Enabled'
     policies: {
       quarantinePolicy: {
-        status: 'enabled'
+        status: 'disabled'
       }
       retentionPolicy: {
         days: 14
@@ -484,6 +513,22 @@ resource registry 'Microsoft.ContainerRegistry/registries@2025-04-01' = {
       }
     }
   }
+}
+
+resource buildAgentPool 'Microsoft.ContainerRegistry/registries/agentPools@2025-03-01-preview' = if (buildAgentPoolCount > 0) {
+  parent: registry
+  name: buildAgentPoolName
+  location: location
+  tags: tags
+  properties: {
+    count: buildAgentPoolCount
+    os: 'Linux'
+    tier: 'S2'
+    virtualNetworkSubnetResourceId: buildAgentPoolSubnet.id
+  }
+  dependsOn: [
+    privateDnsGroups
+  ]
 }
 
 //checkov:skip=CKV_AZURE_43:Name is generated from lowercase alphanumeric inputs and capped at 24 characters.
@@ -630,7 +675,7 @@ resource environment 'Microsoft.App/managedEnvironments@2025-01-01' = {
     }
     vnetConfiguration: {
       infrastructureSubnetId: containerSubnet.id
-      internal: true
+      internal: false
     }
     workloadProfiles: [
       {
@@ -668,18 +713,7 @@ resource environmentDiagnostics 'Microsoft.Insights/diagnosticSettings@2021-05-0
   }
 }
 
-module containerDns 'container-dns.bicep' = {
-  name: 'container-apps-private-dns'
-  params: {
-    defaultDomain: environment.properties.defaultDomain
-    staticIp: environment.properties.staticIp
-    vnetId: vnet.id
-    vnetName: vnet.name
-    tags: tags
-  }
-}
-
-resource broker 'Microsoft.App/containerApps@2025-01-01' = {
+resource broker 'Microsoft.App/containerApps@2025-01-01' = if (deployRuntime) {
   name: brokerName
   location: location
   tags: tags
@@ -698,7 +732,7 @@ resource broker 'Microsoft.App/containerApps@2025-01-01' = {
         allowInsecure: false
         external: true
         targetPort: 8080
-        transport: 'http2'
+        transport: 'auto'
       }
       registries: [
         {
@@ -715,15 +749,19 @@ resource broker 'Microsoft.App/containerApps@2025-01-01' = {
           image: brokerImage
           env: [
             {
+              name: 'AZURE_CLIENT_ID'
+              value: brokerIdentity.properties.clientId
+            }
+            {
               name: 'CCGC_ENTRA_TENANT_ID'
               value: tenantId
             }
             {
               name: 'CCGC_ENTRA_AUDIENCE'
-              value: entraAudience
+              value: entraTokenAudience
             }
             {
-              name: 'CCGC_ENTRA_SCOPE'
+              name: 'CCGC_ENTRA_ROLE'
               value: 'CCGC.Access'
             }
             {
@@ -736,7 +774,7 @@ resource broker 'Microsoft.App/containerApps@2025-01-01' = {
             }
             {
               name: 'CCGC_WORKER_URL'
-              value: 'https://${workerName}.${environment.properties.defaultDomain}'
+              value: 'https://${workerName}.${privateEnvironmentDomain}'
             }
             {
               name: 'CCGC_BROKER_ORIGIN'
@@ -753,6 +791,14 @@ resource broker 'Microsoft.App/containerApps@2025-01-01' = {
             {
               name: 'CCGC_POSTGRES_ENTRA'
               value: 'true'
+            }
+            {
+              name: 'CCGC_LITELLM_URL'
+              value: 'https://${litellmName}.${privateEnvironmentDomain}'
+            }
+            {
+              name: 'CCGC_LITELLM_MASTER_KEY_SECRET_NAME'
+              value: litellmMasterKeySecret.name
             }
             {
               name: 'APPLICATIONINSIGHTS_CONNECTION_STRING'
@@ -804,15 +850,104 @@ resource broker 'Microsoft.App/containerApps@2025-01-01' = {
     }
   }
   dependsOn: [
-    containerDns
     privateDnsGroups
     postgresAdmin
-    keyVaultAccess
+    brokerKeyVaultAccess
     registryPull
   ]
 }
 
-resource worker 'Microsoft.App/containerApps@2025-01-01' = {
+resource bootstrapJob 'Microsoft.App/jobs@2025-01-01' = if (deployRuntime) {
+  name: bootstrapJobName
+  location: location
+  tags: tags
+  identity: {
+    type: 'UserAssigned'
+    userAssignedIdentities: {
+      '${bootstrapIdentity.id}': {}
+    }
+  }
+  properties: {
+    environmentId: environment.id
+    configuration: {
+      triggerType: 'Manual'
+      replicaTimeout: 900
+      replicaRetryLimit: 1
+      manualTriggerConfig: {
+        parallelism: 1
+        replicaCompletionCount: 1
+      }
+      registries: [
+        {
+          identity: bootstrapIdentity.id
+          server: registry.properties.loginServer
+        }
+      ]
+      secrets: [
+        {
+          name: 'litellm-master-key'
+          keyVaultUrl: litellmMasterKeySecret.properties.secretUriWithVersion
+          identity: bootstrapIdentity.id
+        }
+      ]
+    }
+    template: {
+      containers: [
+        {
+          name: 'bootstrap'
+          image: brokerImage
+          command: [
+            'node'
+            '/app/src/enterprise-bootstrap.ts'
+          ]
+          env: [
+            {
+              name: 'AZURE_CLIENT_ID'
+              value: bootstrapIdentity.properties.clientId
+            }
+            {
+              name: 'CCGC_LITELLM_URL'
+              value: 'https://${litellmName}.${privateEnvironmentDomain}'
+            }
+            {
+              name: 'CCGC_LITELLM_MASTER_KEY'
+              secretRef: 'litellm-master-key'
+            }
+            {
+              name: 'CCGC_POSTGRES_URL'
+              value: 'postgresql://${bootstrapIdentity.name}@${postgres.properties.fullyQualifiedDomainName}:5432/postgres?sslmode=require'
+            }
+            {
+              name: 'CCGC_BROKER_DATABASE_PRINCIPAL'
+              value: brokerIdentity.name
+            }
+            {
+              name: 'CCGC_LITELLM_CREDENTIAL_NAME'
+              value: 'github-copilot-user'
+            }
+            {
+              name: 'CCGC_MODELS_JSON'
+              value: modelsJson
+            }
+          ]
+          resources: {
+            cpu: json('1.0')
+            memory: '2Gi'
+          }
+        }
+      ]
+    }
+  }
+  dependsOn: [
+    privateDnsGroups
+    postgresAdmin
+    bootstrapKeyVaultAccess
+    bootstrapRegistryPull
+    litellm
+  ]
+}
+
+resource worker 'Microsoft.App/containerApps@2025-01-01' = if (deployRuntime) {
   name: workerName
   location: location
   tags: tags
@@ -829,9 +964,9 @@ resource worker 'Microsoft.App/containerApps@2025-01-01' = {
       activeRevisionsMode: 'Single'
       ingress: {
         allowInsecure: false
-        external: true
+        external: false
         targetPort: 8080
-        transport: 'http2'
+        transport: 'auto'
       }
       registries: [
         {
@@ -847,6 +982,10 @@ resource worker 'Microsoft.App/containerApps@2025-01-01' = {
           name: 'worker'
           image: workerImage
           env: [
+            {
+              name: 'AZURE_CLIENT_ID'
+              value: workerIdentity.properties.clientId
+            }
             {
               name: 'CCGC_KEY_VAULT_URL'
               value: vault.properties.vaultUri
@@ -873,11 +1012,11 @@ resource worker 'Microsoft.App/containerApps@2025-01-01' = {
             }
             {
               name: 'CCGC_WORKER_ORIGIN'
-              value: 'https://${workerName}.${environment.properties.defaultDomain}'
+              value: 'https://${workerName}.${privateEnvironmentDomain}'
             }
             {
               name: 'CCGC_EXPECTED_HOST'
-              value: '${workerName}.${environment.properties.defaultDomain}'
+              value: '${workerName}.${privateEnvironmentDomain}'
             }
             {
               name: 'CCGC_MODELS_JSON'
@@ -885,7 +1024,7 @@ resource worker 'Microsoft.App/containerApps@2025-01-01' = {
             }
             {
               name: 'CCGC_LITELLM_URL'
-              value: 'https://${litellmName}.${environment.properties.defaultDomain}'
+              value: 'https://${litellmName}.${privateEnvironmentDomain}'
             }
             {
               name: 'CCGC_MAX_CONNECTORS'
@@ -949,7 +1088,6 @@ resource worker 'Microsoft.App/containerApps@2025-01-01' = {
     }
   }
   dependsOn: [
-    containerDns
     privateDnsGroups
     workerKeyVaultAccess
     workerRegistryPull
@@ -958,7 +1096,7 @@ resource worker 'Microsoft.App/containerApps@2025-01-01' = {
   ]
 }
 
-resource litellm 'Microsoft.App/containerApps@2025-01-01' = {
+resource litellm 'Microsoft.App/containerApps@2025-01-01' = if (deployRuntime) {
   name: litellmName
   location: location
   tags: tags
@@ -975,7 +1113,7 @@ resource litellm 'Microsoft.App/containerApps@2025-01-01' = {
       activeRevisionsMode: 'Single'
       ingress: {
         allowInsecure: false
-        external: true
+        external: false
         targetPort: 4000
         transport: 'http'
       }
@@ -1023,7 +1161,7 @@ resource litellm 'Microsoft.App/containerApps@2025-01-01' = {
             }
             {
               name: 'PROXY_BASE_URL'
-              value: 'https://${litellmName}.${environment.properties.defaultDomain}'
+              value: 'https://${litellmName}.${privateEnvironmentDomain}'
             }
           ]
           probes: [
@@ -1071,20 +1209,19 @@ resource litellm 'Microsoft.App/containerApps@2025-01-01' = {
     }
   }
   dependsOn: [
-    containerDns
     privateDnsGroups
     litellmKeyVaultAccess
     litellmRegistryPull
   ]
 }
 
-resource keyVaultAccess 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
-  name: guid(vault.id, brokerIdentity.id, 'Key Vault Secrets User')
+resource brokerKeyVaultAccess 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
+  name: guid(vault.id, brokerIdentity.id, 'Key Vault Secrets Officer')
   scope: vault
   properties: {
     principalId: brokerIdentity.properties.principalId
     principalType: 'ServicePrincipal'
-    roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', '4633458b-17de-408a-b874-0445c86b69e6')
+    roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', 'b86a8fe4-44ce-4948-aee5-eccb2c155cd7')
   }
 }
 
@@ -1103,6 +1240,16 @@ resource litellmKeyVaultAccess 'Microsoft.Authorization/roleAssignments@2022-04-
   scope: vault
   properties: {
     principalId: litellmIdentity.properties.principalId
+    principalType: 'ServicePrincipal'
+    roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', '4633458b-17de-408a-b874-0445c86b69e6')
+  }
+}
+
+resource bootstrapKeyVaultAccess 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
+  name: guid(vault.id, bootstrapIdentity.id, 'Key Vault Secrets User')
+  scope: vault
+  properties: {
+    principalId: bootstrapIdentity.properties.principalId
     principalType: 'ServicePrincipal'
     roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', '4633458b-17de-408a-b874-0445c86b69e6')
   }
@@ -1138,6 +1285,16 @@ resource litellmRegistryPull 'Microsoft.Authorization/roleAssignments@2022-04-01
   }
 }
 
+resource bootstrapRegistryPull 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
+  name: guid(registry.id, bootstrapIdentity.id, 'AcrPull')
+  scope: registry
+  properties: {
+    principalId: bootstrapIdentity.properties.principalId
+    principalType: 'ServicePrincipal'
+    roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', '7f951dda-4ed3-4680-a7ca-43fe172d538d')
+  }
+}
+
 resource workerStorageAccess 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
   name: guid(storage.id, workerIdentity.id, 'Storage Blob Data Contributor')
   scope: storage
@@ -1148,11 +1305,14 @@ resource workerStorageAccess 'Microsoft.Authorization/roleAssignments@2022-04-01
   }
 }
 
-output brokerInternalFqdn string = broker.properties.configuration.ingress.fqdn
-output workerInternalFqdn string = worker.properties.configuration.ingress.fqdn
-output litellmInternalFqdn string = litellm.properties.configuration.ingress.fqdn
+output brokerPublicFqdn string = deployRuntime ? broker!.properties.configuration.ingress.fqdn : ''
+output bootstrapJobName string = deployRuntime ? bootstrapJob!.name : ''
+output workerInternalFqdn string = deployRuntime ? worker!.properties.configuration.ingress.fqdn : ''
+output litellmInternalFqdn string = deployRuntime ? litellm!.properties.configuration.ingress.fqdn : ''
 output keyVaultName string = vault.name
 output postgresHost string = postgres.properties.fullyQualifiedDomainName
 output litellmPostgresHost string = litellmPostgres.properties.fullyQualifiedDomainName
 output registryName string = registry.name
+output registryLoginServer string = registry.properties.loginServer
+output buildAgentPoolName string = buildAgentPoolCount > 0 ? buildAgentPool!.name : ''
 output checkpointStorageName string = storage.name

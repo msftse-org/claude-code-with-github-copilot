@@ -1,0 +1,78 @@
+Use the supplied approved v11 poster as the binding visual reference and edit
+that image directly. Make only the specified enclosure, icon-scale, and runtime
+dependency corrections. Preserve the same poster, topology, factual content,
+professional light visual world, and 2560x1600 dimensions. Do not redesign.
+
+REMOVE ONLY THE GLOBAL RUNTIME ENCLOSURE:
+- Remove the large outer rounded rectangle and pale background enclosure that
+  currently surrounds Claude Code, Enterprise broker, the shared inference
+  plane, the GitHub seat, entitled models, and the runtime state services.
+- Remove its entire outline and any distinct fill so those runtime cards and
+  connectors sit cleanly on the warm off-white poster canvas.
+- Do not remove, weaken, enlarge, or merge the smaller boundary titled
+  "SHARED INFERENCE PLANE - AZURE CONTAINER APPS".
+- That smaller boundary must continue to enclose ONLY the Multi-user worker and
+  LiteLLM Gateway cards, with exactly one small Azure Container Apps icon.
+- Rebalance the newly open whitespace cleanly. Leave no orphaned border segment,
+  clipped line, empty frame, or awkward gap.
+
+REDUCE INTERNAL PRODUCT LOGOS:
+- Reduce the green Node.js logo inside the Enterprise broker by approximately
+  25-35 percent. Keep the "Node.js" label beneath it and preserve clean
+  alignment with the authorization labels and lifecycle list.
+- Reduce the green Node.js logo inside the Multi-user worker by approximately
+  25-35 percent. Keep the "Node.js" label beneath it and preserve the worker
+  bullets and card alignment.
+- Reduce the LiteLLM logo and wordmark inside LiteLLM Gateway by approximately
+  25-35 percent. Preserve the gateway title, replica label, capability bullets,
+  and all current copy.
+- Do not reduce or change the service cards themselves merely to shrink logos.
+
+ADD THREE CLEAR RUNTIME DEPENDENCY ARROWS:
+- Add a clean directional connector from Microsoft Entra ID to Enterprise
+  broker, labeled exactly "SSO / JWT validation".
+- Add a clean directional connector from Azure Key Vault to Enterprise broker,
+  labeled exactly "signing + checkpoint / user keys".
+- Add a separate clean directional connector from Azure Key Vault to LiteLLM
+  Gateway, labeled exactly "master + salt keys".
+- Use restrained secondary connectors that are visually subordinate to the
+  solid employee request path: thin muted Microsoft-blue lines, preferably
+  dashed or otherwise clearly secondary, with unmistakable arrowheads pointing
+  toward the dependent runtime service.
+- Route these connectors through the open space between the upper identity/key
+  cards and the runtime service row. Keep labels concise and readable.
+- Do not cross unrelated cards, the main employee request arrows, state-service
+  cards, state/monitoring connectors, or bottom panels.
+- The two Key Vault dependencies must remain visually distinct and must not
+  merge into one ambiguous endpoint.
+
+PRESERVE THE APPROVED V11 TOPOLOGY:
+- Enterprise broker remains visibly outside and immediately left of the shared
+  inference boundary.
+- The broker retains no Azure Container Apps icon and no "Container App"
+  wording. Preserve its title, 2-10 replicas, Node.js label, CCGC.Access and
+  CCGC.Admin labels, and complete admin lifecycle list.
+- The shared inference boundary encloses only Multi-user worker and LiteLLM
+  Gateway.
+- Employee's GitHub Copilot seat and Entitled Claude models remain fully
+  outside and to the right of the shared boundary.
+- Preserve the solid request path:
+  Claude Code -> Enterprise broker -> Multi-user worker -> LiteLLM Gateway ->
+  Employee's GitHub Copilot seat -> Entitled Claude models.
+- Preserve all runtime state and monitoring services and every existing
+  binding, checkpoint, OAuth/gateway-state, and metadata-only connector.
+- Preserve Microsoft Entra ID, Azure Key Vault, and all their existing card
+  copy.
+- Preserve the complete Isolation & Security, Key Capabilities, and Limitations
+  panels at the bottom.
+
+VISUAL FIDELITY:
+- Preserve the approved warm off-white canvas, white and pale blue-gray cards,
+  dark slate typography, muted Microsoft-blue connectors, thin outlines,
+  compact official icons, typography hierarchy, and executive presentation
+  quality.
+- Preserve excellent readability at 1280x800.
+- Do not introduce or restore provisioning, bootstrap, deployment status, IaC,
+  CI/CD, operator, API Management, VPN, or infrastructure-creation content.
+- Do not add services, decorative concepts, claims, or alter any runtime fact
+  not explicitly corrected above.

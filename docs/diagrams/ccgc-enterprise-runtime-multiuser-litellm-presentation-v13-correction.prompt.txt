@@ -1,0 +1,30 @@
+Correct only the right-hand geometry of the Microsoft Azure scope boundary in
+the supplied v13 poster. Preserve all cards, icons, text, arrows, connectors,
+the Azure title/icon, the nested Shared Inference Plane boundary, bottom
+panels, palette, spacing, and 2560x1600 dimensions.
+
+CURRENT DEFECT:
+- The Microsoft Azure boundary's right vertical edge passes behind or through
+  the "Employee's GitHub Copilot seat" card, making that external service appear
+  partly inside Azure.
+
+REQUIRED CORRECTION:
+- Route the Microsoft Azure boundary around the GitHub card with a clean,
+  professional stepped or concave-notched right edge.
+- In the upper runtime row, the Azure edge must run in the clear gap between the
+  Shared Inference Plane boundary and the Employee's GitHub Copilot seat.
+- Keep the complete GitHub card fully outside the Azure scope with visible
+  whitespace between the card and boundary. The boundary must not touch,
+  overlap, pass behind, or pass through the GitHub card.
+- Keep Entitled Claude models fully outside as it is now.
+- Below the GitHub card, the Azure boundary may step outward to the right so it
+  still encloses the complete "LiteLLM PostgreSQL HA" card and its connectors.
+- Use smooth rounded corners on the step/notch so the scope line remains
+  restrained and professional.
+- Preserve the solid LiteLLM Gateway -> GitHub seat request arrow crossing the
+  Azure boundary. Its arrowhead must continue to terminate on the GitHub card,
+  never on the boundary.
+- Preserve every other Azure-hosted component inside the scope and every
+  external component outside it.
+- Do not move or resize service cards. Do not add labels, services, deployment
+  content, or any second scope boundary.

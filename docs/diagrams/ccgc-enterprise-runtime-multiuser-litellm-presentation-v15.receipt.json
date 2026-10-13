@@ -1,0 +1,145 @@
+{
+  "operation": "images/edits",
+  "provider": "Azure OpenAI",
+  "resource": "foundry-llm-demo-resource",
+  "region": "Sweden Central",
+  "deployment": "gpt-image-2.5-flare",
+  "model": "gpt-image-2.5-flare",
+  "modelVersion": "2026-09-08",
+  "apiVersion": "2025-04-01-preview",
+  "authentication": "Microsoft Entra ID bearer token",
+  "createdAt": "2026-10-12T12:20:48Z",
+  "archifyProvenance": {
+    "role": "primary structure and geometry authority",
+    "specification": {
+      "path": "docs/diagrams/ccgc-enterprise-runtime-poster.architecture.json",
+      "sha256": "3f77c990728edf876abeb3b5805b5d89026df1178e9931d0f46e6331905d4101",
+      "bytes": 6879
+    },
+    "htmlArtifact": {
+      "path": "docs/diagrams/ccgc-enterprise-runtime-poster.html",
+      "sha256": "4ef30b78dcdf7d37a6e61659b6d77b6bd3483d63fcafdbc65f0d34bfce76fcd8",
+      "bytes": 742570
+    },
+    "primaryVisualReference": {
+      "path": "docs/diagrams/ccgc-enterprise-runtime-poster.visual-check.2048x1320.light.png",
+      "sha256": "1ae094e89bb545f49692f29ac0d688b00c18953fbe2b88c90cc20a70ea2f59b4",
+      "width": 2048,
+      "height": 1320
+    },
+    "showcaseValidation": {
+      "checksPassed": 9,
+      "checksTotal": 9,
+      "errors": 0,
+      "warnings": 0
+    },
+    "visualContainment": {
+      "status": "passed",
+      "viewports": [
+        "1440x900",
+        "1600x1000",
+        "1920x1080",
+        "2048x1320"
+      ]
+    }
+  },
+  "gptImageProvenance": {
+    "request": {
+      "quality": "high",
+      "size": "2560x1600",
+      "outputFormat": "png",
+      "referenceMode": "Two image[] references: Archify visual first as structure authority, v14 second as style-only reference.",
+      "styleReference": {
+        "path": "docs/diagrams/ccgc-enterprise-runtime-multiuser-litellm-presentation-v14.png",
+        "sha256": "dfac848fed4d7603539ba757d79d94bbd0a34e08abce880183d098eafc00c98b"
+      },
+      "prompts": [
+        {
+          "role": "Archify-first structure translation and professional presentation styling",
+          "path": "docs/diagrams/ccgc-enterprise-runtime-multiuser-litellm-presentation-v15.prompt.txt",
+          "sha256": "5dd2478f8981fdfa0ba3fb2b929dc5ba42a54f4f90a29ed1625e00ae9aa10c8a",
+          "requestId": "c4ec022f-8dc1-4dc0-8851-b74e7eb14015"
+        },
+        {
+          "role": "exclude the Copilot seat from Azure without changing Archify topology",
+          "path": "docs/diagrams/ccgc-enterprise-runtime-multiuser-litellm-presentation-v15-correction.prompt.txt",
+          "sha256": "613614039da2f23aa272da3811e5477568351c18c8d4db495f1849695eb2eef1",
+          "requestId": "2bf9dd70-59f7-4a0e-b053-05bc3221f913",
+          "createdAt": "2026-10-12T12:21:54Z"
+        }
+      ]
+    },
+    "response": {
+      "generations": 2,
+      "usage": {
+        "inputTokens": 6118,
+        "imageInputTokens": 4368,
+        "textInputTokens": 1750,
+        "outputTokens": 4390,
+        "imageOutputTokens": 4390,
+        "textOutputTokens": 0,
+        "totalTokens": 10508
+      },
+      "stages": [
+        {
+          "name": "generation",
+          "requestId": "c4ec022f-8dc1-4dc0-8851-b74e7eb14015",
+          "inputTokens": 4334,
+          "imageInputTokens": 2928,
+          "textInputTokens": 1406,
+          "outputTokens": 2195,
+          "totalTokens": 6529,
+          "outputSha256": "8efae722480fa9824af98b11405dc6102525008d6864e84c147eeea35c2a778d"
+        },
+        {
+          "name": "correction",
+          "requestId": "2bf9dd70-59f7-4a0e-b053-05bc3221f913",
+          "inputTokens": 1784,
+          "imageInputTokens": 1440,
+          "textInputTokens": 344,
+          "outputTokens": 2195,
+          "totalTokens": 3979,
+          "outputSha256": "0270f8e92233a4b66c4c0372a45e2d7ae625a5b71c39fff8dc71c83e56e67d1d"
+        }
+      ]
+    }
+  },
+  "manualPostProcessing": {
+    "visualChanges": null,
+    "metadata": "Embedded the exact final correction prompt in the PNG as a tEXt chunk with the established Impeccable embed-prompt workflow.",
+    "correctedGenerationSha256": "0270f8e92233a4b66c4c0372a45e2d7ae625a5b71c39fff8dc71c83e56e67d1d",
+    "finalOutputSha256": "be21379d72cbcfde3340c112659bb453ed086418be0b537aaab1d0d713da2698"
+  },
+  "output": {
+    "path": "docs/diagrams/ccgc-enterprise-runtime-multiuser-litellm-presentation-v15.png",
+    "desktopCopy": "/Users/shironbabi/Desktop/CCGC-Enterprise-Multiuser-Architecture-Poster.png",
+    "width": 2560,
+    "height": 1600,
+    "bytes": 2461656,
+    "sha256": "be21379d72cbcfde3340c112659bb453ed086418be0b537aaab1d0d713da2698"
+  },
+  "visualReview": {
+    "status": "approved",
+    "inspectedAt": "2026-10-12T12:22:20Z",
+    "inspectionSizes": [
+      "native 2560x1600",
+      "presentation 1280x800"
+    ],
+    "correctionEditUsed": true,
+    "archifyComparison": {
+      "straightSixNodeRequestSpine": "matched",
+      "topControlPositions": "matched",
+      "fourLowerStateServices": "matched",
+      "threeBottomPanels": "matched",
+      "connectionCount": 12,
+      "orthogonalRouting": "matched",
+      "connectionEndpointsAndLabels": "matched",
+      "azureScopeMembership": "matched after correction",
+      "nestedInferencePlaneMembership": "matched",
+      "viewerChromeRemoved": true
+    },
+    "styleTranslation": "Warm off-white professional presentation treatment with compact official icons, restrained Azure blue, dark slate typography, and white/pale blue-gray cards.",
+    "readability": "approved"
+  },
+  "infrastructureChanged": false
+}

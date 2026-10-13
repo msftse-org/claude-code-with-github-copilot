@@ -1,0 +1,148 @@
+{
+  "operation": "images/edits",
+  "provider": "Azure OpenAI",
+  "resource": "foundry-llm-demo-resource",
+  "region": "Sweden Central",
+  "deployment": "gpt-image-2.5-flare",
+  "model": "gpt-image-2.5-flare",
+  "modelVersion": "2026-09-08",
+  "apiVersion": "2025-04-01-preview",
+  "authentication": "Microsoft Entra ID bearer token",
+  "createdAt": "2026-10-12T12:27:30Z",
+  "archifyProvenance": {
+    "role": "primary structure and geometry authority",
+    "specification": {
+      "path": "docs/diagrams/ccgc-enterprise-runtime-poster.architecture.json",
+      "sha256": "32742434ba414be7ccd42b0b3f169759abd468ecaff66811cb9bd9e97abebd0f",
+      "bytes": 7190
+    },
+    "htmlArtifact": {
+      "path": "docs/diagrams/ccgc-enterprise-runtime-poster.html",
+      "sha256": "d5ed475cc6de42b184b5d1174951c6073a320267a3219222e6a7c2a5ea27ac0e",
+      "bytes": 743414
+    },
+    "primaryVisualReference": {
+      "path": "docs/diagrams/ccgc-enterprise-runtime-poster.visual-check.2048x1320.light.png",
+      "sha256": "7e4e2c126e7d6ce602502d76518d318cb49111525bcf26f335ee9bae7ccd435b",
+      "width": 2048,
+      "height": 1320
+    },
+    "showcaseValidation": {
+      "checksPassed": 9,
+      "checksTotal": 9,
+      "errors": 0,
+      "warnings": 0
+    },
+    "visualContainment": {
+      "status": "passed",
+      "viewports": [
+        "1440x900",
+        "1600x1000",
+        "1920x1080",
+        "2048x1320"
+      ]
+    }
+  },
+  "gptImageProvenance": {
+    "request": {
+      "quality": "high",
+      "size": "2560x1600",
+      "outputFormat": "png",
+      "referenceMode": "Two image[] references: updated Archify visual first as structure authority, v15 second as style-only reference.",
+      "styleReference": {
+        "path": "docs/diagrams/ccgc-enterprise-runtime-multiuser-litellm-presentation-v15.png",
+        "sha256": "be21379d72cbcfde3340c112659bb453ed086418be0b537aaab1d0d713da2698"
+      },
+      "prompts": [
+        {
+          "role": "updated Archify-first structure translation with the implementation-required worker-to-Key-Vault dependency",
+          "path": "docs/diagrams/ccgc-enterprise-runtime-multiuser-litellm-presentation-v16.prompt.txt",
+          "sha256": "adffc6e14d040cf60f5e548a9696c7ae0d7bc69f88a73a99db35a3d20df5b273",
+          "requestId": "2cf3476b-9043-4589-94d7-bd81f3701679"
+        },
+        {
+          "role": "restore the missing worker-to-Key-Vault dependency without changing other Archify topology",
+          "path": "docs/diagrams/ccgc-enterprise-runtime-multiuser-litellm-presentation-v16-correction.prompt.txt",
+          "sha256": "126e958278b9674df1f61749470dee7162e1bb148a3d384ea348e246e7165fe8",
+          "requestId": "3b14f722-bde0-4fe1-8fd2-88738822e133",
+          "createdAt": "2026-10-12T12:28:38Z"
+        }
+      ]
+    },
+    "response": {
+      "generations": 2,
+      "usage": {
+        "inputTokens": 6027,
+        "imageInputTokens": 4368,
+        "textInputTokens": 1659,
+        "outputTokens": 4390,
+        "imageOutputTokens": 4390,
+        "textOutputTokens": 0,
+        "totalTokens": 10417
+      },
+      "stages": [
+        {
+          "name": "generation",
+          "requestId": "2cf3476b-9043-4589-94d7-bd81f3701679",
+          "inputTokens": 4228,
+          "imageInputTokens": 2928,
+          "textInputTokens": 1300,
+          "outputTokens": 2195,
+          "totalTokens": 6423,
+          "outputBytes": 1942775,
+          "outputSha256": "713a4d389aebf84126221986125c493641277310c39ed6b891dbd05df974bcae"
+        },
+        {
+          "name": "correction",
+          "requestId": "3b14f722-bde0-4fe1-8fd2-88738822e133",
+          "inputTokens": 1799,
+          "imageInputTokens": 1440,
+          "textInputTokens": 359,
+          "outputTokens": 2195,
+          "totalTokens": 3994,
+          "outputBytes": 2245503,
+          "outputSha256": "e1ff68b17c8fe319a9ce462be82943ebf501da45d4080e57672fdf657be65349"
+        }
+      ]
+    }
+  },
+  "manualPostProcessing": {
+    "visualChanges": "Surgical production cleanup after the single GPT correction: removed the correction's erroneous intermediate downward arrowhead on the Shared inference plane title edge and completed the same dashed worker-to-Key-Vault connector from the Multi-user worker top edge. No card, label, boundary, service, or other connector was changed.",
+    "metadata": "Embedded the exact final correction prompt in the PNG as an impeccable:prompt tEXt chunk with the established Impeccable embed-prompt workflow.",
+    "correctedGenerationSha256": "e1ff68b17c8fe319a9ce462be82943ebf501da45d4080e57672fdf657be65349",
+    "finalOutputSha256": "48ecb143099b6fc40d16fb0c496a666a0d31595c570592ad15b75a61a4f3031c"
+  },
+  "output": {
+    "path": "docs/diagrams/ccgc-enterprise-runtime-multiuser-litellm-presentation-v16.png",
+    "desktopCopy": "/Users/shironbabi/Desktop/CCGC-Enterprise-Multiuser-Architecture-Poster.png",
+    "width": 2560,
+    "height": 1600,
+    "bytes": 1753383,
+    "sha256": "48ecb143099b6fc40d16fb0c496a666a0d31595c570592ad15b75a61a4f3031c"
+  },
+  "visualReview": {
+    "status": "approved",
+    "inspectedAt": "2026-10-12T12:30:07Z",
+    "inspectionSizes": [
+      "native 2560x1600",
+      "presentation 1280x800"
+    ],
+    "correctionEditUsed": true,
+    "archifyComparison": {
+      "straightSixNodeRequestSpine": "matched",
+      "topControlPositions": "matched",
+      "fourLowerStateServices": "matched",
+      "threeBottomPanels": "matched",
+      "connectionCount": 13,
+      "orthogonalRouting": "matched",
+      "connectionEndpointsAndLabels": "matched after correction and surgical endpoint cleanup",
+      "workerToKeyVaultDependency": "present: dispatch + checkpoint + user keys",
+      "azureScopeMembership": "matched",
+      "nestedInferencePlaneMembership": "matched",
+      "viewerChromeRemoved": true
+    },
+    "styleTranslation": "Preserved the v15 warm off-white professional presentation treatment with compact official icons, restrained Azure blue, dark slate typography, and white/pale blue-gray cards.",
+    "readability": "approved"
+  },
+  "infrastructureChanged": false
+}

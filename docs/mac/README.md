@@ -5,7 +5,7 @@ architecture.
 
 > [!IMPORTANT]
 > The enterprise environment is not deployed yet. These commands describe the
-> implemented client flow and become usable after the operator completes the
+> implemented client flow and become usable after enterprise IT completes the
 > enterprise deployment and employee binding.
 
 ## What is installed or stored on the Mac
@@ -55,10 +55,11 @@ settings without previewing and applying configuration again. The generated
 
 ## 2. Sign in with Microsoft Entra
 
-The operator provides:
+Enterprise IT provides:
 
-- the private enterprise broker URL
+- the public HTTPS enterprise broker URL
 - the Entra application audience, such as `api://APPLICATION-ID`
+- confirmation that the employee is assigned to the authorized Entra pilot group
 - confirmation that the employee's Entra principal is linked to the same
   employee's GitHub account and approved credential reference
 
@@ -66,13 +67,15 @@ Run:
 
 ```bash
 npm run enterprise:client -- login \
-  --gateway https://PRIVATE_GATEWAY \
+  --gateway https://PUBLIC_BROKER_FQDN \
   --audience api://ENTRA-APPLICATION-ID
 ```
 
 The helper uses `DefaultAzureCredential` to obtain an Entra token for the
-configured audience. The enterprise broker verifies the tenant and immutable
-object ID, then returns the approved employee binding and model catalog.
+configured audience over the public internet. The enterprise broker verifies
+the tenant, audience, `CCGC.Access` scope/app role, and immutable object ID,
+then returns the approved employee binding and model catalog. No VPN is
+required; worker, LiteLLM, and data endpoints remain private.
 
 The organization must define which `DefaultAzureCredential` source is allowed in
 production. Before login, remove unintended developer, CLI, IDE, or managed
@@ -232,11 +235,11 @@ If Keychain access fails, confirm that:
 
 ## 9. Binding changes and revocation
 
-An operator binding update increments the binding revision and revokes existing
+An administrator binding update increments the binding revision and revokes existing
 admissions. The employee must obtain the updated profile through a reviewed
 enterprise login before continuing.
 
-Stop and contact the operator if any of these change unexpectedly:
+Stop and contact enterprise IT if any of these change unexpectedly:
 
 - Entra tenant or object ID
 - GitHub account ID or login
@@ -252,10 +255,10 @@ Do not delete or edit the profile to bypass an identity conflict.
 |---|---|
 | Entra sign-in returns no token | Verify the approved credential source can obtain `<audience>/.default`. |
 | Broker returns HTTP 401 | Reauthenticate with the intended Entra principal and confirm audience configuration. |
-| Broker returns HTTP 403 | Ask the operator to verify the employee binding and its revision. |
+| Broker returns HTTP 403 | Ask enterprise IT to verify the employee binding and its revision. |
 | Keychain credential is unavailable | Unlock Keychain and confirm the current macOS user owns the enrollment. |
 | Routing conflict | Remove or resolve the reported environment or Claude setting; do not force an overwrite. |
-| No models are listed | Ask the operator to verify the employee's approved catalog and account binding. |
+| No models are listed | Ask enterprise IT to verify the employee's approved catalog and account binding. |
 | A worker replica restarts | Retry only through normal Claude behavior. The next admitted turn can restore the encrypted branch checkpoint on another replica; an uncertain in-flight inference is never replayed automatically. |
 
 Useful checks:
@@ -275,4 +278,4 @@ npm run enterprise:client -- configure
   storage.
 - Do not enable provider fallback, response caching, inference retries, hooks,
   or payload logging without a separate security review.
-- Treat unexpected identity, model, or binding changes as an operator event.
+- Treat unexpected identity, model, or binding changes as an enterprise IT event.

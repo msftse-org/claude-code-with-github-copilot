@@ -1,0 +1,82 @@
+Use the supplied approved v12 poster as the binding visual reference and edit
+that image directly. Add one explicit Microsoft Azure scope boundary with
+correct architecture semantics. Preserve the same poster, factual content,
+topology, connectors, professional light visual world, and 2560x1600
+dimensions. This is a precise scope annotation, not a redesign.
+
+ADD ONE MICROSOFT AZURE SCOPE:
+- Add one restrained outer boundary titled exactly "MICROSOFT AZURE".
+- Place one small official Microsoft Azure icon immediately beside the boundary
+  title. Keep the icon compact and subordinate to the title.
+- Use a thin muted Azure-blue rounded outline with no heavy filled panel,
+  shadow, gradient, or dark surface. The poster canvas should remain visible
+  inside the boundary.
+- The boundary title and icon must sit cleanly on or just inside the upper-left
+  edge without obscuring any component, connector, or existing text.
+
+THE AZURE BOUNDARY ENCLOSES ONLY THESE AZURE-HOSTED COMPONENTS:
+- Microsoft Entra ID.
+- Azure Key Vault.
+- Enterprise broker.
+- The complete existing
+  "SHARED INFERENCE PLANE - AZURE CONTAINER APPS" boundary, including only its
+  Multi-user worker and LiteLLM Gateway cards.
+- Azure Monitor.
+- Enterprise PostgreSQL HA.
+- Encrypted Blob checkpoints.
+- LiteLLM PostgreSQL HA.
+
+EXTERNAL COMPONENTS MUST REMAIN CLEARLY OUTSIDE:
+- Claude Code stays fully outside the Microsoft Azure boundary on the left.
+- Employee's GitHub Copilot seat stays fully outside the Microsoft Azure
+  boundary on the right.
+- Entitled Claude models stay fully outside the Microsoft Azure boundary on the
+  right.
+- No part of any external card may overlap, touch, or appear inside the Azure
+  boundary.
+- Place the Azure boundary's left edge cleanly between Claude Code and the
+  Enterprise broker. Place its right edge cleanly between the shared inference
+  plane and the employee GitHub card.
+- Place its upper edge above Microsoft Entra ID and Azure Key Vault. Place its
+  lower edge below the four Azure state/monitoring cards and above the three
+  bottom information panels.
+
+PRESERVE NESTED SCOPE SEMANTICS:
+- Keep the existing Shared Inference Plane / Azure Container Apps boundary
+  nested visibly inside the larger Microsoft Azure boundary.
+- It must continue to enclose ONLY Multi-user worker and LiteLLM Gateway.
+- Keep exactly one small Azure Container Apps icon on that nested boundary.
+- Do not merge the nested boundary into the Azure scope or imply the Enterprise
+  broker, databases, Monitor, Key Vault, or Entra ID are inside the shared
+  inference plane.
+
+PRESERVE EVERY RUNTIME RELATIONSHIP:
+- Preserve the main solid request path:
+  Claude Code -> Enterprise broker -> Multi-user worker -> LiteLLM Gateway ->
+  Employee's GitHub Copilot seat -> Entitled Claude models.
+- Let the solid request arrows cross the Microsoft Azure boundary edges
+  cleanly. Arrowheads must continue to terminate on service cards, never on the
+  Azure boundary.
+- Preserve Microsoft Entra ID -> Enterprise broker,
+  Azure Key Vault -> Enterprise broker, and
+  Azure Key Vault -> LiteLLM Gateway dependencies with their current labels and
+  directional endpoints.
+- Preserve every existing state, binding, checkpoint, OAuth/gateway-state, and
+  metadata-only monitoring connector. No connector may terminate on the Azure
+  boundary.
+- The scope outline must route behind or around connectors so it never appears
+  to interrupt, redirect, or terminate them.
+
+PRESERVE THE APPROVED V12 DESIGN:
+- Preserve the smaller Node.js logos inside Enterprise broker and Multi-user
+  worker and the smaller LiteLLM mark inside LiteLLM Gateway.
+- Preserve all card sizes, card content, replica labels, authorization labels,
+  capability bullets, icons, titles, and bottom panels.
+- Preserve the warm off-white canvas, white and pale blue-gray cards, dark
+  slate typography, muted Microsoft-blue lines, compact official icons,
+  typography hierarchy, and executive presentation quality.
+- Preserve excellent readability at 1280x800.
+- Do not add provisioning, bootstrap, deployment status, IaC, CI/CD, operator,
+  API Management, VPN, infrastructure-creation content, or any new service.
+- Do not recreate a generic ambiguous enclosure around every component. The new
+  outline communicates only the precise Microsoft Azure hosting scope above.

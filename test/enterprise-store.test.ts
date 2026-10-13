@@ -2,6 +2,38 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { PostgresEnterpriseStore } from '../src/enterprise-store.ts';
 
+test('PostgreSQL Entra configuration preserves the asynchronous token password', async () => {
+  const store = new PostgresEnterpriseStore(
+    'postgresql://managed-identity@example.postgres.database.azure.com:5432/postgres?sslmode=verify-full',
+    { getToken: async () => ({ token: 'managed-identity-token' }) },
+  );
+  try {
+    assert.equal(store.pool.options.host, 'example.postgres.database.azure.com');
+    assert.equal(store.pool.options.user, 'managed-identity');
+    assert.equal(store.pool.options.database, 'postgres');
+    const configuredPassword = store.pool.options.password;
+    assert.equal(typeof configuredPassword, 'function');
+    if (typeof configuredPassword !== 'function') assert.fail('Expected an asynchronous PostgreSQL password provider.');
+    assert.equal(await configuredPassword(), 'managed-identity-token');
+  } finally {
+    await store.close();
+  }
+});
+
+test('runtime PostgreSQL configuration does not own schema migrations', async () => {
+  const store = new PostgresEnterpriseStore(
+    'postgresql://managed-identity@example.postgres.database.azure.com:5432/postgres?sslmode=verify-full',
+    { getToken: async () => ({ token: 'managed-identity-token' }) },
+    false,
+    false,
+  );
+  try {
+    assert.equal(store.manageSchema, false);
+  } finally {
+    await store.close();
+  }
+});
+
 const connection = process.env.CCGC_TEST_POSTGRES_URL;
 
 test('PostgreSQL store atomically binds, reserves, fences, audits and revokes', { skip: !connection }, async () => {

@@ -1,0 +1,91 @@
+{
+  "operation": "images/edits",
+  "provider": "Azure OpenAI",
+  "resource": "foundry-llm-demo-resource",
+  "region": "Sweden Central",
+  "deployment": "gpt-image-2.5-flare",
+  "model": "gpt-image-2.5-flare",
+  "modelVersion": "2026-09-08",
+  "apiVersion": "2025-04-01-preview",
+  "authentication": "Microsoft Entra ID bearer token",
+  "createdAt": "2026-10-12T11:08:10Z",
+  "request": {
+    "quality": "high",
+    "size": "2560x1600",
+    "outputFormat": "png",
+    "prompt": {
+      "role": "remove deployment-time content and rebalance as a runtime-only poster",
+      "path": "docs/diagrams/ccgc-enterprise-runtime-multiuser-litellm-presentation-v10.prompt.txt",
+      "sha256": "c285d4a6afaa88ba36a765b1afe20bf2950445780473b4147022fd7a79f8832b",
+      "requestId": "ee2efd1c-4e58-4724-af4e-b76a23b1eeff"
+    },
+    "reference": {
+      "role": "approved v9 light executive poster",
+      "path": "docs/diagrams/ccgc-enterprise-runtime-multiuser-litellm-presentation-v9.png",
+      "sha256": "c0746b4a605642ed1a4e8b24adf728f38218529b1259b53bd2fe88079f83811c"
+    },
+    "nonGenerationAttempts": [
+      {
+        "requestId": "632c8790-b581-4ee6-873e-cb4407e1e7f4",
+        "status": 400,
+        "result": "Rejected before generation because response_format is unsupported."
+      },
+      {
+        "requestId": "d1648e75-0b3b-482f-b11b-20c0d6ece943",
+        "status": 429,
+        "result": "Rejected before generation by the deployment call-rate limit; retried after the server-specified delay."
+      }
+    ]
+  },
+  "response": {
+    "generations": 1,
+    "requestId": "ee2efd1c-4e58-4724-af4e-b76a23b1eeff",
+    "createdUnix": 1791803290,
+    "usage": {
+      "inputTokens": 2144,
+      "imageInputTokens": 1440,
+      "textInputTokens": 704,
+      "outputTokens": 2195,
+      "imageOutputTokens": 2195,
+      "textOutputTokens": 0,
+      "totalTokens": 4339
+    },
+    "generatedOutput": {
+      "bytes": 2391703,
+      "sha256": "1241b41f53ed88ad2736882e2b7e52cf95252e9d0a6674720aa2d4b0a76d3f4e"
+    }
+  },
+  "manualPostProcessing": {
+    "visualChanges": null,
+    "metadata": "Embedded the exact v10 prompt in the PNG as a tEXt chunk with the established Impeccable embed-prompt workflow.",
+    "generatedOutputSha256": "1241b41f53ed88ad2736882e2b7e52cf95252e9d0a6674720aa2d4b0a76d3f4e",
+    "finalOutputSha256": "39e0a77fc89ef2459650e9562e33dc6c50a1e6f1c17324162356663bde13cfb5"
+  },
+  "output": {
+    "path": "docs/diagrams/ccgc-enterprise-runtime-multiuser-litellm-presentation-v10.png",
+    "desktopCopy": "/Users/shironbabi/Desktop/CCGC-Enterprise-Multiuser-Architecture-Poster.png",
+    "width": 2560,
+    "height": 1600,
+    "bytes": 2394959,
+    "sha256": "39e0a77fc89ef2459650e9562e33dc6c50a1e6f1c17324162356663bde13cfb5"
+  },
+  "visualReview": {
+    "status": "approved",
+    "inspectedAt": "2026-10-12T11:08:45Z",
+    "inspectionSizes": [
+      "native 2560x1600",
+      "presentation 1280x800"
+    ],
+    "correctionEditUsed": false,
+    "bicepBootstrapCardRemoved": true,
+    "bootstrapBoundaryAndConnectorsRemoved": true,
+    "deploymentStatusBannerRemoved": true,
+    "runtimePathPreserved": true,
+    "runtimeServicesAndStateRelationshipsPreserved": true,
+    "bottomPanelsPreserved": true,
+    "compositionRebalanced": true,
+    "orphanArrowsOrLabels": false,
+    "readability": "approved"
+  },
+  "infrastructureChanged": false
+}

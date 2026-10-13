@@ -1,0 +1,68 @@
+Use the supplied approved v10 poster as the binding visual reference and edit
+that image directly. Make one precise topology and layout correction. Preserve
+the same poster, visual world, factual copy, runtime services, and dimensions.
+This is not a redesign.
+
+CORRECT THE SHARED INFERENCE BOUNDARY:
+- Resize and reposition the boundary titled
+  "SHARED INFERENCE PLANE - AZURE CONTAINER APPS" so it encloses ONLY the
+  "Multi-user worker" and "LiteLLM Gateway" cards.
+- The boundary must be visually unambiguous: its left edge begins after the
+  Enterprise broker card, its right edge ends before the employee GitHub card,
+  and neither external card touches, overlaps, or appears inside it.
+- Keep exactly one small Azure Container Apps icon beside the shared-boundary
+  title. Do not place Container Apps icons inside the worker or LiteLLM cards.
+- Preserve the worker and LiteLLM cards as separate peer services with their
+  current 2-30 and 2-10 replica labels, Node.js and LiteLLM marks, copy, and
+  responsibilities.
+
+ENTERPRISE BROKER OUTSIDE THE BOUNDARY:
+- Place the "Enterprise broker" visibly outside and immediately to the left of
+  the shared inference boundary.
+- Preserve the solid runtime arrows:
+  Claude Code -> Enterprise broker -> Multi-user worker.
+- Remove the Azure Container Apps icon from the Enterprise broker card.
+- Remove the words "Container App" from the Enterprise broker card.
+- Preserve the Enterprise broker title, "2-10 replicas", Node.js mark,
+  "CCGC.Access - employee inference",
+  "CCGC.Admin - account lifecycle", and the full admin lifecycle list:
+  create user, GitHub connection, binding, status, revocation.
+- Do not shrink, crop, obscure, or rewrite the broker's factual content.
+
+EMPLOYEE ENDPOINTS OUTSIDE THE BOUNDARY:
+- Place "Employee's GitHub Copilot seat" and "Entitled Claude models" visibly
+  outside and to the right of the shared inference boundary.
+- Preserve the solid runtime arrows:
+  LiteLLM Gateway -> Employee's GitHub Copilot seat ->
+  Entitled Claude models.
+- No part of either external card may overlap, touch, or appear inside the
+  shared inference boundary.
+- Preserve their current titles, icons, copy, and visual roles.
+
+PRESERVE THE COMPLETE RUNTIME POSTER:
+- Preserve Microsoft Entra ID and Azure Key Vault.
+- Preserve Azure Monitor, Enterprise PostgreSQL HA, Encrypted Blob checkpoints,
+  and LiteLLM PostgreSQL HA.
+- Preserve all runtime state, binding, encrypted checkpoint, OAuth/gateway
+  state, and metadata-only monitoring relationships and labels.
+- Preserve the bottom Isolation & Security, Key Capabilities, and Limitations
+  panels and all their current content.
+- Preserve the clear single runtime path:
+  Claude Code -> Enterprise broker -> Multi-user worker -> LiteLLM Gateway ->
+  Employee's GitHub Copilot seat -> Entitled Claude models.
+
+VISUAL FIDELITY:
+- Preserve the approved professional light style exactly: warm off-white
+  canvas, white and pale blue-gray cards, dark slate typography, muted
+  Microsoft-blue connectors, thin blue outlines, compact official icons, and
+  executive presentation quality.
+- Preserve the title, subtitle, typography character, hierarchy, card styling,
+  line weight, spacing rhythm, and 2560x1600 landscape dimensions.
+- Rebalance horizontal spacing so the five runtime stages remain readable and
+  evenly composed without overlaps, cramped arrows, empty holes, or orphan
+  lines.
+- Preserve excellent readability at 1280x800.
+- Do not introduce or restore provisioning, bootstrap, deployment status, IaC,
+  CI/CD, operator, API Management, VPN, or infrastructure-creation content.
+- Do not add new objects, services, labels, claims, or decorative concepts.
+- Do not alter any runtime fact not explicitly corrected above.

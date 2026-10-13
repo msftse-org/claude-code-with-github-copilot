@@ -32,14 +32,18 @@ per-user branch capacity, durable encrypted checkpoint lineage, cancellation,
 and the rule that uncertain inference is never replayed. API Management remains
 unnecessary because these controls are already implemented at the broker.
 
-The deployment now contains three independently scaled private Container Apps:
-broker (2-10), worker (2-30), and LiteLLM (2-10). LiteLLM receives a dedicated
-private PostgreSQL Flexible Server because its Prisma-backed credential store
-requires a stable database password; the enterprise control database remains
-Entra-only. Redis is not required for correctness: without it, LiteLLM reads
-user connections from PostgreSQL and still keeps short-lived Copilot sessions
-user-scoped in each replica. Redis may be added after load testing if database
-pressure justifies another stateful dependency.
+The deployment contains three independently scaled Container Apps: one public
+HTTPS broker (2-10), an internal worker (2-30), and an internal LiteLLM Gateway
+(2-10), plus a one-shot private bootstrap job defined by Bicep. Employee broker
+routes accept only `CCGC.Access`; lifecycle routes accept only `CCGC.Admin`.
+The Enterprise Application is assignment-required and assigns the two roles to
+separate employee and administrator groups. LiteLLM receives a dedicated private PostgreSQL
+Flexible Server because its Prisma-backed credential store requires a stable
+database password; the enterprise control database remains Entra-only. Redis is
+not required for correctness: without it, LiteLLM reads user connections from
+PostgreSQL and still keeps short-lived Copilot sessions user-scoped in each
+replica. Redis may be added after load testing if database pressure justifies
+another stateful dependency.
 
 This revision is locally implemented and validated, not deployed or
 production-approved. Release remains blocked on two real Copilot users,
@@ -99,7 +103,7 @@ acceptance and rollout. Both have GPT-image presentation companions in the
 |---|---|
 | Developer machine | Actual unmodified Claude Code, ordinary gateway URL/model discovery and a credential helper. A new enterprise helper acquires gateway-audience Entra access tokens through a supported identity library and browser authorization-code/PKCE sign-in. Its local token cache uses OS-protected storage. Read/Edit/Bash and approvals remain in Claude; there is no local inference proxy or separate agent. This helper is not implemented by the alpha's existing Keychain renewal-key helper. |
 | Gateway identity | Entra tenant/issuer/audience/signature/expiry validation plus approved conditional-access policies. Bind immutable `(tenant ID, object ID)` to the same developer's verified immutable GitHub account ID through a short-lived, anti-replay linking transaction. Email matching or a client-supplied account header is insufficient. |
-| Private ingress | Internal, zone-redundant Azure Container Apps broker in a private VNet. Employees reach its private DNS name through approved corporate connectivity; there is no direct public connector. The broker validates Entra identity and authenticates worker hops; ingress never supplies a Copilot entitlement. |
+| Authenticated public ingress | Public HTTPS, zone-redundant Azure Container Apps broker. Employees connect over the internet without VPN. The broker validates Entra tenant, issuer, audience, signature, immutable object ID, and `CCGC.Access`; the Enterprise Application requires assignment to the approved employee group. Worker and LiteLLM ingress remain internal, and ingress never supplies a Copilot entitlement. |
 | Admission and seat broker | Zone-redundant Azure Container Apps environment with multiple gateway replicas. Recheck principal, link revision, grant, model policy and revocation before dispatch. The gateway-owned catalog is the intersection of organizational policy and that user's live entitlement; no client-side per-model routing table. |
 | Copilot workers | Shared Container Apps replicas serve many users, but each request resolves an immutable account-keyed connector. Broker assertions bind every identity and routing field; workers cannot accept caller-selected accounts. Per-user branch/concurrency limits precede global limits. Any turn can land on any replica. |
 | Credential custody | Worker managed identity has private Key Vault secret-read access. Long-lived account authorization is stored under the immutable binding reference; each connector owns independent short-lived Copilot token and refresh state. Managed identity accesses Azure resources; it is not Copilot authorization. Supported browser linking, rotation, unlinking, and narrower per-secret authorization remain release gates. |
@@ -107,8 +111,9 @@ acceptance and rollout. Both have GPT-image presentation companions in the
 | Availability and recovery | Healthy replicas can accept new admissions, but an interrupted stream is not transparently resumed. A failed owner retires affected work; uncertain dispatches retain their accounting and are not replayed. Ownership leases require fencing and verified old-owner retirement; a lease alone cannot prevent an old process from making a late external call. Start with one foreground session per user and separately identified auxiliary requests. |
 | Operations and governance | Metadata-only Azure Monitor/Application Insights, restricted audit access and retention, alerts for denials, refresh failures, saturation and interrupted streams. Never log authorization headers, prompts, responses or tool bodies. Persist audit intent with control-state changes before export. Reconcile gateway counters with authorized provider reporting where available; counters are not a guaranteed billing cap or authoritative Copilot invoice. |
 
-**Why this baseline:** Container Apps provides the required private ingress and
-managed compute without introducing a second API gateway or assuming Kubernetes.
+**Why this baseline:** Container Apps provides managed public HTTPS for the
+authenticated broker and internal ingress for the inference plane without
+introducing a second API gateway or assuming Kubernetes.
 PostgreSQL provides the transactional reservation/fencing model; a cache is not
 the source of authorization or accounting truth. This is a logical resource and
 trust-boundary diagram, not a claim that managed PaaS services physically execute
@@ -224,8 +229,9 @@ Claude Code is the client and owns the coding workflow, repository tools, and pe
 
 **The primary product experience is configuration-first: the unmodified Claude client connects to a remote HTTPS AI gateway without a local inference proxy or an always-running project launcher.** CLI users configure Claude's supported gateway settings; Desktop users configure its separate third-party inference surface. A short-lived credential helper or sign-in callback is allowed; neither is a local model proxy.
 
-The preferred Azure topology uses the private Container Apps enterprise broker
-as the single gateway in front of one isolated LiteLLM connector per user.
+The preferred Azure topology uses the public Entra-authorized Container Apps
+enterprise broker as the single employee gateway in front of account-isolated
+LiteLLM connections. Worker and LiteLLM endpoints remain internal.
 **LiteLLM's native Copilot Messages provider is the selected connector**, because
 its reviewed implementation covers the required protocol and authentication
 path. The connector still owns Copilot authentication, token exchange/refresh,
@@ -346,8 +352,8 @@ The supplied provider documentation [S16] was reviewed together with source and 
 
 **Decision:** LiteLLM is selected for the scoped remote proof of **Claude client
 -> remote LiteLLM -> Copilot-provided Claude**, with Caddy ingress and Node
-admission controls in the alpha and the private Container Apps broker in the
-enterprise foundation. Use its native
+admission controls in the alpha, and as the internal enterprise gateway behind
+the public Entra-authorized Container Apps broker. Use its native
 `github_copilot/<validated-claude-id>` Messages route, not OpenAI Chat
 Completions conversion or a Copilot agent runtime. It removes much of the need
 for a custom protocol/authentication connector, but does not establish all of
@@ -563,10 +569,13 @@ The model request path now crosses operator-controlled hosting as well as GitHub
 
 Prefer supported client configuration and an existing conforming remote gateway over unnecessary custom code. Reusing the current TypeScript connector or hosting LiteLLM are candidates, not requirements to support both. Pin actual dependencies at G0 and the deployment/policy revision at G1. If the SDK is selected, distinguish its remote owned runtime from any system `copilot` executable.
 
-On Azure, the private Container Apps broker is the only ingress and resolves a
-protected per-user connector through Key Vault. Select the region, compute,
-ingress authentication, and cost estimate after G0; section 4.3 permits the
-owner's separately approved infrastructure-only stage. Use the native
+On Azure, the public HTTPS Container Apps broker is the only employee ingress
+and resolves a protected per-user connector through Key Vault. Entra
+tenant/audience/permission validation and assignment-required group membership
+authorize profile and admission creation; opaque bounded admissions authorize
+model calls. Select the region, compute, ingress authentication, and cost
+estimate after G0; section 4.3 permits the owner's separately approved
+infrastructure-only stage. Use the native
 `/v1/messages`-compatible API. The broker and connector must disable response
 caching, body logging, automatic inference retries, and provider fallbacks;
 preserve supported Anthropic headers, body semantics, tool blocks, and SSE
