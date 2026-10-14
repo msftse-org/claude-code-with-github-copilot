@@ -8,9 +8,9 @@ architecture.
 | Item | What it does | Required action |
 |---|---|---|
 | Official Claude Code `2.1.296` | Provides the unchanged coding interface and runs local Read, Edit, Bash, and permission decisions. | Install and verify the exact supported version. |
-| Enterprise CCGC helper | Native self-enrollment client and Claude `apiKeyHelper`. | Keep the executable at a stable path. |
+| Enterprise CCGC helper | Shell-based self-enrollment client and Claude `apiKeyHelper`. | Keep the installed private script at its stable path. |
 | Admission credential in macOS Keychain | Authenticates Claude requests for one employee and one bounded admission. | Allow the helper to create and renew it; never copy it manually. |
-| `~/.claude/settings.json` | Routes Claude to the enterprise broker and installs the credential helper. | Preview and explicitly apply the generated patch. |
+| `~/.claude/settings.json` | Routes Claude to the enterprise broker and installs the credential helper. | Enrollment applies a conflict-checked update. |
 | Enterprise profile | Stores non-secret Entra/GitHub binding, catalog, revision, and admission metadata. | Let the helper create it; do not hand-edit or restore stale grants. |
 
 GitHub OAuth and Copilot tokens do not belong on the Mac. LiteLLM encrypts the
@@ -21,18 +21,17 @@ matching LiteLLM user key used by workers.
 
 Required for self-service API-key enrollment:
 
-- macOS ARM64
+- macOS
 - Official Claude Code `2.1.296`
-- The approved `ccgc-enterprise-darwin-arm64` executable
+- The repository's `scripts/ccgc-enterprise-macos.sh` enrollment script
 - A broker URL and unexpired single-use enrollment code from Enterprise IT
 
-Install the executable at a stable path:
+Save the script locally without making it executable:
 
 ```bash
-mkdir -p "$HOME/.local/bin"
-install -m 0755 ccgc-enterprise-darwin-arm64 "$HOME/.local/bin/ccgc-enterprise"
+chmod 600 ccgc-enterprise-macos.sh
 claude --version
-"$HOME/.local/bin/ccgc-enterprise" --help
+/bin/bash ccgc-enterprise-macos.sh help
 ```
 
 If Claude Code is missing or has another version:
@@ -42,21 +41,25 @@ claude install 2.1.296
 claude --version
 ```
 
-Do not move the executable after enrollment without running `configure` again.
-The generated `apiKeyHelper` uses its absolute path.
+Enrollment copies the script to a stable private path under
+`~/.local/share/ccgc/enterprise/` and configures Claude to invoke it through
+`/bin/bash`. It does not disable Gatekeeper, remove quarantine attributes, or
+change MDM policy. If organizational policy also blocks approved shell scripts,
+IT must distribute the script through the corporate software channel.
 
 ## 2. Self-enroll with the one-time code
 
 ```bash
-"$HOME/.local/bin/ccgc-enterprise" enroll \
-  --gateway https://PUBLIC_BROKER_FQDN \
-  --code CCGC-ONE-TIME-CODE
+/bin/bash ccgc-enterprise-macos.sh enroll --code CCGC-ONE-TIME-CODE
 ```
 
-The executable opens GitHub's device page, displays the expected GitHub login,
+The script defaults to the deployed pilot broker. A different deployment can
+be selected explicitly with `--gateway https://PUBLIC_BROKER_FQDN`.
+
+The script opens GitHub's device page, displays the expected GitHub login,
 and waits for authorization. The broker rejects a different GitHub identity or
 an account without an active Copilot entitlement. After verification, the
-executable stores the employee API key directly in Keychain, writes the
+script stores the employee API key directly in Keychain, writes the
 non-secret profile, and configures Claude Code. The administrator never sees
 or transfers the API key.
 
@@ -131,20 +134,13 @@ It does not contain:
 The profile is private operational state. Do not commit it, synchronize it,
 hand-edit it, or copy an old admission to another Mac.
 
-## 5. Preview and apply Claude settings
+## 5. Reapply Claude settings
 
-Preview:
-
-```bash
-"$HOME/.local/bin/ccgc-enterprise" configure
-```
-
-The preview shows the non-secret patch only. Review it before applying.
-
-Apply:
+Enrollment configures Claude automatically. To reapply the same conflict-checked
+configuration later, run:
 
 ```bash
-"$HOME/.local/bin/ccgc-enterprise" configure
+/bin/bash "$HOME/.local/share/ccgc/enterprise/ccgc-enterprise-macos.sh" configure
 ```
 
 This updates `~/.claude/settings.json` and:
@@ -167,7 +163,7 @@ Resolve the conflict explicitly; do not overwrite organizational policy.
 ## 6. Inspect the approved models
 
 ```bash
-"$HOME/.local/bin/ccgc-enterprise" models
+/bin/bash "$HOME/.local/share/ccgc/enterprise/ccgc-enterprise-macos.sh" models
 ```
 
 The command shows:
