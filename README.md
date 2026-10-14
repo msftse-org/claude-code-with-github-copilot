@@ -265,6 +265,17 @@ Initial pilot artifacts are unsigned. Publish SHA-256 checksums and distribute
 through an approved channel; Apple Developer ID signing/notarization and
 Windows Authenticode signing should replace manual trust steps for production.
 
+The broker also serves a dependency-free administrator panel at
+`/ccgc/admin`. It provides readiness checks, preferred enrollment creation,
+copyable employee instructions, employee-binding revocation, and API-key
+revocation. It also lists bindings, API-key metadata, and recent enrollments
+through the paginated access-query contract. The panel never requests or
+displays LiteLLM keys and retains Entra tokens and one-time enrollment codes
+only in page memory. Browser sign-in uses the dependency-free Entra
+authorization-code-with-PKCE adapter documented in
+[`web/admin/README.md`](web/admin/README.md). The broker still validates
+`CCGC.Admin` for every administration API request.
+
 The older administrator-driven create/connect/link flow remains available for
 Entra employees and recovery operations:
 

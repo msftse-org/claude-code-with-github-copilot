@@ -1,0 +1,352 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="color-scheme" content="light dark">
+    <title>CCGC administration</title>
+    <link rel="stylesheet" href="/ccgc/admin/assets/admin.css">
+    <script src="/ccgc/admin/assets/auth.js" defer></script>
+    <script src="/ccgc/admin/assets/admin.js" defer></script>
+  </head>
+  <body>
+    <a class="skip-link" href="#main">Skip to content</a>
+    <header class="app-header">
+      <div class="brand">
+        <span class="brand-mark" aria-hidden="true">C</span>
+        <div>
+          <strong class="brand-title-full">CCGC administration</strong>
+          <strong class="brand-title-short">CCGC admin</strong>
+          <span>Employee access</span>
+        </div>
+      </div>
+      <div class="session">
+        <div class="session-copy">
+          <span id="session-state">Not signed in</span>
+          <small id="session-detail">CCGC.Admin is required</small>
+        </div>
+        <button id="session-action" class="button secondary" type="button">Sign in</button>
+      </div>
+    </header>
+
+    <div class="shell">
+      <nav class="side-nav" aria-label="Administration">
+        <button class="nav-item active" type="button" data-view="overview" aria-current="page">Overview</button>
+        <button class="nav-item" type="button" data-view="access">Access inventory</button>
+        <button class="nav-item" type="button" data-view="enroll">Enroll employee</button>
+        <button class="nav-item" type="button" data-view="revoke">Revoke access</button>
+        <button class="nav-item" type="button" data-view="instructions">Employee instructions</button>
+      </nav>
+
+      <main id="main" tabindex="-1">
+        <div id="global-message" class="message hidden" role="status" aria-live="polite"></div>
+
+        <section class="view active" data-panel="overview" aria-labelledby="overview-title">
+          <div class="page-heading">
+            <div>
+              <p class="context">Enterprise broker</p>
+              <h1 id="overview-title" tabindex="-1">Access readiness</h1>
+              <p>Verify the broker and enrollment dependencies before onboarding employees.</p>
+            </div>
+            <button id="refresh-status" class="button secondary" type="button">Refresh status</button>
+          </div>
+
+          <div class="readiness" aria-live="polite" aria-busy="false">
+            <article>
+              <span class="status-indicator neutral" id="broker-indicator" aria-hidden="true"></span>
+              <div>
+                <h2>Broker</h2>
+                <p id="broker-status">Sign in to check readiness.</p>
+              </div>
+            </article>
+            <article>
+              <span class="status-indicator neutral" id="gateway-indicator" aria-hidden="true"></span>
+              <div>
+                <h2>Copilot gateway</h2>
+                <p id="gateway-status">Not checked.</p>
+              </div>
+            </article>
+            <article>
+              <span class="status-indicator neutral" id="database-indicator" aria-hidden="true"></span>
+              <div>
+                <h2>Enterprise database</h2>
+                <p id="database-status">Not checked.</p>
+              </div>
+            </article>
+          </div>
+
+          <div class="info-panel">
+            <h2>Security boundary</h2>
+            <p>Administrative actions use Entra access tokens held in memory and require the <strong>CCGC.Admin</strong> app role. This panel does not store tokens, enrollment codes, or API keys in browser storage.</p>
+          </div>
+        </section>
+
+        <section class="view" data-panel="access" aria-labelledby="access-title" hidden>
+          <div class="page-heading">
+            <div>
+              <p class="context">Employee directory</p>
+              <h1 id="access-title" tabindex="-1">Access inventory</h1>
+              <p>Review linked identities, enterprise API keys, and recent enrollment activity.</p>
+            </div>
+            <button id="refresh-access" class="button secondary" type="button">Refresh access</button>
+          </div>
+
+          <div class="access-summary" aria-label="Access summary">
+            <article>
+              <span>Active bindings</span>
+              <strong id="active-binding-count">0</strong>
+            </article>
+            <article>
+              <span>Revoked bindings</span>
+              <strong id="revoked-binding-count">0</strong>
+            </article>
+            <article>
+              <span>Open enrollments</span>
+              <strong id="pending-enrollment-count">0</strong>
+            </article>
+          </div>
+
+          <section class="data-section" aria-labelledby="bindings-title">
+            <div class="section-heading">
+              <div>
+                <h2 id="bindings-title">Employee bindings</h2>
+                <p>Each binding is anchored to an immutable Entra object ID and GitHub account ID.</p>
+              </div>
+            </div>
+            <div id="access-loading" class="loading-state hidden" role="status">Loading access records...</div>
+            <div id="access-error" class="form-error hidden" role="alert"></div>
+            <div id="bindings-empty" class="empty-state hidden">
+              <h3>No bindings on this page</h3>
+              <p>Create an employee enrollment or move to another page.</p>
+            </div>
+            <div id="bindings-table-wrap" class="table-wrap hidden">
+              <table>
+                <thead>
+                  <tr>
+                    <th scope="col">Employee</th>
+                    <th scope="col">Models</th>
+                    <th scope="col">Updated</th>
+                    <th scope="col">State</th>
+                    <th scope="col"><span class="visually-hidden">Actions</span></th>
+                  </tr>
+                </thead>
+                <tbody id="bindings-body"></tbody>
+              </table>
+            </div>
+            <div class="pagination" aria-label="Access pages">
+              <button id="access-previous" class="button secondary" type="button" disabled>Previous</button>
+              <span id="access-page-label">Page 1</span>
+              <button id="access-next" class="button secondary" type="button" disabled>Next</button>
+            </div>
+          </section>
+
+          <section class="data-section" aria-labelledby="enrollments-list-title">
+            <div class="section-heading">
+              <div>
+                <h2 id="enrollments-list-title">Recent enrollments</h2>
+                <p>One-time codes and internal secret references are never returned or displayed.</p>
+              </div>
+            </div>
+            <div id="enrollments-empty" class="empty-state hidden">
+              <h3>No recent enrollments</h3>
+              <p>New enrollment activity will appear here.</p>
+            </div>
+            <div id="enrollments-list" class="enrollment-list"></div>
+          </section>
+        </section>
+
+        <section class="view" data-panel="enroll" aria-labelledby="enroll-title" hidden>
+          <div class="page-heading">
+            <div>
+              <p class="context">Preferred onboarding path</p>
+              <h1 id="enroll-title" tabindex="-1">Create employee enrollment</h1>
+              <p>Bind the immutable GitHub identity now. The employee completes GitHub authorization on their own workstation.</p>
+            </div>
+          </div>
+
+          <form id="enrollment-form" class="form-layout">
+            <div class="form-section">
+              <h2>Organization identity</h2>
+              <div class="field-grid">
+                <label>
+                  <span>Tenant ID</span>
+                  <input name="tenantId" type="text" inputmode="text" autocomplete="off" required
+                    pattern="[0-9a-fA-F-]{36}" aria-describedby="tenant-help">
+                  <small id="tenant-help">The employee's Microsoft Entra tenant UUID.</small>
+                </label>
+                <label>
+                  <span>Employee email</span>
+                  <input name="userEmail" type="email" autocomplete="email" required>
+                </label>
+                <label>
+                  <span>Employee alias</span>
+                  <input name="userAlias" type="text" autocomplete="off" required maxlength="64"
+                    pattern="[A-Za-z0-9._-]{1,64}" aria-describedby="alias-help">
+                  <small id="alias-help">Used for the isolated user and enrollment label.</small>
+                </label>
+              </div>
+            </div>
+
+            <div class="form-section">
+              <h2>GitHub identity</h2>
+              <div class="field-grid">
+                <label>
+                  <span>GitHub login</span>
+                  <input name="githubLogin" type="text" autocomplete="off" required maxlength="39"
+                    pattern="[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})">
+                </label>
+                <label>
+                  <span>GitHub account ID</span>
+                  <input name="githubAccountId" type="number" inputmode="numeric" autocomplete="off" required min="1" step="1"
+                    aria-describedby="github-id-help">
+                  <small id="github-id-help">Use the immutable numeric account ID, not a profile URL.</small>
+                </label>
+              </div>
+            </div>
+
+            <fieldset class="form-section">
+              <legend>Allowed models</legend>
+              <div class="model-options">
+                <label class="check-option">
+                  <input type="checkbox" name="models" value="claude-sonnet-4.5" checked>
+                  <span><strong>Claude Sonnet 4.5</strong><small>Balanced default for daily engineering work.</small></span>
+                </label>
+                <label class="check-option">
+                  <input type="checkbox" name="models" value="claude-haiku-4.5" checked>
+                  <span><strong>Claude Haiku 4.5</strong><small>Fast option for smaller tasks.</small></span>
+                </label>
+              </div>
+              <label class="custom-model">
+                <span>Additional model IDs</span>
+                <input name="additionalModels" type="text" autocomplete="off"
+                  placeholder="claude-model-id, claude-another-model">
+                <small>Optional. Enter comma-separated broker model IDs beginning with claude-.</small>
+              </label>
+            </fieldset>
+
+            <div id="enrollment-error" class="form-error hidden" role="alert"></div>
+            <div class="form-actions">
+              <button class="button primary" type="submit">Create enrollment</button>
+              <span class="submit-note">The one-time code expires after 30 minutes.</span>
+            </div>
+          </form>
+
+          <section id="enrollment-result" class="result-panel hidden" aria-labelledby="result-title" aria-live="polite">
+            <div class="result-heading">
+              <div>
+                <p class="context success-text">Enrollment created</p>
+                <h2 id="result-title">Share the one-time code</h2>
+              </div>
+              <button id="clear-enrollment" class="button quiet" type="button">Clear result</button>
+            </div>
+            <p>Send only the broker URL and code through an approved channel. This page will not retain the code after refresh.</p>
+            <div class="secret-output">
+              <div>
+                <span>Enrollment code</span>
+                <code id="enrollment-code"></code>
+              </div>
+              <button id="copy-code" class="button secondary" type="button">Copy code</button>
+            </div>
+            <dl class="result-details">
+              <div><dt>GitHub login</dt><dd id="result-login"></dd></div>
+              <div><dt>Employee object ID</dt><dd id="result-object-id"></dd></div>
+              <div><dt>Expires</dt><dd id="result-expiry"></dd></div>
+            </dl>
+            <div class="instruction-block">
+              <div class="instruction-heading">
+                <h3>Employee instructions</h3>
+                <button id="copy-instructions" class="button quiet" type="button">Copy instructions</button>
+              </div>
+              <pre id="generated-instructions"></pre>
+            </div>
+          </section>
+        </section>
+
+        <section class="view" data-panel="revoke" aria-labelledby="revoke-title" hidden>
+          <div class="page-heading">
+            <div>
+              <p class="context">Immediate access control</p>
+              <h1 id="revoke-title" tabindex="-1">Revoke access</h1>
+              <p>Revocation is destructive. Confirm the exact employee or key identifier before submitting.</p>
+            </div>
+          </div>
+
+          <div class="revoke-grid">
+            <form id="binding-revoke-form" class="form-section danger-section">
+              <h2>Revoke employee binding</h2>
+              <p>Stops the Entra identity from using its linked GitHub Copilot account.</p>
+              <label>
+                <span>Tenant ID</span>
+                <input name="tenantId" type="text" autocomplete="off" required pattern="[0-9a-fA-F-]{36}">
+              </label>
+              <label>
+                <span>Employee object ID</span>
+                <input name="objectId" type="text" autocomplete="off" required pattern="[0-9a-fA-F-]{36}">
+              </label>
+              <label>
+                <span>Audit evidence</span>
+                <textarea name="evidence" rows="3" required minlength="8"
+                  placeholder="Ticket, request, or incident reference"></textarea>
+              </label>
+              <label>
+                <span>Type REVOKE to confirm</span>
+                <input name="confirmation" type="text" autocomplete="off" required pattern="REVOKE">
+              </label>
+              <div class="form-error hidden" data-form-error role="alert"></div>
+              <button class="button danger" type="submit">Revoke employee</button>
+            </form>
+
+            <form id="key-revoke-form" class="form-section danger-section">
+              <h2>Revoke enterprise API key</h2>
+              <p>Use the enterprise key ID. Do not paste a secret key value into this panel.</p>
+              <label>
+                <span>API key ID</span>
+                <input name="id" type="text" autocomplete="off" required pattern="[0-9a-fA-F-]{36}">
+              </label>
+              <label>
+                <span>Audit evidence</span>
+                <textarea name="evidence" rows="3" required minlength="8"
+                  placeholder="Ticket, request, or incident reference"></textarea>
+              </label>
+              <label>
+                <span>Type REVOKE KEY to confirm</span>
+                <input name="confirmation" type="text" autocomplete="off" required pattern="REVOKE KEY">
+              </label>
+              <div class="form-error hidden" data-form-error role="alert"></div>
+              <button class="button danger" type="submit">Revoke API key</button>
+            </form>
+          </div>
+
+          <div class="info-panel">
+            <h2>Revocation evidence</h2>
+            <p>Use a ticket, request, or incident reference that explains why access was removed. Evidence is hashed by the broker before storage.</p>
+          </div>
+        </section>
+
+        <section class="view" data-panel="instructions" aria-labelledby="instructions-title" hidden>
+          <div class="page-heading">
+            <div>
+              <p class="context">Employee handoff</p>
+              <h1 id="instructions-title" tabindex="-1">Enrollment instructions</h1>
+              <p>Use these steps after creating an enrollment. Replace the placeholder with the employee's one-time code.</p>
+            </div>
+            <button id="copy-template" class="button secondary" type="button">Copy instructions</button>
+          </div>
+          <div class="instruction-block standalone">
+            <ol>
+              <li>Send the broker URL and one-time code through an approved channel.</li>
+              <li>The employee runs the enrollment command on their own workstation.</li>
+              <li>The employee completes GitHub authorization using the expected GitHub account.</li>
+              <li>The employee verifies the model list before starting Claude Code.</li>
+            </ol>
+            <pre id="instruction-template"></pre>
+          </div>
+          <div class="warning-panel">
+            <h2>Do not send private gateway credentials</h2>
+            <p>Employees need only the public broker URL and one-time CCGC code. Do not distribute LiteLLM keys, master keys, or Key Vault values.</p>
+          </div>
+        </section>
+      </main>
+    </div>
+  </body>
+</html>

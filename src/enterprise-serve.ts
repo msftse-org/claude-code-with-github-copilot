@@ -17,6 +17,9 @@ function required(name: string): string {
 
 const credential = new DefaultAzureCredential();
 const vaultUrl = required('CCGC_KEY_VAULT_URL');
+const brokerOrigin = required('CCGC_BROKER_ORIGIN');
+const entraTenantId = required('CCGC_ENTRA_TENANT_ID');
+const entraAudience = required('CCGC_ENTRA_AUDIENCE');
 const vault = new SecretClient(vaultUrl, credential);
 const dispatchSecret = await vault.getSecret(required('CCGC_DISPATCH_SECRET_NAME'));
 if (!dispatchSecret.value) throw new BridgeError('STARTUP_FAILED', 'Dispatch signing secret is unavailable.');
@@ -30,18 +33,18 @@ const store = new PostgresEnterpriseStore(
   false,
 );
 const employeeEntra = new EntraAuthenticator({
-  tenantId: required('CCGC_ENTRA_TENANT_ID'),
-  audience: required('CCGC_ENTRA_AUDIENCE'),
+  tenantId: entraTenantId,
+  audience: entraAudience,
   requiredRole: process.env.CCGC_ENTRA_ROLE,
 });
 const server = await startEnterpriseServer({
   authenticator: new DualEnterpriseAuthenticator(employeeEntra, store),
   store,
   workers: new SharedWorkerResolver(workerUrl, required('CCGC_WORKER_DNS_SUFFIX')),
-  dispatchSigner: new DispatchSigner(dispatchSecret.value, required('CCGC_BROKER_ORIGIN'), workerUrl),
+  dispatchSigner: new DispatchSigner(dispatchSecret.value, brokerOrigin, workerUrl),
   adminAuthenticator: new EntraAuthenticator({
-    tenantId: required('CCGC_ENTRA_TENANT_ID'),
-    audience: required('CCGC_ENTRA_AUDIENCE'),
+    tenantId: entraTenantId,
+    audience: entraAudience,
     requiredRole: 'CCGC.Admin',
   }),
   adminActions: new EnterpriseManagement({
@@ -73,6 +76,13 @@ const server = await startEnterpriseServer({
       },
     },
   }),
+  adminBrowserOrigin: brokerOrigin,
+  adminBrowserIdentity: {
+    tenantId: entraTenantId,
+    clientId: entraAudience,
+    scope: `api://${entraAudience}/CCGC.Invoke`,
+    redirectUri: `${brokerOrigin}/ccgc/admin`,
+  },
   host: process.env.CCGC_BIND_HOST ?? '0.0.0.0',
   port: Number(process.env.PORT ?? '8080'),
   onError(error) {

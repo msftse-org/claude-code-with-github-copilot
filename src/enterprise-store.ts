@@ -158,6 +158,9 @@ CREATE TABLE IF NOT EXISTS enterprise_enrollments (
 );
 CREATE INDEX IF NOT EXISTS enterprise_enrollments_expiry
   ON enterprise_enrollments (expires_at) WHERE consumed_at IS NULL;
+ALTER TABLE enterprise_enrollments DROP CONSTRAINT IF EXISTS enterprise_enrollments_status_check;
+ALTER TABLE enterprise_enrollments ADD CONSTRAINT enterprise_enrollments_status_check
+  CHECK (status IN ('pending', 'authorizing', 'finalizing', 'completed'));
 CREATE TABLE IF NOT EXISTS enterprise_admissions (
   id uuid PRIMARY KEY,
   tenant_id uuid NOT NULL,

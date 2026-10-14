@@ -46,6 +46,7 @@ class FakeActions implements EnterpriseAdministrationActions {
   revoke(input: ObjectValue) { return this.called('revoke', input); }
   createApiKey(input: ObjectValue) { return this.called('create-api-key', input); }
   revokeApiKey(input: ObjectValue) { return this.called('revoke-api-key', input); }
+  listAccess(input: ObjectValue) { return this.called('list-access', input); }
   createEnrollment(input: ObjectValue) { return this.called('create-enrollment', input); }
   startEnrollment(input: ObjectValue) { return this.called('enrollment-start', input); }
   pollEnrollment(input: ObjectValue) { return this.called('enrollment-poll', input); }
@@ -159,6 +160,138 @@ test('broker rejects browser origins before invoking administrative actions', as
     });
     assert.equal(response.status, 403);
     assert.equal(actions.calls.length, 0);
+  } finally {
+    await server.close();
+  }
+});
+
+test('broker serves the administrator panel with locked-down browser headers', async () => {
+  const actions = new FakeActions();
+  const server = await startEnterpriseServer({
+    authenticator: new TokenAuthenticator('employee-role'),
+    adminAuthenticator: new TokenAuthenticator('admin-role'),
+    adminActions: actions,
+    ...brokerDependencies(),
+  });
+
+  try {
+    const page = await fetch(`http://127.0.0.1:${server.port}/ccgc/admin`);
+    assert.equal(page.status, 200);
+    assert.match(page.headers.get('content-type') ?? '', /^text\/html/);
+    assert.equal(page.headers.get('cache-control'), 'no-store');
+    assert.equal(page.headers.get('x-frame-options'), 'DENY');
+    assert.match(page.headers.get('content-security-policy') ?? '', /default-src 'none'/);
+    assert.match(page.headers.get('content-security-policy') ?? '', /connect-src 'self' https:\/\/login\.microsoftonline\.com/);
+    const pageSource = await page.text();
+    assert.match(pageSource, /Employee access/);
+    assert.match(pageSource, /Access inventory/);
+
+    const script = await fetch(`http://127.0.0.1:${server.port}/ccgc/admin/assets/admin.js`);
+    assert.equal(script.status, 200);
+    assert.match(script.headers.get('content-type') ?? '', /^text\/javascript/);
+    const adminSource = await script.text();
+    assert.equal(adminSource.includes('localStorage'), false);
+    assert.match(adminSource, /\/ccgc\/admin\/access\/query/);
+
+    const auth = await fetch(`http://127.0.0.1:${server.port}/ccgc/admin/assets/auth.js`);
+    const authSource = await auth.text();
+    assert.equal(auth.status, 200);
+    assert.match(authSource, /code_challenge_method: 'S256'/);
+    assert.match(authSource, /response_type: 'code'/);
+    assert.match(authSource, /sessionStorage/);
+    assert.equal(authSource.includes('localStorage'), false);
+  } finally {
+    await server.close();
+  }
+});
+
+test('broker accepts only the configured browser origin for Entra admin calls', async () => {
+  const actions = new FakeActions();
+  const server = await startEnterpriseServer({
+    authenticator: new TokenAuthenticator('employee-role'),
+    adminAuthenticator: new TokenAuthenticator('admin-role'),
+    adminActions: actions,
+    adminBrowserOrigin: 'https://broker.example',
+    ...brokerDependencies(),
+  });
+
+  try {
+    const allowed = await fetch(`http://127.0.0.1:${server.port}/ccgc/admin/status`, {
+      method: 'POST',
+      headers: {
+        authorization: ['Bearer', 'admin-role'].join(' '),
+        'content-type': 'application/json',
+        origin: 'https://broker.example',
+      },
+      body: '{}',
+    });
+    assert.equal(allowed.status, 200);
+    assert.equal(actions.calls.length, 1);
+
+    const rejected = await fetch(`http://127.0.0.1:${server.port}/ccgc/admin/status`, {
+      method: 'POST',
+      headers: {
+        authorization: ['Bearer', 'admin-role'].join(' '),
+        'content-type': 'application/json',
+        origin: 'https://other.example',
+      },
+      body: '{}',
+    });
+    assert.equal(rejected.status, 403);
+    assert.equal(actions.calls.length, 1);
+  } finally {
+    await server.close();
+  }
+});
+
+test('broker exposes public browser identity configuration and protects access listing', async () => {
+  const actions = new FakeActions();
+  const server = await startEnterpriseServer({
+    authenticator: new TokenAuthenticator('employee-role'),
+    adminAuthenticator: new TokenAuthenticator('admin-role'),
+    adminActions: actions,
+    adminBrowserOrigin: 'https://broker.example',
+    adminBrowserIdentity: {
+      tenantId: principal.tenantId,
+      clientId: '33333333-3333-3333-3333-333333333333',
+      scope: 'api://33333333-3333-3333-3333-333333333333/CCGC.Invoke',
+      redirectUri: 'https://broker.example/ccgc/admin',
+    },
+    ...brokerDependencies(),
+  });
+  try {
+    const config = await fetch(`http://127.0.0.1:${server.port}/ccgc/admin/config`);
+    assert.equal(config.status, 200);
+    assert.equal(config.headers.get('cache-control'), 'no-store');
+    assert.deepEqual(await config.json(), {
+      tenantId: principal.tenantId,
+      clientId: '33333333-3333-3333-3333-333333333333',
+      scope: 'api://33333333-3333-3333-3333-333333333333/CCGC.Invoke',
+      redirectUri: 'https://broker.example/ccgc/admin',
+    });
+
+    const denied = await fetch(`http://127.0.0.1:${server.port}/ccgc/admin/access/query`, {
+      method: 'POST',
+      headers: {
+        authorization: ['Bearer', 'employee-role'].join(' '),
+        'content-type': 'application/json',
+        origin: 'https://broker.example',
+      },
+      body: JSON.stringify({ limit: 25 }),
+    });
+    assert.equal(denied.status, 403);
+
+    const listed = await fetch(`http://127.0.0.1:${server.port}/ccgc/admin/access/query`, {
+      method: 'POST',
+      headers: {
+        authorization: ['Bearer', 'admin-role'].join(' '),
+        'content-type': 'application/json',
+        origin: 'https://broker.example',
+      },
+      body: JSON.stringify({ limit: 25 }),
+    });
+    assert.equal(listed.status, 200);
+    assert.deepEqual(actions.calls, [{ operation: 'list-access', input: { limit: 25 } }]);
   } finally {
     await server.close();
   }

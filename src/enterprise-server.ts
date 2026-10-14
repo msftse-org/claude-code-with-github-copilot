@@ -5,6 +5,7 @@ import { BridgeError, envelope, object, parseJson, safeError, text, type ObjectV
 import type { EnterpriseStore } from './enterprise-store.ts';
 import type { WorkerResolver } from './enterprise-worker.ts';
 import type { DispatchSigner } from './enterprise-dispatch.ts';
+import { serveEnterpriseAdminUi } from './enterprise-admin-ui.ts';
 
 const MAX_BODY = 16 * 1024 * 1024;
 const MAX_ADMIN_BODY = 64 * 1024;
@@ -17,6 +18,7 @@ export interface EnterpriseAdministrationActions {
   revoke(input: ObjectValue): Promise<ObjectValue>;
   createApiKey(input: ObjectValue): Promise<ObjectValue>;
   revokeApiKey(input: ObjectValue): Promise<ObjectValue>;
+  listAccess(input: ObjectValue): Promise<ObjectValue>;
   createEnrollment(input: ObjectValue): Promise<ObjectValue>;
   startEnrollment(input: ObjectValue): Promise<ObjectValue>;
   pollEnrollment(input: ObjectValue): Promise<ObjectValue>;
@@ -31,6 +33,13 @@ export interface EnterpriseServerOptions {
   dispatchSigner: DispatchSigner;
   adminAuthenticator?: EnterpriseAuthenticator;
   adminActions?: EnterpriseAdministrationActions;
+  adminBrowserOrigin?: string;
+  adminBrowserIdentity?: {
+    tenantId: string;
+    clientId: string;
+    scope: string;
+    redirectUri: string;
+  };
   host?: string;
   port?: number;
   fetcher?: typeof fetch;
@@ -71,6 +80,15 @@ function send(response: ServerResponse, status: number, value: unknown): void {
 export async function startEnterpriseServer(options: EnterpriseServerOptions) {
   await options.store.initialize();
   const fetcher = options.fetcher ?? fetch;
+  let adminBrowserOrigin: string | undefined;
+  if (options.adminBrowserOrigin !== undefined) {
+    const configured = new URL(options.adminBrowserOrigin);
+    if (configured.protocol !== 'https:' || configured.username || configured.password
+      || configured.pathname !== '/' || configured.search || configured.hash) {
+      throw new BridgeError('INVALID_OPTIONS', 'Administrator browser origin must be a fixed HTTPS origin.');
+    }
+    adminBrowserOrigin = configured.origin;
+  }
   const server = createServer((request, response) => {
     void handle(request, response).catch(error => {
       const failure = safeError(error);
@@ -84,10 +102,26 @@ export async function startEnterpriseServer(options: EnterpriseServerOptions) {
   server.maxHeadersCount = 64;
 
   async function handle(request: IncomingMessage, response: ServerResponse): Promise<void> {
-    if (request.headers.origin || !request.url?.startsWith('/') || request.url.startsWith('//')) {
-      throw new BridgeError('ORIGIN_REJECTED', 'Browser origins and malformed paths are not accepted.', 403);
+    if (!request.url?.startsWith('/') || request.url.startsWith('//')) {
+      throw new BridgeError('ORIGIN_REJECTED', 'Malformed request paths are not accepted.', 403);
     }
     const url = new URL(request.url, 'https://enterprise.invalid');
+    const origin = request.headers.origin;
+    const approvedAdminBrowser = origin !== undefined
+      && adminBrowserOrigin !== undefined
+      && origin === adminBrowserOrigin
+      && url.pathname.startsWith('/ccgc/admin/');
+    if (origin && !approvedAdminBrowser) {
+      throw new BridgeError('ORIGIN_REJECTED', 'Browser origin is not approved.', 403);
+    }
+    if (await serveEnterpriseAdminUi(request, response, url.pathname)) return;
+    if (url.pathname === '/ccgc/admin/config' && request.method === 'GET') {
+      if (!options.adminBrowserIdentity) {
+        throw new BridgeError('ROUTE_UNSUPPORTED', 'Administrator browser sign-in is unavailable.', 404);
+      }
+      send(response, 200, options.adminBrowserIdentity);
+      return;
+    }
     if (url.pathname === '/healthz' && request.method === 'GET') {
       send(response, 200, { status: 'listening', inference: 'not-verified' });
       return;
@@ -104,6 +138,7 @@ export async function startEnterpriseServer(options: EnterpriseServerOptions) {
         '/ccgc/admin/revoke': input => options.adminActions!.revoke(input),
         '/ccgc/admin/api-keys': input => options.adminActions!.createApiKey(input),
         '/ccgc/admin/api-keys/revoke': input => options.adminActions!.revokeApiKey(input),
+        '/ccgc/admin/access/query': input => options.adminActions!.listAccess(input),
         '/ccgc/admin/enrollments': input => options.adminActions!.createEnrollment(input),
         '/ccgc/admin/status': () => options.adminActions!.status(),
       };

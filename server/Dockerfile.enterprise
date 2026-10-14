@@ -4,6 +4,7 @@ WORKDIR /app
 COPY package.json package-lock.json ./
 RUN npm ci --omit=dev --ignore-scripts && npm cache clean --force
 COPY src ./src
+COPY web ./web
 USER ccgc
 ENV NODE_ENV=production PORT=8080 CCGC_BIND_HOST=0.0.0.0
 ENTRYPOINT ["node", "/app/src/enterprise-serve.ts"]

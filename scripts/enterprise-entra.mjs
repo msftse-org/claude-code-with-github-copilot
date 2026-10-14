@@ -49,6 +49,7 @@ function sleep(milliseconds) {
 const displayName = option('--display-name') ?? 'CCGC Enterprise API';
 const pilotGroupObjectId = option('--pilot-group-object-id');
 const adminGroupObjectId = option('--admin-group-object-id');
+const adminPortalRedirectUri = option('--admin-portal-redirect-uri');
 if (!pilotGroupObjectId || !/^[0-9a-f-]{36}$/i.test(pilotGroupObjectId)) {
   fail('Use --pilot-group-object-id with the Entra object ID of the employee pilot group.');
 }
@@ -57,6 +58,19 @@ if (!adminGroupObjectId || !/^[0-9a-f-]{36}$/i.test(adminGroupObjectId)) {
 }
 if (pilotGroupObjectId.toLowerCase() === adminGroupObjectId.toLowerCase()) {
   fail('Employee and enterprise IT administrator groups must be separate.');
+}
+if (!adminPortalRedirectUri) {
+  fail('Use --admin-portal-redirect-uri with the public broker /ccgc/admin HTTPS URL.');
+}
+let adminPortalRedirect;
+try {
+  adminPortalRedirect = new URL(adminPortalRedirectUri);
+} catch {
+  fail('The administrator portal redirect URI must be an absolute HTTPS URL.');
+}
+if (adminPortalRedirect.protocol !== 'https:' || adminPortalRedirect.username || adminPortalRedirect.password
+  || adminPortalRedirect.pathname !== '/ccgc/admin' || adminPortalRedirect.search || adminPortalRedirect.hash) {
+  fail('The administrator portal redirect URI must be a fixed HTTPS /ccgc/admin URL.');
 }
 if (!has('--confirm-entra-changes')) {
   fail('Add --confirm-entra-changes after reviewing the tenant, employee group, and administrator group.');
@@ -135,9 +149,13 @@ const roles = [
 ];
 const preAuthorizedApplications = [
   ...(applicationDetails.api?.preAuthorizedApplications ?? [])
-    .filter(client => client.appId !== azureCliAppId),
+    .filter(client => client.appId !== azureCliAppId && client.appId !== application.appId),
   {
     appId: azureCliAppId,
+    delegatedPermissionIds: [scopeId],
+  },
+  {
+    appId: application.appId,
     delegatedPermissionIds: [scopeId],
   },
 ];
@@ -147,6 +165,12 @@ graph('PATCH', `/applications/${application.id}`, {
   api: {
     requestedAccessTokenVersion: 2,
     oauth2PermissionScopes: scopes,
+  },
+  spa: {
+    redirectUris: [...new Set([
+      ...(applicationDetails.spa?.redirectUris ?? []),
+      adminPortalRedirect.href,
+    ])],
   },
   appRoles: roles,
 });
@@ -221,6 +245,7 @@ console.log(JSON.stringify({
   delegatedTokenScope: 'CCGC.Invoke',
   employeeRequiredPermission: 'CCGC.Access',
   administratorRequiredPermission: 'CCGC.Admin',
+  administratorPortalRedirectUri: adminPortalRedirect.href,
   pilotGroupObjectId,
   pilotGroupDisplayName: pilotGroup.displayName,
   adminGroupObjectId,

@@ -326,6 +326,78 @@ export class EnterpriseManagement {
     }
   }
 
+  async listAccess(input: ObjectValue): Promise<ObjectValue> {
+    const limit = input.limit === undefined ? 50 : Number(input.limit);
+    const cursor = input.cursor === undefined ? undefined : text(input.cursor, 'access cursor').toLowerCase();
+    if (!Number.isInteger(limit) || limit < 1 || limit > 100
+      || (cursor !== undefined && !/^[0-9a-f-]{36}$/i.test(cursor))) {
+      throw new BridgeError('INVALID_REQUEST', 'Access-list pagination is invalid.');
+    }
+    const store = this.store();
+    try {
+      const bindingsResult = await store.pool.query(
+        `SELECT b.tenant_id, b.object_id, b.github_account_id, b.github_login, b.models,
+                b.revision, b.revoked_at, b.updated_at,
+                COALESCE((
+                  SELECT jsonb_agg(jsonb_build_object(
+                    'id', k.id,
+                    'label', k.label,
+                    'createdAt', k.created_at,
+                    'expiresAt', k.expires_at,
+                    'lastUsedAt', k.last_used_at,
+                    'revokedAt', k.revoked_at
+                  ) ORDER BY k.created_at DESC)
+                  FROM enterprise_api_keys k
+                  WHERE k.tenant_id = b.tenant_id AND k.object_id = b.object_id
+                ), '[]'::jsonb) AS api_keys
+         FROM enterprise_account_bindings b
+         WHERE ($1::uuid IS NULL OR b.object_id > $1::uuid)
+         ORDER BY b.object_id
+         LIMIT $2`,
+        [cursor ?? null, limit + 1],
+      );
+      const rows = bindingsResult.rows as Array<Record<string, unknown>>;
+      const page = rows.slice(0, limit);
+      const enrollmentsResult = await store.pool.query(
+        `SELECT id, tenant_id, object_id, user_email, user_alias, github_account_id,
+                github_login, models, status, expires_at, consumed_at, created_at
+         FROM enterprise_enrollments
+         ORDER BY created_at DESC
+         LIMIT 100`,
+      );
+      return {
+        bindings: page.map(row => ({
+          tenantId: String(row.tenant_id),
+          objectId: String(row.object_id),
+          githubAccountId: Number(row.github_account_id),
+          githubLogin: String(row.github_login),
+          models: Array.isArray(row.models) ? row.models.filter(value => typeof value === 'string') : [],
+          revision: Number(row.revision),
+          revokedAt: row.revoked_at ? new Date(row.revoked_at as string).toISOString() : null,
+          updatedAt: new Date(row.updated_at as string).toISOString(),
+          apiKeys: Array.isArray(row.api_keys) ? row.api_keys : [],
+        })),
+        enrollments: (enrollmentsResult.rows as Array<Record<string, unknown>>).map(row => ({
+          id: String(row.id),
+          tenantId: String(row.tenant_id),
+          objectId: String(row.object_id),
+          userEmail: String(row.user_email),
+          userAlias: String(row.user_alias),
+          githubAccountId: Number(row.github_account_id),
+          githubLogin: String(row.github_login),
+          models: Array.isArray(row.models) ? row.models.filter(value => typeof value === 'string') : [],
+          status: String(row.status),
+          expiresAt: new Date(row.expires_at as string).toISOString(),
+          consumedAt: row.consumed_at ? new Date(row.consumed_at as string).toISOString() : null,
+          createdAt: new Date(row.created_at as string).toISOString(),
+        })),
+        nextCursor: rows.length > limit ? String(page.at(-1)!.object_id) : null,
+      };
+    } finally {
+      await store.close();
+    }
+  }
+
     async createEnrollment(input: ObjectValue): Promise<ObjectValue> {
       const tenantId = text(input.tenantId, 'tenant ID').toLowerCase();
       const userEmail = text(input.userEmail, 'employee email');
