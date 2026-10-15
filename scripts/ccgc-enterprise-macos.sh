@@ -206,6 +206,7 @@ prepare_settings() {
   local existing
   local key
   local desired
+  local permission_mode
 
   helper="$(installed_helper)"
   if [ -f "$SETTINGS_PATH" ]; then
@@ -237,10 +238,7 @@ prepare_settings() {
     /usr/bin/plutil -insert permissions -dictionary "$output"
   fi
 
-  existing="$(json_raw "$output" permissions.defaultMode 2>/dev/null || true)"
-  if [ -n "$existing" ] && [ "$existing" != 'manual' ]; then
-    fail 'existing Claude permission default conflicts with enterprise manual mode'
-  fi
+  permission_mode="$(json_raw "$output" permissions.defaultMode 2>/dev/null || true)"
 
   for key in ANTHROPIC_API_KEY ANTHROPIC_AUTH_TOKEN CLAUDE_CODE_OAUTH_TOKEN; do
     if [ -n "${!key-}" ]; then
@@ -269,7 +267,9 @@ CLAUDE_CODE_API_KEY_HELPER_TTL_MS=60000
 CLAUDE_CODE_AUTO_MODE_SERVER=0
 EOF
 
-  plist_set_string "$output" permissions.defaultMode manual
+  if [ -z "$permission_mode" ]; then
+    plist_set_string "$output" permissions.defaultMode manual
+  fi
   plist_set_string "$output" apiKeyHelper "$helper"
   /usr/bin/plutil -remove "$JSON_SETUP_MARKER" "$output"
   /usr/bin/plutil -convert json "$output"

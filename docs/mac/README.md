@@ -150,7 +150,7 @@ This updates `~/.claude/settings.json` and:
 - enables gateway model discovery
 - installs the enterprise `apiKeyHelper`
 - sets a one-minute helper cache
-- keeps `manual` as the default permission mode
+- preserves an existing permission default, or uses `manual` when none is set
 - sets `CLAUDE_CODE_AUTO_MODE_SERVER=0`, allowing opt-in auto mode to use
   Claude Code's local classifier instead of Anthropic-only server safeguards
 - removes obsolete project-owned feature-disable flags

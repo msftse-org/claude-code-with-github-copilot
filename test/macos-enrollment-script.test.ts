@@ -31,6 +31,8 @@ test('macOS enrollment script never removes quarantine or changes Gatekeeper pol
   const source = await readFile(script, 'utf8');
   assert.doesNotMatch(source, /xattr\s+-[a-zA-Z]*d|spctl\s+--master-disable|defaults\s+write.*Gatekeeper/i);
   assert.doesNotMatch(source, /rm\s+-rf/);
+  assert.doesNotMatch(source, /permission default conflicts/);
+  assert.match(source, /if \[ -z "\$permission_mode" \]; then\s+plist_set_string "\$output" permissions\.defaultMode manual/);
   assert.match(source, /security find-generic-password/);
   assert.match(source, /security -i/);
 });
