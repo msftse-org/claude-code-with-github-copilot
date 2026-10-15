@@ -424,7 +424,7 @@ export class EnterpriseManagement {
         'LiteLLM user key',
       );
       const code = `CCGC-${randomBytes(18).toString('base64url')}`;
-      const pendingSecretName = `ccgc-enrollment-pending-${objectId.replaceAll('-', '')}`;
+      const pendingSecretName = `ccgc-enrollment-pending-${randomUUID().replaceAll('-', '')}`;
       const credentialSecretName = `ccgc-user-${objectId.replaceAll('-', '')}`;
       const expiresAt = new Date(Date.now() + ENROLLMENT_TTL_SECONDS * 1000);
       await this.secrets().set(pendingSecretName, litellmApiKey, expiresAt);

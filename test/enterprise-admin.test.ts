@@ -1,5 +1,14 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
+
+test('runtime administration does not attempt schema migrations', async () => {
+  const source = await readFile(new URL('../src/enterprise-admin.ts', import.meta.url), 'utf8');
+  assert.match(
+    source,
+    /new PostgresEnterpriseStore\(required\('CCGC_POSTGRES_URL'\), credential, false, false\)/,
+  );
+});
+import { readFile } from 'node:fs/promises';
 import { connectLiteLLMUser } from '../src/enterprise-admin.ts';
 import { BridgeError } from '../src/protocol.ts';
 

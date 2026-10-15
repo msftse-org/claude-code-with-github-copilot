@@ -35,6 +35,28 @@ test('runtime PostgreSQL configuration does not own schema migrations', async ()
   }
 });
 
+test('enrollment completion accepts an already-connected pending enrollment', async () => {
+  const store = new PostgresEnterpriseStore(
+    'postgresql://managed-identity@example.postgres.database.azure.com:5432/postgres?sslmode=verify-full',
+    { getToken: async () => ({ token: 'managed-identity-token' }) },
+    false,
+    false,
+  );
+  let query = '';
+  const original = store.pool.query.bind(store.pool);
+  store.pool.query = (async (text: string) => {
+    query = text;
+    return { rowCount: 1 };
+  }) as typeof store.pool.query;
+  try {
+    assert.equal(await store.beginEnrollmentCompletion('11111111-1111-4111-8111-111111111111'), true);
+    assert.match(query, /status IN \('pending', 'authorizing'\)/);
+  } finally {
+    store.pool.query = original;
+    await store.close();
+  }
+});
+
 const connection = process.env.CCGC_TEST_POSTGRES_URL;
 
 test('PostgreSQL store atomically binds, reserves, fences, audits and revokes', { skip: !connection }, async () => {

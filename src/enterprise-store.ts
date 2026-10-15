@@ -528,7 +528,8 @@ export class PostgresEnterpriseStore implements EnterpriseStore {
       `WITH updated AS (
          UPDATE enterprise_enrollments
          SET status = 'finalizing'
-         WHERE id = $1 AND consumed_at IS NULL AND expires_at > now() AND status = 'authorizing'
+         WHERE id = $1 AND consumed_at IS NULL AND expires_at > now()
+           AND status IN ('pending', 'authorizing')
          RETURNING id, tenant_id, object_id
        )
        INSERT INTO enterprise_audit_outbox (event_type, tenant_id, object_id, subject_id, metadata)

@@ -305,7 +305,7 @@ async function main(argv = process.argv.slice(2)): Promise<void> {
     return;
   }
   const credential = new DefaultAzureCredential();
-  const store = new PostgresEnterpriseStore(required('CCGC_POSTGRES_URL'), credential);
+  const store = new PostgresEnterpriseStore(required('CCGC_POSTGRES_URL'), credential, false, false);
   await store.initialize();
   try {
     const evidence = text(input.evidence, 'administrator evidence');

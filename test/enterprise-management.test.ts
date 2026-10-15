@@ -563,6 +563,76 @@ test('self-service enrollment is retry-safe and consumes temporary secrets after
   );
 });
 
+test('self-service enrollment completes when GitHub is already connected', async () => {
+  const pendingSecretName = 'ccgc-enrollment-pending-11111111111141118111111111111111';
+  let enrollment: EnterpriseEnrollment = {
+    id: '33333333-3333-4333-8333-333333333333',
+    tenantId: principal.tenantId,
+    objectId: principal.objectId,
+    userEmail: 'developer@example.com',
+    userAlias: 'developer',
+    githubAccountId: 12345,
+    githubLogin: 'developer',
+    credentialSecretName: 'ccgc-user-22222222222242228222222222222222',
+    pendingSecretName,
+    models: ['claude-sonnet-4-5'],
+    status: 'pending',
+    expiresAt: '2099-01-01T00:00:00.000Z',
+  };
+  const secrets = new Map([[pendingSecretName, `sk-${'u'.repeat(32)}`]]);
+  let linkCalls = 0;
+  const management = new EnterpriseManagement({
+    litellmUrl: 'https://litellm.internal',
+    litellmMasterKey: `sk-${'m'.repeat(32)}`,
+    postgresUrl: 'postgresql://broker@postgres.internal/postgres?sslmode=require',
+    enrollmentSecrets: {
+      set: async (name, value) => { secrets.set(name, value); },
+      get: async name => {
+        const value = secrets.get(name);
+        if (!value) throw new Error(`missing secret ${name}`);
+        return value;
+      },
+      remove: async name => { secrets.delete(name); },
+    },
+    storeFactory: () => ({
+      enrollment: async () => ({ ...enrollment }),
+      beginEnrollmentCompletion: async () => {
+        if (enrollment.status !== 'pending' && enrollment.status !== 'authorizing') return false;
+        enrollment = { ...enrollment, status: 'finalizing' };
+        return true;
+      },
+      issueApiKey: async () => ({
+        id: '44444444-4444-4444-8444-444444444444',
+        apiKey: `ccgc_sk_${'k'.repeat(43)}`,
+        expiresAt: '2099-01-01T00:00:00.000Z',
+      }),
+      completeEnrollment: async (_id: string, outputSecretName: string) => {
+        enrollment = { ...enrollment, outputSecretName, status: 'completed' };
+      },
+      close: async () => undefined,
+    }) as unknown as PostgresEnterpriseStore,
+    fetcher: (async input => {
+      assert.ok(String(input).endsWith('/credentials/user_connections'));
+      return Response.json({
+        connections: [{
+          credential_name: 'github-copilot-user',
+          connected: true,
+          github_login: 'developer',
+        }],
+      });
+    }) as typeof fetch,
+  });
+  management.link = async () => {
+    linkCalls += 1;
+    return { status: 'linked' };
+  };
+
+  const completed = await management.startEnrollment({ code: `CCGC-${'a'.repeat(24)}` });
+  assert.equal(completed.status, 'completed');
+  assert.equal(completed.apiKey, `ccgc_sk_${'k'.repeat(43)}`);
+  assert.equal(linkCalls, 1);
+});
+
 test('self-service enrollment can recover an existing isolated LiteLLM user', async () => {
   const storedSecrets = new Map<string, string>();
   let createdInput: Record<string, unknown> | undefined;
@@ -598,5 +668,7 @@ test('self-service enrollment can recover an existing isolated LiteLLM user', as
 
   assert.equal(result.objectId, principal.objectId);
   assert.equal(createdInput?.objectId, principal.objectId);
+  assert.match(String(createdInput?.pendingSecretName), /^ccgc-enrollment-pending-[0-9a-f]{32}$/);
+  assert.notEqual(createdInput?.pendingSecretName, `ccgc-enrollment-pending-${principal.objectId.replaceAll('-', '')}`);
   assert.deepEqual([...storedSecrets.values()], [`sk-${'u'.repeat(32)}`]);
 });
