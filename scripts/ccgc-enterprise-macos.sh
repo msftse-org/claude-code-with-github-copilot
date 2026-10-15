@@ -207,6 +207,9 @@ prepare_settings() {
   local key
   local desired
   local permission_mode
+  local backup_path
+  local choice
+  local setting_conflicts=()
 
   helper="$(installed_helper)"
   if [ -f "$SETTINGS_PATH" ]; then
@@ -242,12 +245,43 @@ prepare_settings() {
 
   for key in ANTHROPIC_API_KEY ANTHROPIC_AUTH_TOKEN CLAUDE_CODE_OAUTH_TOKEN; do
     if [ -n "${!key-}" ]; then
-      fail "shell environment setting $key conflicts with the enterprise gateway"
+      fail "shell environment setting $key conflicts with the enterprise gateway; run 'unset $key' and retry"
     fi
     if json_raw "$output" "env.$key" >/dev/null 2>&1; then
-      fail "existing Claude setting $key conflicts with the enterprise gateway"
+      setting_conflicts+=("$key")
     fi
   done
+
+  if [ "${#setting_conflicts[@]}" -gt 0 ]; then
+    printf 'Existing Claude credential setting(s) conflict with the enterprise gateway:\n' >&2
+    for key in "${setting_conflicts[@]}"; do
+      printf '  - %s\n' "$key" >&2
+    done
+    printf '\nChoose an action:\n' >&2
+    printf '  1. Back up Claude settings, remove only these credential keys, and continue.\n' >&2
+    printf '  2. Cancel without changing Claude settings.\n' >&2
+    printf 'Enter 1 or 2: ' >&2
+    IFS= read -r choice ||
+      fail 'interactive confirmation is required to resolve existing Claude credentials'
+    case "$choice" in
+      1)
+        backup_path="$SETTINGS_PATH.ccgc-backup.$(/bin/date -u '+%Y%m%dT%H%M%SZ')"
+        [ -f "$SETTINGS_PATH" ] || fail 'Claude settings disappeared before backup'
+        /bin/cp -p "$SETTINGS_PATH" "$backup_path"
+        /bin/chmod 0600 "$backup_path"
+        for key in "${setting_conflicts[@]}"; do
+          /usr/bin/plutil -remove "env.$key" "$output"
+        done
+        printf 'Backed up existing Claude settings to %s\n' "$backup_path" >&2
+        ;;
+      2)
+        fail 'enrollment cancelled; existing Claude settings were not changed'
+        ;;
+      *)
+        fail 'invalid choice; existing Claude settings were not changed'
+        ;;
+    esac
+  fi
 
   while IFS='=' read -r key desired; do
     existing="${!key-}"

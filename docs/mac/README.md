@@ -156,6 +156,12 @@ This updates `~/.claude/settings.json` and:
 - removes obsolete project-owned feature-disable flags
 - preserves unrelated Claude settings and existing allow/deny rules
 
+If the existing Claude settings contain `ANTHROPIC_API_KEY`,
+`ANTHROPIC_AUTH_TOKEN`, or `CLAUDE_CODE_OAUTH_TOKEN`, the script asks whether
+to create a private timestamped backup and remove only those conflicting
+credential keys, or cancel without changing the file. Shell environment
+credentials are never edited automatically; unset them explicitly and retry.
+
 Configuration fails without changing the file if it finds a conflicting shell
 environment variable, provider route, credential helper, or user setting.
 Resolve the conflict explicitly; do not overwrite organizational policy.
