@@ -10,6 +10,7 @@ PROFILE_PATH="$HOME/.local/share/ccgc/enterprise/profile.json"
 SETTINGS_PATH="$HOME/.claude/settings.json"
 JSON_SETUP_MARKER='__ccgc_setup_719ee977'
 TEMP_DIR=''
+PREAPPROVED_SETTING_CONFLICTS=''
 
 fail() {
   printf 'ERROR: %s\n' "$*" >&2
@@ -23,7 +24,13 @@ cleanup_temp() {
   /bin/rm -f \
     "$TEMP_DIR/body.json" \
     "$TEMP_DIR/complete.json" \
+    "$TEMP_DIR/health.json" \
     "$TEMP_DIR/info.json" \
+    "$TEMP_DIR/admission.json" \
+    "$TEMP_DIR/admission-body.json" \
+    "$TEMP_DIR/models.json" \
+    "$TEMP_DIR/probe.json" \
+    "$TEMP_DIR/probe-body.json" \
     "$TEMP_DIR/profile.json" \
     "$TEMP_DIR/response.json" \
     "$TEMP_DIR/settings.json"
@@ -42,10 +49,13 @@ Usage:
   bash ccgc-enterprise-macos.sh token
   bash ccgc-enterprise-macos.sh models
   bash ccgc-enterprise-macos.sh configure
+  bash ccgc-enterprise-macos.sh doctor
 
 The enrollment command verifies the assigned GitHub account, stores the
 30-day employee key in macOS Keychain, and configures Claude Code. It does not
 disable Gatekeeper, remove quarantine attributes, or change MDM policy.
+The doctor command checks local configuration, gateway health, model discovery,
+and a real bounded inference request without printing credentials.
 EOF
 }
 
@@ -130,11 +140,13 @@ request_json() {
   local bearer="$3"
   local body_file="$4"
   local output_file="$5"
+  local timeout="${6:-30}"
   local code
+  local message
   local curl_args=(
     --silent
     --show-error
-    --max-time 30
+    --max-time "$timeout"
     --request "$method"
     --url "$url"
     --header 'Accept: application/json'
@@ -154,7 +166,13 @@ request_json() {
   fi
   case "$code" in
     2??) ;;
-    *) fail "enterprise gateway returned HTTP $code" ;;
+    *)
+      if valid_json "$output_file"; then
+        message="$(json_raw "$output_file" error.message 2>/dev/null || true)"
+        [ -z "$message" ] || fail "enterprise gateway returned HTTP $code: $message"
+      fi
+      fail "enterprise gateway returned HTTP $code"
+      ;;
   esac
   valid_json "$output_file" ||
     fail 'enterprise gateway returned invalid JSON'
@@ -175,6 +193,164 @@ validate_api_key() {
 
 validate_admission() {
   [[ "$1" =~ ^[a-f0-9]{64}$ ]] || fail 'gateway returned an invalid admission'
+}
+
+preflight_enrollment_settings() {
+  local gateway="$1"
+  local helper
+  local existing
+  local key
+  local choice
+  local setting_conflicts=()
+
+  for key in ANTHROPIC_API_KEY ANTHROPIC_AUTH_TOKEN CLAUDE_CODE_OAUTH_TOKEN; do
+    [ -z "${!key-}" ] ||
+      fail "shell environment setting $key conflicts with the enterprise gateway; run 'unset $key' and retry"
+  done
+  if [ -n "${ANTHROPIC_BASE_URL-}" ] && [ "$ANTHROPIC_BASE_URL" != "$gateway" ]; then
+    fail "shell environment setting ANTHROPIC_BASE_URL conflicts with the enterprise gateway; run 'unset ANTHROPIC_BASE_URL' and retry"
+  fi
+
+  [ ! -L "$SETTINGS_PATH" ] ||
+    fail 'existing Claude settings must not be a symlink'
+  [ -e "$SETTINGS_PATH" ] || return
+  [ -f "$SETTINGS_PATH" ] ||
+    fail 'existing Claude settings must be a regular file'
+  [ "$(/usr/bin/stat -f '%u' "$SETTINGS_PATH")" = "$(/usr/bin/id -u)" ] ||
+    fail 'existing Claude settings must be owned by the current user'
+  valid_json "$SETTINGS_PATH" ||
+    fail 'existing Claude settings are not valid JSON'
+  if json_raw "$SETTINGS_PATH" "$JSON_SETUP_MARKER" >/dev/null 2>&1; then
+    fail 'Claude settings contain a reserved CCGC setup key'
+  fi
+
+  helper="$(installed_helper)"
+  existing="$(json_raw "$SETTINGS_PATH" apiKeyHelper 2>/dev/null || true)"
+  if [ -n "$existing" ] && [ "$existing" != "$helper" ]; then
+    fail 'an unrelated Claude credential helper is already configured'
+  fi
+  for key in ANTHROPIC_API_KEY ANTHROPIC_AUTH_TOKEN CLAUDE_CODE_OAUTH_TOKEN; do
+    if json_raw "$SETTINGS_PATH" "env.$key" >/dev/null 2>&1; then
+      setting_conflicts+=("$key")
+    fi
+  done
+  existing="$(json_raw "$SETTINGS_PATH" env.ANTHROPIC_BASE_URL 2>/dev/null || true)"
+  if [ -n "$existing" ] && [ "$existing" != "$gateway" ]; then
+    setting_conflicts+=('ANTHROPIC_BASE_URL')
+  fi
+  [ "${#setting_conflicts[@]}" -gt 0 ] || return
+
+  printf 'Existing Claude setting(s) conflict with the enterprise gateway:\n' >&2
+  for key in "${setting_conflicts[@]}"; do
+    printf '  - %s\n' "$key" >&2
+  done
+  printf '\nChoose an action before the enrollment code is used:\n' >&2
+  printf '  1. After gateway verification, back up Claude settings and replace only these enterprise-managed settings.\n' >&2
+  printf '  2. Cancel without using the enrollment code or changing Claude settings.\n' >&2
+  printf 'Enter 1 or 2: ' >&2
+  IFS= read -r choice ||
+    fail 'interactive confirmation is required to resolve existing Claude credentials'
+  case "$choice" in
+    1)
+      for key in "${setting_conflicts[@]}"; do
+        PREAPPROVED_SETTING_CONFLICTS="${PREAPPROVED_SETTING_CONFLICTS}|$key|"
+      done
+      ;;
+    2) fail 'enrollment cancelled; the enrollment code and Claude settings were not changed' ;;
+    *) fail 'invalid choice; the enrollment code and Claude settings were not changed' ;;
+  esac
+}
+
+require_private_file() {
+  local path="$1"
+  local label="$2"
+  [ -f "$path" ] && [ ! -L "$path" ] ||
+    fail "$label must be a non-symlink regular file"
+  [ "$(/usr/bin/stat -f '%u' "$path")" = "$(/usr/bin/id -u)" ] ||
+    fail "$label must be owned by the current user"
+  [ "$(/usr/bin/stat -f '%Lp' "$path")" = '600' ] ||
+    fail "$label must have mode 0600"
+}
+
+model_display_name() {
+  local model="$1"
+  local family
+  local version
+  family="${model#claude-}"
+  version="${family#*-}"
+  family="${family%%-*}"
+  case "$family" in
+    sonnet) printf 'Claude Sonnet %s' "$version" ;;
+    haiku) printf 'Claude Haiku %s' "$version" ;;
+    opus) printf 'Claude Opus %s' "$version" ;;
+    *) printf '%s' "$model" ;;
+  esac
+}
+
+verify_gateway_health() {
+  local gateway="$1"
+  local output="$2"
+  request_json GET "$gateway/healthz" '' '' "$output"
+  [ "$(json_value "$output" status)" = 'listening' ] ||
+    fail 'enterprise gateway is not listening'
+}
+
+verify_gateway_access() {
+  local gateway="$1"
+  local api_key="$2"
+  local default_model="$3"
+  local tmp_dir="$4"
+  local admission
+  local client_id
+  local display_name
+  local expected_display
+  local found=0
+  local index=0
+  local model_id
+  local output_limit=16
+  local response_model
+  local response_text=''
+  local block_type
+
+  write_body "$tmp_dir/admission-body.json" '{"ttlSeconds":300,"maxAttempts":3}'
+  request_json POST "$gateway/ccgc/enterprise/admissions" "$api_key" \
+    "$tmp_dir/admission-body.json" "$tmp_dir/admission.json"
+  admission="$(json_value "$tmp_dir/admission.json" token)"
+  validate_admission "$admission"
+
+  request_json GET "$gateway/v1/models" "$admission" '' "$tmp_dir/models.json"
+  client_id="$(client_model "$default_model")"
+  expected_display="$(model_display_name "$default_model")"
+  while model_id="$(json_raw "$tmp_dir/models.json" "data.$index.id" 2>/dev/null)"; do
+    if [ "$model_id" = "$client_id" ]; then
+      display_name="$(json_value "$tmp_dir/models.json" "data.$index.display_name")"
+      [ "$display_name" = "$expected_display" ] ||
+        fail "gateway model display mismatch: expected $expected_display, received $display_name"
+      found=1
+      break
+    fi
+    index=$(( index + 1 ))
+  done
+  [ "$found" -eq 1 ] ||
+    fail "approved model $default_model is missing from gateway discovery"
+
+  [ "$default_model" != 'claude-sonnet-5.5' ] || output_limit=128000
+  write_body "$tmp_dir/probe-body.json" \
+    "{\"model\":\"$default_model\",\"max_tokens\":$output_limit,\"messages\":[{\"role\":\"user\",\"content\":\"Reply exactly CCGC_CLIENT_READY.\"}]}"
+  request_json POST "$gateway/v1/messages" "$admission" \
+    "$tmp_dir/probe-body.json" "$tmp_dir/probe.json" 180
+  response_model="$(json_value "$tmp_dir/probe.json" model)"
+  [ "$response_model" = "$default_model" ] ||
+    fail "gateway inference returned unexpected model $response_model"
+  index=0
+  while block_type="$(json_raw "$tmp_dir/probe.json" "content.$index.type" 2>/dev/null)"; do
+    if [ "$block_type" = 'text' ]; then
+      response_text="${response_text}$(json_value "$tmp_dir/probe.json" "content.$index.text")"
+    fi
+    index=$(( index + 1 ))
+  done
+  [ "$response_text" = 'CCGC_CLIENT_READY' ] ||
+    fail 'gateway inference probe returned an unexpected response'
 }
 
 shell_quote() {
@@ -226,10 +402,14 @@ prepare_settings() {
   local permission_mode
   local backup_path
   local choice
+  local confirmation_required=0
   local setting_conflicts=()
 
   helper="$(installed_helper)"
   if [ -f "$SETTINGS_PATH" ]; then
+    [ ! -L "$SETTINGS_PATH" ] || fail 'existing Claude settings must not be a symlink'
+    [ "$(/usr/bin/stat -f '%u' "$SETTINGS_PATH")" = "$(/usr/bin/id -u)" ] ||
+      fail 'existing Claude settings must be owned by the current user'
     valid_json "$SETTINGS_PATH" ||
       fail 'existing Claude settings are not valid JSON'
     /bin/cp "$SETTINGS_PATH" "$output"
@@ -287,16 +467,25 @@ CLAUDE_CODE_AUTO_MODE_SERVER=0
 EOF
 
   if [ "${#setting_conflicts[@]}" -gt 0 ]; then
-    printf 'Existing Claude setting(s) conflict with the enterprise gateway:\n' >&2
     for key in "${setting_conflicts[@]}"; do
-      printf '  - %s\n' "$key" >&2
+      case "$PREAPPROVED_SETTING_CONFLICTS" in
+        *"|$key|"*) ;;
+        *) confirmation_required=1 ;;
+      esac
     done
-    printf '\nChoose an action:\n' >&2
-    printf '  1. Back up Claude settings, replace only these enterprise-managed settings, and continue.\n' >&2
-    printf '  2. Cancel without changing Claude settings.\n' >&2
-    printf 'Enter 1 or 2: ' >&2
-    IFS= read -r choice ||
-      fail 'interactive confirmation is required to resolve existing Claude credentials'
+    choice=1
+    if [ "$confirmation_required" -eq 1 ]; then
+      printf 'Existing Claude setting(s) conflict with the enterprise gateway:\n' >&2
+      for key in "${setting_conflicts[@]}"; do
+        printf '  - %s\n' "$key" >&2
+      done
+      printf '\nChoose an action:\n' >&2
+      printf '  1. Back up Claude settings, replace only these enterprise-managed settings, and continue.\n' >&2
+      printf '  2. Cancel without changing Claude settings.\n' >&2
+      printf 'Enter 1 or 2: ' >&2
+      IFS= read -r choice ||
+        fail 'interactive confirmation is required to resolve existing Claude credentials'
+    fi
     case "$choice" in
       1)
         backup_path="$SETTINGS_PATH.ccgc-backup.$(/bin/date -u '+%Y%m%dT%H%M%SZ')"
@@ -405,6 +594,7 @@ enroll() {
   validate_code "$code"
   require_macos_tools
   require_claude_version
+  preflight_enrollment_settings "$gateway"
   install_self
 
   tmp_dir="$(/usr/bin/mktemp -d "${TMPDIR:-/tmp}/ccgc-enroll.XXXXXX")"
@@ -413,6 +603,7 @@ enroll() {
   body="$tmp_dir/body.json"
   trap cleanup_temp EXIT
 
+  verify_gateway_health "$gateway" "$tmp_dir/health.json"
   write_body "$body" "{\"code\":\"$code\"}"
   request_json POST "$gateway/ccgc/enroll/start" '' "$body" "$response"
   status="$(json_value "$response" status)"
@@ -461,6 +652,7 @@ enroll() {
   [[ "$default_model" =~ ^claude-[a-z0-9.-]+$ ]] ||
     fail 'gateway returned an invalid default model'
 
+  verify_gateway_access "$gateway" "$api_key" "$default_model" "$tmp_dir"
   prepare_profile "$tmp_dir/profile.json" "$gateway" "$response" "$tmp_dir/info.json"
   prepare_settings "$gateway" "$default_model" "$tmp_dir/settings.json"
 
@@ -586,6 +778,89 @@ configure() {
   printf 'Claude Code configuration updated.\n'
 }
 
+doctor() {
+  local gateway
+  local default_model
+  local expected_model
+  local helper
+  local existing
+  local api_key
+  local tmp_dir
+
+  require_macos_tools
+  require_claude_version
+  require_private_file "$INSTALL_PATH" 'installed enterprise helper'
+  require_private_file "$PROFILE_PATH" 'enterprise profile'
+  require_private_file "$SETTINGS_PATH" 'Claude settings'
+  valid_json "$PROFILE_PATH" || fail 'enterprise profile is invalid'
+  valid_json "$SETTINGS_PATH" || fail 'Claude settings are invalid'
+  gateway="$(json_value "$PROFILE_PATH" gateway)"
+  validate_gateway "$gateway"
+  default_model="$(json_value "$PROFILE_PATH" models.0)"
+  [[ "$default_model" =~ ^claude-[a-z0-9.-]+$ ]] ||
+    fail 'enterprise profile contains an invalid default model'
+  expected_model="$(client_model "$default_model")"
+  helper="$(installed_helper)"
+
+  for existing in ANTHROPIC_API_KEY ANTHROPIC_AUTH_TOKEN CLAUDE_CODE_OAUTH_TOKEN; do
+    [ -z "${!existing-}" ] ||
+      fail "shell environment setting $existing conflicts with the enterprise gateway; run 'unset $existing'"
+    if json_raw "$SETTINGS_PATH" "env.$existing" >/dev/null 2>&1; then
+      fail "Claude settings still contain conflicting credential $existing"
+    fi
+  done
+  if [ -n "${ANTHROPIC_BASE_URL-}" ] && [ "$ANTHROPIC_BASE_URL" != "$gateway" ]; then
+    fail "shell environment setting ANTHROPIC_BASE_URL conflicts with the enterprise gateway; run 'unset ANTHROPIC_BASE_URL'"
+  fi
+  if [ -n "${ANTHROPIC_DEFAULT_MODEL-}" ] && [ "$ANTHROPIC_DEFAULT_MODEL" != "$expected_model" ]; then
+    fail "shell environment setting ANTHROPIC_DEFAULT_MODEL conflicts with the approved model; run 'unset ANTHROPIC_DEFAULT_MODEL'"
+  fi
+
+  [ "$(json_value "$SETTINGS_PATH" env.ANTHROPIC_BASE_URL)" = "$gateway" ] ||
+    fail 'Claude settings do not route to the enrolled enterprise gateway'
+  [ "$(json_value "$SETTINGS_PATH" env.ANTHROPIC_DEFAULT_MODEL)" = "$expected_model" ] ||
+    fail 'Claude settings do not select the approved default model'
+  [ "$(json_value "$SETTINGS_PATH" env.CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY)" = '1' ] ||
+    fail 'Claude gateway model discovery is not enabled'
+  [ "$(json_value "$SETTINGS_PATH" env.CLAUDE_CODE_API_KEY_HELPER_TTL_MS)" = '60000' ] ||
+    fail 'Claude credential-helper caching is not configured safely'
+  [ "$(json_value "$SETTINGS_PATH" env.CLAUDE_CODE_AUTO_MODE_SERVER)" = '0' ] ||
+    fail 'Claude local auto-mode routing is not configured'
+  [ "$(json_value "$SETTINGS_PATH" apiKeyHelper)" = "$helper" ] ||
+    fail 'Claude settings do not use the installed enterprise credential helper'
+  json_raw "$SETTINGS_PATH" permissions.defaultMode >/dev/null 2>&1 ||
+    fail 'Claude permission default is missing'
+  if json_raw "$PROFILE_PATH" apiKey >/dev/null 2>&1 ||
+    json_raw "$PROFILE_PATH" token >/dev/null 2>&1; then
+    fail 'enterprise profile must not contain credentials'
+  fi
+
+  api_key="$(keychain_get "$(api_key_service "$gateway")" || true)"
+  validate_api_key "$api_key"
+  tmp_dir="$(/usr/bin/mktemp -d "${TMPDIR:-/tmp}/ccgc-doctor.XXXXXX")"
+  TEMP_DIR="$tmp_dir"
+  trap cleanup_temp EXIT
+  verify_gateway_health "$gateway" "$tmp_dir/health.json"
+  request_json GET "$gateway/ccgc/enterprise/info" "$api_key" '' "$tmp_dir/info.json"
+  [ "$(json_value "$PROFILE_PATH" tenantId)" = "$(json_value "$tmp_dir/info.json" tenantId)" ] ||
+    fail 'enterprise profile tenant no longer matches the gateway binding'
+  [ "$(json_value "$PROFILE_PATH" objectId)" = "$(json_value "$tmp_dir/info.json" objectId)" ] ||
+    fail 'enterprise profile user no longer matches the gateway binding'
+  [ "$(json_value "$PROFILE_PATH" githubAccountId)" = "$(json_value "$tmp_dir/info.json" githubAccountId)" ] ||
+    fail 'enterprise profile GitHub account no longer matches the gateway binding'
+  [ "$(json_array "$PROFILE_PATH" models)" = "$(json_array "$tmp_dir/info.json" models)" ] ||
+    fail 'enterprise profile models no longer match the gateway binding'
+  verify_gateway_access "$gateway" "$api_key" "$default_model" "$tmp_dir"
+
+  printf 'CCGC doctor passed.\n'
+  printf 'Claude Code: %s\n' "$SUPPORTED_CLAUDE_VERSION"
+  printf 'GitHub account: %s (%s)\n' \
+    "$(json_value "$tmp_dir/info.json" githubLogin)" \
+    "$(json_value "$tmp_dir/info.json" githubAccountId)"
+  printf 'Default model: %s (%s)\n' "$default_model" "$(model_display_name "$default_model")"
+  printf 'Local settings, Keychain, binding, model discovery, output limit, and inference are healthy.\n'
+}
+
 command="${1:-help}"
 if [ "$#" -gt 0 ]; then
   shift
@@ -595,6 +870,7 @@ case "$command" in
   token) [ "$#" -eq 0 ] || fail 'token does not accept options'; token ;;
   models) [ "$#" -eq 0 ] || fail 'models does not accept options'; models ;;
   configure) [ "$#" -eq 0 ] || fail 'configure does not accept options'; configure ;;
+  doctor) [ "$#" -eq 0 ] || fail 'doctor does not accept options'; doctor ;;
   help|-h|--help) usage ;;
   *) fail "unknown command: $command" ;;
 esac

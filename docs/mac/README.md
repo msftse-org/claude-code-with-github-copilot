@@ -183,7 +183,30 @@ The command shows:
 The catalog comes from the employee binding. It is not an unrestricted provider
 catalog.
 
-## 7. Create an admission and start Claude
+## 7. Run the end-to-end doctor
+
+Run this after enrollment, after a client update, or before opening a support
+case:
+
+```bash
+/bin/bash "$HOME/.local/share/ccgc/enterprise/ccgc-enterprise-macos.sh" doctor
+```
+
+The doctor fails closed and reports the first actionable problem. It verifies:
+
+- the exact supported Claude Code version
+- private, user-owned, non-symlink helper/profile/settings files
+- absence of conflicting shell and Claude credentials
+- the enterprise base URL, model, helper, cache, permissions, and auto-mode settings
+- the employee key in macOS Keychain
+- broker health and the current account binding
+- the approved model ID and human-readable discovery name
+- the Sonnet 5.5 128K output limit
+- one real bounded inference response
+
+It never prints the employee key or admission token.
+
+## 8. Create an admission and start Claude
 
 Start Claude normally:
 
@@ -206,7 +229,7 @@ credential is never written to the profile or Claude settings.
 Use `/model` inside Claude Code to select another approved model. Do not add
 provider keys or override the broker URL.
 
-## 8. Supported and unsupported behavior
+## 9. Supported and unsupported behavior
 
 ### Validated features
 

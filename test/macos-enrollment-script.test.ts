@@ -15,6 +15,8 @@ test('macOS enrollment script documents the managed-device-safe flow', async () 
   const { stdout } = await exec('/bin/bash', [script.pathname, 'help']);
   assert.match(stdout, /stores the\s+30-day employee key in macOS Keychain/);
   assert.match(stdout, /does not\s+disable Gatekeeper/);
+  assert.match(stdout, /doctor/);
+  assert.match(stdout, /real bounded inference request/);
 });
 
 test('macOS enrollment script rejects malformed codes before network access', async () => {
@@ -39,6 +41,8 @@ test('macOS enrollment script never removes quarantine or changes Gatekeeper pol
 
 test('macOS enrollment script requires a choice before replacing enterprise-managed settings', async () => {
   const source = await readFile(script, 'utf8');
+  assert.match(source, /Choose an action before the enrollment code is used:/);
+  assert.match(source, /Cancel without using the enrollment code or changing Claude settings/);
   assert.match(source, /Back up Claude settings, replace only these enterprise-managed settings, and continue/);
   assert.match(source, /Cancel without changing Claude settings/);
   assert.match(source, /ccgc-backup\./);
@@ -49,6 +53,37 @@ test('macOS enrollment script requires a choice before replacing enterprise-mana
 test('macOS enrollment requires the verified Claude Code compatibility version before network access', async () => {
   const source = await readFile(script, 'utf8');
   assert.match(source, /SUPPORTED_CLAUDE_VERSION='2\.1\.296'/);
-  assert.match(source, /require_claude_version\s+install_self/);
+  assert.match(source, /require_claude_version[\s\S]*preflight_enrollment_settings "\$gateway"[\s\S]*install_self/);
   assert.match(source, /claude install \$SUPPORTED_CLAUDE_VERSION/);
+});
+
+test('macOS enrollment verifies health, discovery, output limits and inference before acknowledgment', async () => {
+  const source = await readFile(script, 'utf8');
+  assert.match(source, /preflight_enrollment_settings "\$gateway"[\s\S]*install_self[\s\S]*ccgc\/enroll\/start/);
+  assert.match(source, /verify_gateway_health "\$gateway" "\$tmp_dir\/health\.json"[\s\S]*ccgc\/enroll\/start/);
+  assert.match(source, /verify_gateway_access "\$gateway" "\$api_key" "\$default_model" "\$tmp_dir"[\s\S]*prepare_profile/);
+  assert.match(source, /output_limit=128000/);
+  assert.match(source, /Reply exactly CCGC_CLIENT_READY/);
+  assert.match(source, /gateway model display mismatch/);
+  assert.match(source, /ccgc\/enroll\/complete/);
+});
+
+test('macOS doctor covers local security, conflicts, Keychain, binding and live inference', async () => {
+  const source = await readFile(script, 'utf8');
+  assert.match(source, /doctor\(\)/);
+  assert.match(source, /require_private_file "\$INSTALL_PATH"/);
+  assert.match(source, /require_private_file "\$PROFILE_PATH"/);
+  assert.match(source, /require_private_file "\$SETTINGS_PATH"/);
+  assert.match(source, /ANTHROPIC_AUTH_TOKEN/);
+  assert.match(source, /CLAUDE_CODE_OAUTH_TOKEN/);
+  assert.match(source, /Claude settings do not route to the enrolled enterprise gateway/);
+  assert.match(source, /enterprise profile models no longer match the gateway binding/);
+  assert.match(source, /verify_gateway_access "\$gateway" "\$api_key" "\$default_model" "\$tmp_dir"/);
+  assert.match(source, /CCGC doctor passed/);
+});
+
+test('macOS gateway failures include safe server-side error messages', async () => {
+  const source = await readFile(script, 'utf8');
+  assert.match(source, /json_raw "\$output_file" error\.message/);
+  assert.match(source, /enterprise gateway returned HTTP \$code: \$message/);
 });
