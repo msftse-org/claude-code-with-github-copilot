@@ -4,6 +4,7 @@ set -euo pipefail
 umask 077
 
 DEFAULT_GATEWAY='https://ca-ccgc-pilot-broker.bluefield-2d967d14.swedencentral.azurecontainerapps.io'
+SUPPORTED_CLAUDE_VERSION='2.1.296'
 INSTALL_PATH="$HOME/.local/share/ccgc/enterprise/ccgc-enterprise-macos.sh"
 PROFILE_PATH="$HOME/.local/share/ccgc/enterprise/profile.json"
 SETTINGS_PATH="$HOME/.claude/settings.json"
@@ -53,6 +54,22 @@ require_macos_tools() {
   for tool in /usr/bin/curl /usr/bin/open /usr/bin/plutil /usr/bin/security /usr/bin/shasum; do
     [ -x "$tool" ] || fail "required macOS tool is unavailable: $tool"
   done
+}
+
+require_claude_version() {
+  local output
+  local version
+  command -v claude >/dev/null 2>&1 ||
+    fail "Claude Code $SUPPORTED_CLAUDE_VERSION is required; install it before enrollment"
+  output="$(claude --version 2>/dev/null)" ||
+    fail 'could not determine the installed Claude Code version'
+  if [[ "$output" =~ ([0-9]+\.[0-9]+\.[0-9]+) ]]; then
+    version="${BASH_REMATCH[1]}"
+  else
+    fail 'could not parse the installed Claude Code version'
+  fi
+  [ "$version" = "$SUPPORTED_CLAUDE_VERSION" ] ||
+    fail "Claude Code $SUPPORTED_CLAUDE_VERSION is required (found $version); run 'claude install $SUPPORTED_CLAUDE_VERSION'"
 }
 
 json_raw() {
@@ -387,6 +404,7 @@ enroll() {
   validate_gateway "$gateway"
   validate_code "$code"
   require_macos_tools
+  require_claude_version
   install_self
 
   tmp_dir="$(/usr/bin/mktemp -d "${TMPDIR:-/tmp}/ccgc-enroll.XXXXXX")"
@@ -554,6 +572,7 @@ configure() {
   local default_model
   local tmp_dir
   require_macos_tools
+  require_claude_version
   install_self
   [ -f "$PROFILE_PATH" ] || fail 'enterprise profile is unavailable; run enrollment first'
   gateway="$(json_value "$PROFILE_PATH" gateway)"

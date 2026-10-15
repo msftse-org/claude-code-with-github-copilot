@@ -45,3 +45,10 @@ test('macOS enrollment script requires a choice before replacing enterprise-mana
   assert.match(source, /plutil -remove "env\.\$key"/);
   assert.match(source, /ANTHROPIC_BASE_URL=\$gateway/);
 });
+
+test('macOS enrollment requires the verified Claude Code compatibility version before network access', async () => {
+  const source = await readFile(script, 'utf8');
+  assert.match(source, /SUPPORTED_CLAUDE_VERSION='2\.1\.296'/);
+  assert.match(source, /require_claude_version\s+install_self/);
+  assert.match(source, /claude install \$SUPPORTED_CLAUDE_VERSION/);
+});

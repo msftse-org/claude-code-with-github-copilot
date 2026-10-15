@@ -19,8 +19,8 @@ test('enterprise model catalog uses the worker model contract', async () => {
     id: 'claude-sonnet-5.5',
     name: 'Claude Sonnet 5.5',
     responseIds: ['claude-sonnet-5.5', 'claude-sonnet-5-5'],
-    context: 200000,
-    output: 16384,
+    context: 1000000,
+    output: 128000,
   }]);
 });
 
