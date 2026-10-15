@@ -8,6 +8,22 @@ async function source(path: string): Promise<string> {
   return readFile(new URL(path, root), 'utf8');
 }
 
+test('enterprise model catalog uses the worker model contract', async () => {
+  const main = await source('infra/enterprise/main.bicep');
+  const match = main.match(/param modelsJson string = '([^']+)'/);
+  assert.ok(match);
+  const catalog = JSON.parse(match[1]!) as {
+    models: Array<Record<string, unknown>>;
+  };
+  assert.deepEqual(catalog.models, [{
+    id: 'claude-sonnet-5.5',
+    name: 'Claude Sonnet 5.5',
+    responseIds: ['claude-sonnet-5.5', 'claude-sonnet-5-5'],
+    context: 200000,
+    output: 16384,
+  }]);
+});
+
 test('enterprise deployment stages private image publication before runtime', async () => {
   const [main, platform, automation] = await Promise.all([
     source('infra/enterprise/main.bicep'),

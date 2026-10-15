@@ -62,7 +62,7 @@ param checkpointEncryptionKey string
 param cryptographicSecretExpiration int
 
 @description('Reviewed Claude model catalog consumed by the shared worker.')
-param modelsJson string = '{"models":[{"id":"claude-sonnet-5.5","responseIds":["claude-sonnet-5-5"],"contextWindow":200000,"maxOutput":16384}]}'
+param modelsJson string = '{"models":[{"id":"claude-sonnet-5.5","name":"Claude Sonnet 5.5","responseIds":["claude-sonnet-5.5","claude-sonnet-5-5"],"context":200000,"output":16384}]}'
 
 var resourceGroupName = 'rg-${prefix}-enterprise'
 
