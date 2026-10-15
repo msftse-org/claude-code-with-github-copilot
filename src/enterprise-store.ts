@@ -3,6 +3,8 @@ import { Pool, type PoolClient } from 'pg';
 import { BridgeError } from './protocol.ts';
 import type { EnterprisePrincipal } from './enterprise-auth.ts';
 
+const DISPATCH_LEASE_SECONDS = 5 * 60;
+
 export interface AccountBinding {
   tenantId: string;
   objectId: string;
@@ -778,6 +780,23 @@ export class PostgresEnterpriseStore implements EnterpriseStore {
       if (!binding.models.includes(model)) throw new BridgeError('MODEL_UNAVAILABLE', 'This model is not approved for the linked Copilot account.', 403);
       if (Number(row.binding_revision) !== binding.revision) throw new BridgeError('IDENTITY_CONFLICT', 'The account binding changed after admission.', 409);
       if (Number(row.attempts) >= Number(row.max_attempts)) throw new BridgeError('LIMIT_REACHED', 'Admission attempt budget is exhausted.', 429);
+      const expired = await client.query(
+        `UPDATE enterprise_dispatches d SET status = 'cancelled', finished_at = now()
+         FROM enterprise_admissions stale_admission
+         WHERE d.admission_id = stale_admission.id
+           AND stale_admission.tenant_id = $1 AND stale_admission.object_id = $2
+           AND d.status = 'reserved'
+           AND d.reserved_at <= now() - ($3 * interval '1 second')
+         RETURNING d.id`,
+        [binding.tenantId, binding.objectId, DISPATCH_LEASE_SECONDS],
+      );
+      for (const expiredRow of expired.rows as Array<Record<string, unknown>>) {
+        await client.query(
+          `INSERT INTO enterprise_audit_outbox (event_type, tenant_id, object_id, subject_id, metadata)
+           VALUES ('dispatch.finished', $1, $2, $3, $4::jsonb)`,
+          [binding.tenantId, binding.objectId, expiredRow.id, JSON.stringify({ outcome: 'cancelled', reason: 'lease_expired' })],
+        );
+      }
       const active = await client.query(
         `SELECT
            count(*) FILTER (WHERE d.admission_id = $1 AND d.branch_id = $2) AS branch_count,

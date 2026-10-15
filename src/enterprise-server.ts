@@ -6,9 +6,11 @@ import type { EnterpriseStore } from './enterprise-store.ts';
 import type { WorkerResolver } from './enterprise-worker.ts';
 import type { DispatchSigner } from './enterprise-dispatch.ts';
 import { serveEnterpriseAdminUi } from './enterprise-admin-ui.ts';
+import { clientModelId, modelDisplayName } from './remote.ts';
 
 const MAX_BODY = 16 * 1024 * 1024;
 const MAX_ADMIN_BODY = 64 * 1024;
+const DEFAULT_DISPATCH_TIMEOUT_MS = 4 * 60_000;
 
 export interface EnterpriseAdministrationActions {
   createUser(input: ObjectValue): Promise<ObjectValue>;
@@ -43,6 +45,7 @@ export interface EnterpriseServerOptions {
   host?: string;
   port?: number;
   fetcher?: typeof fetch;
+  dispatchTimeoutMs?: number;
   onError?: (error: BridgeError) => void;
 }
 
@@ -190,9 +193,9 @@ export async function startEnterpriseServer(options: EnterpriseServerOptions) {
       const tokenHash = createHash('sha256').update(admissionToken).digest('hex');
       const { binding } = await options.store.admissionBinding(tokenHash);
       const data = binding.models.map(id => ({
-        id: id === 'claude-haiku-4.5' ? 'claude-haiku-4-5-20251001' : id.replaceAll('.', '-'),
+        id: clientModelId({ id }),
         type: 'model',
-        display_name: id,
+        display_name: modelDisplayName(id),
         description: `GitHub Copilot isolated worker: ${id}. No provider fallback.`,
       }));
       send(response, 200, { data, has_more: false, first_id: data[0]?.id, last_id: data.at(-1)?.id });
@@ -229,6 +232,11 @@ export async function startEnterpriseServer(options: EnterpriseServerOptions) {
       model,
     });
     const controller = new AbortController();
+    const dispatchTimeout = setTimeout(
+      () => controller.abort(new BridgeError('GATEWAY_UNAVAILABLE', 'Worker dispatch exceeded its bounded execution time.', 503)),
+      options.dispatchTimeoutMs ?? DEFAULT_DISPATCH_TIMEOUT_MS,
+    );
+    dispatchTimeout.unref();
     request.once('close', () => controller.abort());
     let outcome: 'completed' | 'failed' | 'cancelled' = 'failed';
     try {
@@ -265,6 +273,7 @@ export async function startEnterpriseServer(options: EnterpriseServerOptions) {
       outcome = controller.signal.aborted ? 'cancelled' : 'failed';
       throw error;
     } finally {
+      clearTimeout(dispatchTimeout);
       await options.store.finishDispatch(reservation.id, outcome);
     }
   }

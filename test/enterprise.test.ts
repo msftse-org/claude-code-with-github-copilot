@@ -275,7 +275,12 @@ test('enterprise broker binds principal, admission, dispatch fence and isolated 
       headers: { authorization: `Bearer ${'a'.repeat(64)}` },
     });
     assert.equal(models.status, 200);
-    assert.equal((await models.json()).data[0].id, 'claude-sonnet-5-5');
+    assert.deepEqual((await models.json()).data[0], {
+      id: 'claude-sonnet-5-5',
+      type: 'model',
+      display_name: 'Claude Sonnet 5.5',
+      description: 'GitHub Copilot isolated worker: claude-sonnet-5.5. No provider fallback.',
+    });
 
     const message = await fetch(`${base}/v1/messages`, {
       method: 'POST',
@@ -332,6 +337,35 @@ test('enterprise broker records failed worker calls without retry', async () => 
     assert.equal(response.status, 500);
     assert.equal(calls, 1);
     assert.deepEqual(store.finished, [{ id: '44444444-4444-4444-4444-444444444444', outcome: 'failed' }]);
+  } finally {
+    await server.close();
+  }
+});
+
+test('enterprise broker bounds dispatch duration and records cancellation', async () => {
+  const store = new FakeStore();
+  const server = await startEnterpriseServer({
+    authenticator: new FakeAuthenticator(),
+    store,
+    workers: new FakeWorkers(),
+    dispatchSigner: new DispatchSigner(dispatchSecret, brokerOrigin, workerOrigin),
+    dispatchTimeoutMs: 10,
+    fetcher: async (_input, init) => new Promise<Response>((_resolve, reject) => {
+      init?.signal?.addEventListener('abort', () => reject(init.signal?.reason), { once: true });
+    }),
+  });
+
+  try {
+    const response = await fetch(`http://127.0.0.1:${server.port}/v1/messages`, {
+      method: 'POST',
+      headers: {
+        authorization: ['Bearer', 'a'.repeat(64)].join(' '),
+        'content-type': 'application/json',
+      },
+      body: JSON.stringify({ model: 'claude-sonnet-5.5', max_tokens: 16, messages: [{ role: 'user', content: 'hi' }] }),
+    });
+    assert.equal(response.status, 503, await response.text());
+    assert.deepEqual(store.finished, [{ id: '44444444-4444-4444-4444-444444444444', outcome: 'cancelled' }]);
   } finally {
     await server.close();
   }

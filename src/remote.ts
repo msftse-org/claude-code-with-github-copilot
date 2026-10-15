@@ -71,8 +71,14 @@ export function remoteInfo(data: ObjectValue, allowLegacy = false): RemoteInfo {
   };
 }
 
-export function clientModelId(model: Model): string {
+export function clientModelId(model: Pick<Model, 'id'>): string {
   return model.id === 'claude-haiku-4.5' ? 'claude-haiku-4-5-20251001' : model.id.replaceAll('.', '-');
+}
+
+export function modelDisplayName(id: string): string {
+  const match = /^claude-(sonnet|haiku|opus)-([a-z0-9.]+)$/.exec(id);
+  if (!match) return id;
+  return `Claude ${match[1]![0]!.toUpperCase()}${match[1]!.slice(1)} ${match[2]}`;
 }
 
 function modelIds(model: Model): string[] {

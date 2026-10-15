@@ -57,6 +57,75 @@ test('enrollment completion accepts an already-connected pending enrollment', as
   }
 });
 
+test('dispatch reservation expires stale principal leases before enforcing concurrency', async () => {
+  const store = new PostgresEnterpriseStore(
+    'postgresql://managed-identity@example.postgres.database.azure.com:5432/postgres?sslmode=verify-full',
+    { getToken: async () => ({ token: 'managed-identity-token' }) },
+    false,
+    false,
+  );
+  const queries: Array<{ text: string; values?: unknown[] }> = [];
+  const client = {
+    async query(text: string, values?: unknown[]) {
+      queries.push({ text, values });
+      if (text.includes('FROM enterprise_admissions\n         WHERE token_hash')) {
+        return {
+          rowCount: 1,
+          rows: [{
+            id: '33333333-3333-3333-3333-333333333333',
+            tenant_id: '11111111-1111-1111-1111-111111111111',
+            object_id: '22222222-2222-2222-2222-222222222222',
+            binding_revision: 1,
+            max_attempts: 10,
+            attempts: 0,
+          }],
+        };
+      }
+      if (text.includes('FROM enterprise_account_bindings')) {
+        return {
+          rowCount: 1,
+          rows: [{
+            tenant_id: '11111111-1111-1111-1111-111111111111',
+            object_id: '22222222-2222-2222-2222-222222222222',
+            github_account_id: 1234,
+            github_login: 'developer',
+            credential_secret_name: 'copilot-developer',
+            models: ['claude-sonnet-5.5'],
+            revision: 1,
+          }],
+        };
+      }
+      if (text.startsWith('UPDATE enterprise_dispatches d SET status')) {
+        return { rowCount: 1, rows: [{ id: '44444444-4444-4444-8444-444444444444' }] };
+      }
+      if (text.includes('AS branch_count')) return { rowCount: 1, rows: [{ branch_count: 0, principal_count: 0 }] };
+      if (text.startsWith('UPDATE enterprise_admissions SET attempts')) return { rowCount: 1, rows: [{ fence: 2 }] };
+      return { rowCount: 1, rows: [] };
+    },
+    release() {},
+  };
+  const originalConnect = store.pool.connect.bind(store.pool);
+  store.pool.connect = (async () => client) as typeof store.pool.connect;
+  try {
+    const reservation = await store.reserveDispatch(
+      'a'.repeat(64),
+      'b'.repeat(64),
+      'claude-sonnet-5.5',
+      'main',
+    );
+    assert.equal(reservation.fence, 2);
+    const expiry = queries.find(query => query.text.startsWith('UPDATE enterprise_dispatches d SET status'));
+    assert.match(expiry?.text ?? '', /reserved_at <= now\(\) - \(\$3 \* interval '1 second'\)/);
+    assert.equal(expiry?.values?.[2], 300);
+    assert.ok(queries.some(query =>
+      query.text.includes("VALUES ('dispatch.finished'")
+      && String(query.values?.[3]).includes('"reason":"lease_expired"')));
+  } finally {
+    store.pool.connect = originalConnect;
+    await store.close();
+  }
+});
+
 const connection = process.env.CCGC_TEST_POSTGRES_URL;
 
 test('PostgreSQL store atomically binds, reserves, fences, audits and revokes', { skip: !connection }, async () => {
