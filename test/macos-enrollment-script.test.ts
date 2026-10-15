@@ -37,10 +37,11 @@ test('macOS enrollment script never removes quarantine or changes Gatekeeper pol
   assert.match(source, /security -i/);
 });
 
-test('macOS enrollment script requires a choice before removing existing Claude credentials', async () => {
+test('macOS enrollment script requires a choice before replacing enterprise-managed settings', async () => {
   const source = await readFile(script, 'utf8');
-  assert.match(source, /Back up Claude settings, remove only these credential keys, and continue/);
+  assert.match(source, /Back up Claude settings, replace only these enterprise-managed settings, and continue/);
   assert.match(source, /Cancel without changing Claude settings/);
   assert.match(source, /ccgc-backup\./);
   assert.match(source, /plutil -remove "env\.\$key"/);
+  assert.match(source, /ANTHROPIC_BASE_URL=\$gateway/);
 });

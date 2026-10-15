@@ -252,13 +252,30 @@ prepare_settings() {
     fi
   done
 
+  while IFS='=' read -r key desired; do
+    existing="${!key-}"
+    if [ -n "$existing" ] && [ "$existing" != "$desired" ]; then
+      fail "shell environment setting $key conflicts with the enterprise gateway; run 'unset $key' and retry"
+    fi
+    existing="$(json_raw "$output" "env.$key" 2>/dev/null || true)"
+    if [ -n "$existing" ] && [ "$existing" != "$desired" ]; then
+      setting_conflicts+=("$key")
+    fi
+  done <<EOF
+ANTHROPIC_BASE_URL=$gateway
+ANTHROPIC_DEFAULT_MODEL=$(client_model "$default_model")
+CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY=1
+CLAUDE_CODE_API_KEY_HELPER_TTL_MS=60000
+CLAUDE_CODE_AUTO_MODE_SERVER=0
+EOF
+
   if [ "${#setting_conflicts[@]}" -gt 0 ]; then
-    printf 'Existing Claude credential setting(s) conflict with the enterprise gateway:\n' >&2
+    printf 'Existing Claude setting(s) conflict with the enterprise gateway:\n' >&2
     for key in "${setting_conflicts[@]}"; do
       printf '  - %s\n' "$key" >&2
     done
     printf '\nChoose an action:\n' >&2
-    printf '  1. Back up Claude settings, remove only these credential keys, and continue.\n' >&2
+    printf '  1. Back up Claude settings, replace only these enterprise-managed settings, and continue.\n' >&2
     printf '  2. Cancel without changing Claude settings.\n' >&2
     printf 'Enter 1 or 2: ' >&2
     IFS= read -r choice ||
@@ -284,14 +301,6 @@ prepare_settings() {
   fi
 
   while IFS='=' read -r key desired; do
-    existing="${!key-}"
-    if [ -n "$existing" ] && [ "$existing" != "$desired" ]; then
-      fail "shell environment setting $key conflicts with the enterprise gateway"
-    fi
-    existing="$(json_raw "$output" "env.$key" 2>/dev/null || true)"
-    if [ -n "$existing" ] && [ "$existing" != "$desired" ]; then
-      fail "existing Claude setting $key conflicts with the enterprise gateway"
-    fi
     plist_set_string "$output" "env.$key" "$desired"
   done <<EOF
 ANTHROPIC_BASE_URL=$gateway
