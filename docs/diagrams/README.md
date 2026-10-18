@@ -2,9 +2,10 @@
 
 The enterprise target is split into **two separate diagrams**. Runtime contains
 no CI/CD, IaC or setup flow; provisioning contains no inference topology.
-The runtime foundation is **implemented and validated but not deployed**; the
-full provisioning/lifecycle workflow remains proposed. The existing gateway and
-Bicep/Terraform VM automation remain the single-user alpha documented below.
+The runtime foundation is **implemented, deployed, and validated as an
+enterprise pilot**. The provisioning diagram documents the governed path from
+scope approval through private deployment, script-based employee enrollment,
+acceptance, staged rollout, and recovery. Production promotion remains gated.
 
 | Enterprise diagram | Presentation PNG | Interactive HTML | Technical source |
 |---|---|---|---|
@@ -70,13 +71,19 @@ recovery decisions remain explicit release gates.
 
 ## Enterprise provisioning and rollout
 
-![Proposed enterprise provisioning and rollout](ccgc-enterprise-provisioning.png)
+![Enterprise provisioning and rollout](ccgc-enterprise-provisioning.png)
 
 Read the eight numbered steps from left to right on the top row, then right to
 left on the second row: scope approval, signed build/IaC plan, human approval,
 private foundation, service deployment, per-user linking, acceptance, staged
 rollout. Use **Bicep OR Terraform**, with one resource/state owner per environment.
 Federated CI identity does not replace browser consent or live-test approval.
+
+For the validated macOS path, per-user linking is performed with
+[`scripts/ccgc-enterprise-macos.sh`](../../scripts/ccgc-enterprise-macos.sh).
+The one-time enrollment code is issued by Enterprise IT; the employee authorizes
+the assigned GitHub account, and the script verifies health, model discovery,
+limits, and live inference before acknowledging enrollment.
 
 Failed acceptance blocks promotion and revokes affected admissions. Recovery
 requires a separately approved known-good release; a failed first install

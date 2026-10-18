@@ -26,13 +26,25 @@ Required for self-service API-key enrollment:
 - The repository's `scripts/ccgc-enterprise-macos.sh` enrollment script
 - A broker URL and unexpired single-use enrollment code from Enterprise IT
 
-Save the script locally without making it executable:
+Download the tracked script from the private organization repository with an
+authenticated GitHub CLI session:
 
 ```bash
-chmod 600 ccgc-enterprise-macos.sh
+gh auth status
+gh api \
+  -H 'Accept: application/vnd.github.raw+json' \
+  repos/msftse-org/claude-code-with-github-copilot/contents/scripts/ccgc-enterprise-macos.sh \
+  > "$HOME/Downloads/ccgc-enterprise-macos.sh"
+chmod 600 "$HOME/Downloads/ccgc-enterprise-macos.sh"
+
 claude --version
-/bin/bash ccgc-enterprise-macos.sh help
+/bin/bash "$HOME/Downloads/ccgc-enterprise-macos.sh" help
 ```
+
+Enterprise IT can instead distribute the same repository file through the
+approved corporate software channel. Employees should not accept a script from
+chat, email, or an unverified fork. If IT publishes a SHA-256 checksum, verify
+it with `shasum -a 256` before enrollment.
 
 If Claude Code is missing or has another version:
 
@@ -50,7 +62,8 @@ IT must distribute the script through the corporate software channel.
 ## 2. Self-enroll with the one-time code
 
 ```bash
-/bin/bash ccgc-enterprise-macos.sh enroll --code CCGC-ONE-TIME-CODE
+/bin/bash "$HOME/Downloads/ccgc-enterprise-macos.sh" enroll \
+  --code CCGC-ONE-TIME-CODE
 ```
 
 The script defaults to the deployed pilot broker. A different deployment can
@@ -62,6 +75,10 @@ an account without an active Copilot entitlement. After verification, the
 script stores the employee API key directly in Keychain, writes the
 non-secret profile, and configures Claude Code. The administrator never sees
 or transfers the API key.
+
+Enrollment also checks broker health, model discovery, the human-readable model
+name, the approved output limit, and one real bounded inference response before
+it saves local credentials or acknowledges the one-time code.
 
 ## 3. Alternative Entra or manual API-key login
 

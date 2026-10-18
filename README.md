@@ -35,6 +35,8 @@ employee's own GitHub Copilot seat**.
 
 ## Architecture
 
+### Runtime architecture
+
 ![Enterprise multi-user architecture](docs/diagrams/ccgc-enterprise-runtime-multiuser-litellm-presentation-v16.png)
 
 Each employee has a separate identity binding, LiteLLM user key, GitHub OAuth
@@ -52,6 +54,16 @@ session caches.
 > [!WARNING]
 > The Copilot connector is unofficial and is not endorsed by GitHub or
 > Anthropic. The organization must approve this use before onboarding employees.
+
+### Provisioning and rollout
+
+![Enterprise provisioning and rollout](docs/diagrams/ccgc-enterprise-provisioning.png)
+
+The provisioning workflow separates scope and cost approval, private foundation
+deployment, service rollout, employee enrollment, acceptance gates, staged
+promotion, and approved recovery. Open the
+[interactive provisioning diagram](docs/diagrams/ccgc-enterprise-provisioning.html)
+for inspection and export.
 
 ## Why the enterprise path uses LiteLLM and a broker
 
@@ -114,6 +126,8 @@ worker loads only the matching LiteLLM user key from Key Vault.
 
 See [Mac enterprise setup and operation](docs/mac/README.md) for installation,
 Entra sign-in, configuration, Keychain behavior, verification, and daily use.
+The managed macOS enrollment entry point is the tracked
+[`scripts/ccgc-enterprise-macos.sh`](scripts/ccgc-enterprise-macos.sh) script.
 
 ## Claude Code feature compatibility
 
@@ -157,7 +171,7 @@ Normal allow/deny rules and explicit approvals remain authoritative.
 - npm
 - Docker for local image validation
 - Azure CLI with Bicep for infrastructure validation and deployment
-- Go 1.25 or later for the cross-platform enrollment binary
+- Go 1.25 or later only when building the optional cross-platform enrollment binary
 - macOS for Keychain integration or Windows for DPAPI integration
 - An Azure subscription and Microsoft Entra permissions for enterprise deployment
 - A GitHub Copilot seat for every employee who uses the gateway
@@ -285,31 +299,41 @@ The administrator gives the employee only the broker URL and the `CCGC-...`
 code from the private output. The code expires after 30 minutes and is consumed
 after one successful setup.
 
-The employee downloads the native binary for their operating system and runs:
+For the validated macOS pilot path, the employee downloads the repository's
+managed enrollment script and runs:
 
 ```bash
-./ccgc-enterprise enroll \
+gh api \
+  -H 'Accept: application/vnd.github.raw+json' \
+  repos/msftse-org/claude-code-with-github-copilot/contents/scripts/ccgc-enterprise-macos.sh \
+  > "$HOME/Downloads/ccgc-enterprise-macos.sh"
+chmod 600 "$HOME/Downloads/ccgc-enterprise-macos.sh"
+
+/bin/bash "$HOME/Downloads/ccgc-enterprise-macos.sh" enroll \
   --gateway https://PUBLIC_BROKER_FQDN \
   --code CCGC-ONE-TIME-CODE
 ```
 
-The executable opens GitHub device authorization, requires the exact approved
+The script opens GitHub device authorization, requires the exact approved
 GitHub login and immutable account ID, verifies the employee binding, stores
-the 30-day key directly in macOS Keychain or Windows DPAPI storage, writes the
+the 30-day key directly in macOS Keychain, writes the
 non-secret profile, configures Claude Code, and acknowledges consumption of the
 one-time enrollment. The administrator never transfers or sees the key.
 
-The executable remains installed because Claude uses
-`ccgc-enterprise token` as its `apiKeyHelper`. The same source builds:
+Enrollment installs a private copy at
+`~/.local/share/ccgc/enterprise/ccgc-enterprise-macos.sh` because Claude uses
+the script's `token` command as its `apiKeyHelper`. Run its `doctor` command
+after enrollment, a Claude Code update, or before sending sanitized diagnostics
+to Enterprise IT:
 
 ```bash
-GOOS=darwin GOARCH=arm64 go build -trimpath -o dist/ccgc-enterprise-darwin-arm64 ./cmd/ccgc-enterprise
-GOOS=windows GOARCH=amd64 go build -trimpath -o dist/ccgc-enterprise-windows-amd64.exe ./cmd/ccgc-enterprise
+/bin/bash "$HOME/.local/share/ccgc/enterprise/ccgc-enterprise-macos.sh" doctor
 ```
 
-Initial pilot artifacts are unsigned. Publish SHA-256 checksums and distribute
-through an approved channel; Apple Developer ID signing/notarization and
-Windows Authenticode signing should replace manual trust steps for production.
+The Go implementation under [`cmd/ccgc-enterprise/`](cmd/ccgc-enterprise)
+remains the optional cross-platform binary path. The current validated employee
+runbook uses the managed macOS script. Distribute it through an approved
+organization channel; do not bypass Gatekeeper or MDM policy.
 
 The broker also serves a dependency-free administrator panel at
 `/ccgc/admin`. It provides readiness checks, preferred enrollment creation,
