@@ -254,12 +254,17 @@ npm run enterprise:pilot -- foundation \
 The confirmed runtime deployment starts the Bicep-defined bootstrap job after
 creating the Container Apps revision. The job initializes the Entra-only
 enterprise database and idempotently creates the database-backed LiteLLM
-credential and approved model mappings. Deployment fails if the job does not
-reach `Succeeded` within 15 minutes.
+credential and approved model mappings. The same job reconciles every active
+binding, unconsumed pending enrollment, and existing LiteLLM internal user to
+the complete deployment-approved catalog. Binding changes increment the
+revision, revoke active admissions, and emit audit events. Deployment fails if
+the job does not reach `Succeeded` within 15 minutes.
 
 API-key employees use a single-use, 30-minute self-service enrollment. The
-administrator approves the employee metadata, immutable GitHub identity, and
-models, then creates an enrollment code:
+administrator provides only the employee email and GitHub username, then
+creates an enrollment code. The broker supplies the deployment tenant and
+approved model catalog and resolves the canonical GitHub login and immutable
+numeric account ID from GitHub:
 
 ```bash
 cp docs/examples/enterprise-create-enrollment.example.json \
@@ -283,14 +288,15 @@ runs the native executable:
 ```
 
 The executable opens GitHub device authorization and the broker rejects any
-GitHub login or immutable account ID other than the administrator-approved
-identity. The broker creates and binds the LiteLLM internal user, then issues a
-30-day API key directly to the employee process. The key is stored only in
-macOS Keychain or Windows DPAPI storage. The executable writes the non-secret
-profile, configures Claude Code, and acknowledges the enrollment; acknowledgment
-deletes the temporary Key Vault values and consumes the code. Completed output
-is held temporarily in Key Vault until acknowledgment so a lost HTTP response
-can be retried without losing the only copy of the key.
+GitHub login other than the server-resolved identity. The broker creates and
+binds the LiteLLM internal user with every deployment-approved Claude model,
+then issues a 30-day API key directly to the employee process. The key is
+stored only in macOS Keychain or Windows DPAPI storage. The executable writes
+the non-secret profile, configures Claude Code, and acknowledges the
+enrollment; acknowledgment deletes the temporary Key Vault values and consumes
+the code. Completed output is held temporarily in Key Vault until
+acknowledgment so a lost HTTP response can be retried without losing the only
+copy of the key.
 
 The executable remains installed as Claude's `apiKeyHelper` and supports
 `token`, `models`, and `configure`. Build targets are macOS ARM64 and Windows

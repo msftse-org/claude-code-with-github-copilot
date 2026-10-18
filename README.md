@@ -276,12 +276,17 @@ The confirmed runtime deployment starts the private Bicep-defined bootstrap job
 after the Container Apps revision is created. The job initializes the
 Entra-only control database, grants the broker its required database rights,
 and idempotently creates the LiteLLM per-user OAuth credential and approved
-`github_copilot/<model>` mappings. No public bootstrap endpoint or manual
-database command exists.
+`github_copilot/<model>` mappings. It also reconciles every active binding,
+pending enrollment, and LiteLLM internal user to the deployment-approved Claude
+catalog, revoking stale admissions when a binding changes. No public bootstrap
+endpoint or manual database command exists.
 
 For API-key employees, the normal onboarding path is a single-use self-service
-enrollment. The administrator approves the immutable GitHub account and model
-catalog but never receives the employee's 30-day API key:
+enrollment. The administrator enters only the employee email and GitHub
+username. The broker supplies the deployment tenant and complete approved model
+catalog, resolves the canonical GitHub login and immutable account ID
+server-side, and never returns the employee's 30-day API key to the
+administrator:
 
 ```bash
 cp docs/examples/enterprise-create-enrollment.example.json \

@@ -41,6 +41,8 @@ export class EnterpriseManagement {
   readonly litellmUrl: string;
   readonly litellmMasterKey: string;
   readonly postgresUrl: string;
+  readonly tenantId: string;
+  readonly enrollmentModels: string[];
   readonly fetcher: typeof fetch;
   readonly credential: DefaultAzureCredential;
   readonly enrollmentSecrets?: EnrollmentSecrets;
@@ -50,6 +52,8 @@ export class EnterpriseManagement {
     litellmUrl: string;
     litellmMasterKey: string;
     postgresUrl: string;
+    tenantId: string;
+    enrollmentModels: string[];
     fetcher?: typeof fetch;
     credential?: DefaultAzureCredential;
     enrollmentSecrets?: EnrollmentSecrets;
@@ -58,13 +62,18 @@ export class EnterpriseManagement {
     this.litellmUrl = fixedOrigin(options.litellmUrl);
     this.litellmMasterKey = options.litellmMasterKey;
     this.postgresUrl = options.postgresUrl;
+    this.tenantId = options.tenantId.toLowerCase();
+    this.enrollmentModels = [...new Set(options.enrollmentModels)];
     this.fetcher = options.fetcher ?? fetch;
     this.credential = options.credential ?? new DefaultAzureCredential();
     this.enrollmentSecrets = options.enrollmentSecrets;
     this.storeFactory = options.storeFactory
       ?? (() => new PostgresEnterpriseStore(this.postgresUrl, this.credential, false, false));
-    if (!/^sk-[A-Za-z0-9._-]{16,}$/.test(this.litellmMasterKey)) {
-      throw new BridgeError('INVALID_OPTIONS', 'LiteLLM master key is invalid.');
+    if (!/^sk-[A-Za-z0-9._-]{16,}$/.test(this.litellmMasterKey)
+      || !/^[0-9a-f-]{36}$/i.test(this.tenantId)
+      || this.enrollmentModels.length === 0
+      || this.enrollmentModels.some(model => !/^claude-[a-z0-9.-]+$/.test(model))) {
+      throw new BridgeError('INVALID_OPTIONS', 'Enterprise management configuration is invalid.');
     }
   }
 
@@ -118,6 +127,40 @@ export class EnterpriseManagement {
       throw new BridgeError('GATEWAY_AUTH_REQUIRED', 'Enrollment code is invalid.', 401);
     }
     return createHash('sha256').update(value).digest('hex');
+  }
+
+  private async githubAccount(requestedLogin: string): Promise<{ login: string; accountId: number }> {
+    if (!/^[A-Za-z0-9](?:[A-Za-z0-9-]{0,37}[A-Za-z0-9])?$/.test(requestedLogin)) {
+      throw new BridgeError('INVALID_REQUEST', 'GitHub username is invalid.');
+    }
+    const response = await this.fetcher(
+      `https://api.github.com/users/${encodeURIComponent(requestedLogin)}`,
+      {
+        headers: {
+          accept: 'application/vnd.github+json',
+          'user-agent': 'ccgc-enterprise-broker',
+        },
+        redirect: 'error',
+        signal: AbortSignal.timeout(15_000),
+      },
+    );
+    if (response.status === 404) {
+      throw new BridgeError('INVALID_REQUEST', 'GitHub user was not found.');
+    }
+    if (!response.ok) {
+      throw new BridgeError(
+        'GATEWAY_UNAVAILABLE',
+        `GitHub identity verification returned HTTP ${response.status}.`,
+        502,
+      );
+    }
+    const account = object(parseJson(await response.text()));
+    const login = text(account.login, 'GitHub login');
+    const accountId = positive(account.id, 'GitHub account ID');
+    if (account.type !== 'User' || login.toLowerCase() !== requestedLogin.toLowerCase()) {
+      throw new BridgeError('IDENTITY_CONFLICT', 'GitHub returned a different account identity.', 409);
+    }
+    return { login, accountId };
   }
 
   private async enrollmentOutput(code: string): Promise<ObjectValue> {
@@ -399,18 +442,11 @@ export class EnterpriseManagement {
   }
 
     async createEnrollment(input: ObjectValue): Promise<ObjectValue> {
-      const tenantId = text(input.tenantId, 'tenant ID').toLowerCase();
       const userEmail = text(input.userEmail, 'employee email');
-      const userAlias = text(input.userAlias, 'employee alias');
-      const githubLogin = text(input.githubLogin, 'GitHub login');
-      const githubAccountId = positive(input.githubAccountId, 'GitHub account ID');
-      const models = Array.isArray(input.models) ? input.models.map(value => text(value, 'model ID')) : [];
+      const requestedGithubLogin = text(input.githubLogin, 'GitHub login');
       const existingObjectId = input.objectId === undefined ? undefined : text(input.objectId, 'existing user ID').toLowerCase();
       const existingApiKey = input.litellmApiKey === undefined ? undefined : text(input.litellmApiKey, 'existing LiteLLM user key');
-      if (!/^[0-9a-f-]{36}$/i.test(tenantId) || !userEmail.includes('@')
-        || !/^[A-Za-z0-9._-]{1,64}$/.test(userAlias)
-        || !/^[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})$/.test(githubLogin)
-        || !models.length || models.some(model => !/^claude-[a-z0-9.-]+$/.test(model))) {
+      if (!userEmail.includes('@')) {
         throw new BridgeError('INVALID_REQUEST', 'Self-service enrollment input is invalid.');
       }
       if ((existingObjectId === undefined) !== (existingApiKey === undefined)
@@ -418,6 +454,20 @@ export class EnterpriseManagement {
         || (existingApiKey !== undefined && !/^sk-[A-Za-z0-9._-]{16,}$/.test(existingApiKey))) {
         throw new BridgeError('INVALID_REQUEST', 'Existing LiteLLM recovery requires a valid user ID and user key together.');
       }
+      const github = await this.githubAccount(requestedGithubLogin);
+      if (input.githubAccountId !== undefined
+        && positive(input.githubAccountId, 'GitHub account ID') !== github.accountId) {
+        throw new BridgeError('IDENTITY_CONFLICT', 'The supplied GitHub account ID does not match the username.', 409);
+      }
+      if (input.tenantId !== undefined
+        && text(input.tenantId, 'tenant ID').toLowerCase() !== this.tenantId) {
+        throw new BridgeError('IDENTITY_CONFLICT', 'The supplied tenant does not match this deployment.', 409);
+      }
+      const tenantId = this.tenantId;
+      const userAlias = github.login;
+      const githubLogin = github.login;
+      const githubAccountId = github.accountId;
+      const models = this.enrollmentModels;
       const objectId = existingObjectId ?? randomUUID();
       const litellmApiKey = existingApiKey ?? text(
         (await this.createUser({ userId: objectId, userEmail, userAlias, models })).litellmApiKey,

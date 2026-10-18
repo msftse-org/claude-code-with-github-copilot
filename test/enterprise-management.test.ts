@@ -344,6 +344,8 @@ test('administration split device flow verifies the expected employee GitHub acc
     litellmUrl: 'https://litellm.internal',
     litellmMasterKey: `sk-${'m'.repeat(32)}`,
     postgresUrl: 'postgresql://broker@postgres.internal/postgres?sslmode=require',
+    tenantId: principal.tenantId,
+    enrollmentModels: ['claude-sonnet-5.5'],
     fetcher: (async (input, init) => {
       const url = String(input);
       requests.push(`${init?.method ?? 'GET'} ${url}`);
@@ -392,6 +394,8 @@ test('administration suppresses LiteLLM error bodies and rejects a different Git
     litellmUrl: 'https://litellm.internal',
     litellmMasterKey: `sk-${'m'.repeat(32)}`,
     postgresUrl: 'postgresql://broker@postgres.internal/postgres?sslmode=require',
+    tenantId: principal.tenantId,
+    enrollmentModels: ['claude-sonnet-5.5'],
     fetcher: (async () => Response.json({
       status: 'connected',
       github_login: 'another-user',
@@ -406,6 +410,8 @@ test('administration suppresses LiteLLM error bodies and rejects a different Git
     litellmUrl: 'https://litellm.internal',
     litellmMasterKey: `sk-${'m'.repeat(32)}`,
     postgresUrl: 'postgresql://broker@postgres.internal/postgres?sslmode=require',
+    tenantId: principal.tenantId,
+    enrollmentModels: ['claude-sonnet-5.5'],
     fetcher: (async () => new Response('upstream-secret-value', { status: 500 })) as typeof fetch,
   });
   await assert.rejects(
@@ -413,6 +419,63 @@ test('administration suppresses LiteLLM error bodies and rejects a different Git
     (error: unknown) => error instanceof BridgeError
       && error.message === 'LiteLLM returned HTTP 500.'
       && !error.message.includes('upstream-secret-value'),
+  );
+});
+
+test('self-service enrollment validates GitHub identity and legacy identity hints before provisioning', async () => {
+  const createManagement = (githubResponse: Response) => new EnterpriseManagement({
+    litellmUrl: 'https://litellm.internal',
+    litellmMasterKey: `sk-${'m'.repeat(32)}`,
+    postgresUrl: 'postgresql://broker@postgres.internal/postgres?sslmode=require',
+    tenantId: principal.tenantId,
+    enrollmentModels: ['claude-sonnet-5.5', 'claude-opus-5.5'],
+    fetcher: (async input => {
+      assert.equal(String(input), 'https://api.github.com/users/developer');
+      return githubResponse;
+    }) as typeof fetch,
+    storeFactory: () => {
+      throw new Error('store must not be opened before identity validation');
+    },
+  });
+
+  await assert.rejects(
+    createManagement(new Response(null, { status: 404 })).createEnrollment({
+      userEmail: 'developer@example.com',
+      githubLogin: 'developer',
+    }),
+    (error: unknown) => error instanceof BridgeError
+      && error.code === 'INVALID_REQUEST'
+      && error.message === 'GitHub user was not found.',
+  );
+  await assert.rejects(
+    createManagement(new Response('private-upstream-detail', { status: 503 })).createEnrollment({
+      userEmail: 'developer@example.com',
+      githubLogin: 'developer',
+    }),
+    (error: unknown) => error instanceof BridgeError
+      && error.code === 'GATEWAY_UNAVAILABLE'
+      && error.message === 'GitHub identity verification returned HTTP 503.'
+      && !error.message.includes('private-upstream-detail'),
+  );
+  await assert.rejects(
+    createManagement(Response.json({ login: 'developer', id: 12345, type: 'User' })).createEnrollment({
+      userEmail: 'developer@example.com',
+      githubLogin: 'developer',
+      githubAccountId: 54321,
+    }),
+    (error: unknown) => error instanceof BridgeError
+      && error.code === 'IDENTITY_CONFLICT'
+      && error.message.includes('account ID'),
+  );
+  await assert.rejects(
+    createManagement(Response.json({ login: 'developer', id: 12345, type: 'User' })).createEnrollment({
+      tenantId: '99999999-9999-4999-8999-999999999999',
+      userEmail: 'developer@example.com',
+      githubLogin: 'developer',
+    }),
+    (error: unknown) => error instanceof BridgeError
+      && error.code === 'IDENTITY_CONFLICT'
+      && error.message.includes('tenant'),
   );
 });
 
@@ -493,6 +556,8 @@ test('self-service enrollment is retry-safe and consumes temporary secrets after
     litellmUrl: 'https://litellm.internal',
     litellmMasterKey: `sk-${'m'.repeat(32)}`,
     postgresUrl: 'postgresql://broker@postgres.internal/postgres?sslmode=require',
+    tenantId: principal.tenantId,
+    enrollmentModels: ['claude-sonnet-5.5'],
     enrollmentSecrets: {
       set: async (name, value) => { secrets.set(name, value); },
       get: async name => {
@@ -505,6 +570,9 @@ test('self-service enrollment is retry-safe and consumes temporary secrets after
     storeFactory: () => store as unknown as PostgresEnterpriseStore,
     fetcher: (async input => {
       const url = String(input);
+      if (url === 'https://api.github.com/users/developer') {
+        return Response.json({ login: 'developer', id: 12345, type: 'User' });
+      }
       if (url.endsWith('/user/new')) {
         return Response.json({ user_id: '55555555-5555-4555-8555-555555555555', key: `sk-${'u'.repeat(32)}` });
       }
@@ -531,16 +599,16 @@ test('self-service enrollment is retry-safe and consumes temporary secrets after
   };
 
   const created = await management.createEnrollment({
-    tenantId: principal.tenantId,
     userEmail: 'developer@example.com',
-    userAlias: 'developer',
-    githubAccountId: 12345,
     githubLogin: 'developer',
-    models: ['claude-sonnet-4-5'],
   });
   const code = String(created.code);
   assert.match(code, /^CCGC-[A-Za-z0-9_-]{24}$/);
   assert.equal(JSON.stringify(store).includes(code), false);
+  assert.equal(enrollment?.tenantId, principal.tenantId);
+  assert.equal(enrollment?.userAlias, 'developer');
+  assert.equal(enrollment?.githubAccountId, 12345);
+  assert.deepEqual(enrollment?.models, ['claude-sonnet-5.5']);
 
   const started = await management.startEnrollment({ code });
   assert.equal(started.status, 'authorization_required');
@@ -585,6 +653,8 @@ test('self-service enrollment completes when GitHub is already connected', async
     litellmUrl: 'https://litellm.internal',
     litellmMasterKey: `sk-${'m'.repeat(32)}`,
     postgresUrl: 'postgresql://broker@postgres.internal/postgres?sslmode=require',
+    tenantId: principal.tenantId,
+    enrollmentModels: ['claude-sonnet-5.5'],
     enrollmentSecrets: {
       set: async (name, value) => { secrets.set(name, value); },
       get: async name => {
@@ -640,6 +710,8 @@ test('self-service enrollment can recover an existing isolated LiteLLM user', as
     litellmUrl: 'https://litellm.internal',
     litellmMasterKey: `sk-${'m'.repeat(32)}`,
     postgresUrl: 'postgresql://broker@postgres.internal/postgres?sslmode=require',
+    tenantId: principal.tenantId,
+    enrollmentModels: ['claude-sonnet-5.5'],
     enrollmentSecrets: {
       set: async (name, value) => { storedSecrets.set(name, value); },
       get: async () => { throw new Error('not used'); },
@@ -652,7 +724,12 @@ test('self-service enrollment can recover an existing isolated LiteLLM user', as
       },
       close: async () => undefined,
     }) as unknown as PostgresEnterpriseStore,
-    fetcher: (async () => { throw new Error('existing user recovery must not create another LiteLLM user'); }) as typeof fetch,
+    fetcher: (async input => {
+      if (String(input) === 'https://api.github.com/users/developer') {
+        return Response.json({ login: 'developer', id: 12345, type: 'User' });
+      }
+      throw new Error('existing user recovery must not create another LiteLLM user');
+    }) as typeof fetch,
   });
 
   const result = await management.createEnrollment({
@@ -668,6 +745,9 @@ test('self-service enrollment can recover an existing isolated LiteLLM user', as
 
   assert.equal(result.objectId, principal.objectId);
   assert.equal(createdInput?.objectId, principal.objectId);
+  assert.equal(createdInput?.tenantId, principal.tenantId);
+  assert.equal(createdInput?.userAlias, 'developer');
+  assert.deepEqual(createdInput?.models, ['claude-sonnet-5.5']);
   assert.match(String(createdInput?.pendingSecretName), /^ccgc-enrollment-pending-[0-9a-f]{32}$/);
   assert.notEqual(createdInput?.pendingSecretName, `ccgc-enrollment-pending-${principal.objectId.replaceAll('-', '')}`);
   assert.deepEqual([...storedSecrets.values()], [`sk-${'u'.repeat(32)}`]);

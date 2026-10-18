@@ -91,6 +91,12 @@ export interface LinkAccountInput {
   evidenceDigest: string;
 }
 
+export interface CatalogReconciliation {
+  objectIds: string[];
+  changedBindings: number;
+  changedEnrollments: number;
+}
+
 const SCHEMA = `
 CREATE TABLE IF NOT EXISTS enterprise_account_bindings (
   tenant_id uuid NOT NULL,
@@ -673,6 +679,89 @@ export class PostgresEnterpriseStore implements EnterpriseStore {
         [tenantId, objectId, JSON.stringify({ evidenceDigest })],
       );
       await client.query('COMMIT');
+    } catch (error) {
+      await rollback(client);
+      throw error;
+    } finally {
+      client.release();
+    }
+  }
+
+  async reconcileModelCatalog(tenantId: string, models: string[]): Promise<CatalogReconciliation> {
+    const uniqueModels = [...new Set(models)];
+    if (!/^[0-9a-f-]{36}$/i.test(tenantId)
+      || !uniqueModels.length || uniqueModels.length > 100
+      || uniqueModels.some(model => !/^claude-[a-z0-9.-]+$/.test(model))) {
+      throw new BridgeError('INVALID_REQUEST', 'Enterprise model catalog reconciliation input is invalid.');
+    }
+
+    const client = await this.pool.connect();
+    try {
+      await client.query('BEGIN');
+      const bindings = await client.query(
+        `UPDATE enterprise_account_bindings
+         SET models = $2::jsonb, revision = revision + 1, updated_at = now()
+         WHERE tenant_id = $1 AND revoked_at IS NULL AND models IS DISTINCT FROM $2::jsonb
+         RETURNING object_id`,
+        [tenantId.toLowerCase(), JSON.stringify(uniqueModels)],
+      );
+      const changedObjectIds = bindings.rows.map(row => String(row.object_id));
+      if (changedObjectIds.length) {
+        await client.query(
+          `UPDATE enterprise_admissions
+           SET revoked_at = now()
+           WHERE tenant_id = $1 AND object_id = ANY($2::uuid[]) AND revoked_at IS NULL`,
+          [tenantId, changedObjectIds],
+        );
+        await client.query(
+          `INSERT INTO enterprise_audit_outbox (event_type, tenant_id, object_id, subject_id, metadata)
+           SELECT 'binding.catalog_updated', tenant_id, object_id, object_id,
+                  jsonb_build_object('models', models, 'revision', revision)
+           FROM enterprise_account_bindings
+           WHERE tenant_id = $1 AND object_id = ANY($2::uuid[])`,
+          [tenantId, changedObjectIds],
+        );
+      }
+      const enrollments = await client.query(
+        `WITH updated AS (
+           UPDATE enterprise_enrollments
+           SET models = $2::jsonb
+           WHERE tenant_id = $1
+             AND consumed_at IS NULL
+             AND expires_at > now()
+             AND status IN ('pending', 'authorizing')
+             AND models IS DISTINCT FROM $2::jsonb
+           RETURNING id, tenant_id, object_id, models
+         )
+         INSERT INTO enterprise_audit_outbox (event_type, tenant_id, object_id, subject_id, metadata)
+         SELECT 'enrollment.catalog_updated', tenant_id, object_id, id,
+                jsonb_build_object('models', models)
+         FROM updated
+         RETURNING subject_id`,
+        [tenantId.toLowerCase(), JSON.stringify(uniqueModels)],
+      );
+      const active = await client.query(
+        `SELECT object_id FROM (
+           SELECT object_id
+           FROM enterprise_account_bindings
+           WHERE tenant_id = $1 AND revoked_at IS NULL
+           UNION
+           SELECT object_id
+           FROM enterprise_enrollments
+           WHERE tenant_id = $1
+             AND consumed_at IS NULL
+             AND expires_at > now()
+             AND status IN ('pending', 'authorizing')
+         ) principals
+         ORDER BY object_id`,
+        [tenantId.toLowerCase()],
+      );
+      await client.query('COMMIT');
+      return {
+        objectIds: active.rows.map(row => String(row.object_id)),
+        changedBindings: bindings.rowCount ?? 0,
+        changedEnrollments: enrollments.rowCount ?? 0,
+      };
     } catch (error) {
       await rollback(client);
       throw error;

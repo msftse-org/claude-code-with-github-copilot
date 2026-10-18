@@ -6,7 +6,7 @@ import { startEnterpriseServer } from './enterprise-server.ts';
 import { PostgresEnterpriseStore } from './enterprise-store.ts';
 import { SharedWorkerResolver } from './enterprise-worker.ts';
 import { DispatchSigner } from './enterprise-dispatch.ts';
-import { BridgeError, safeError } from './protocol.ts';
+import { BridgeError, object, parseJson, safeError, text } from './protocol.ts';
 import { EnterpriseManagement } from './enterprise-management.ts';
 
 function required(name: string): string {
@@ -20,6 +20,11 @@ const vaultUrl = required('CCGC_KEY_VAULT_URL');
 const brokerOrigin = required('CCGC_BROKER_ORIGIN');
 const entraTenantId = required('CCGC_ENTRA_TENANT_ID');
 const entraAudience = required('CCGC_ENTRA_AUDIENCE');
+const modelCatalog = object(parseJson(required('CCGC_MODELS_JSON')));
+if (!Array.isArray(modelCatalog.models) || modelCatalog.models.length === 0) {
+  throw new BridgeError('INVALID_OPTIONS', 'CCGC_MODELS_JSON must contain approved models.');
+}
+const enrollmentModels = modelCatalog.models.map(value => text(object(value).id, 'model ID'));
 const vault = new SecretClient(vaultUrl, credential);
 const dispatchSecret = await vault.getSecret(required('CCGC_DISPATCH_SECRET_NAME'));
 if (!dispatchSecret.value) throw new BridgeError('STARTUP_FAILED', 'Dispatch signing secret is unavailable.');
@@ -51,6 +56,8 @@ const server = await startEnterpriseServer({
     litellmUrl: required('CCGC_LITELLM_URL'),
     litellmMasterKey: litellmMasterKey.value,
     postgresUrl: required('CCGC_POSTGRES_URL'),
+    tenantId: entraTenantId,
+    enrollmentModels,
     credential,
     enrollmentSecrets: {
       async set(name, value, expiresAt) {

@@ -126,6 +126,86 @@ test('dispatch reservation expires stale principal leases before enforcing concu
   }
 });
 
+test('catalog reconciliation updates bindings, pending enrollments, admissions and audit records atomically', async () => {
+  const store = new PostgresEnterpriseStore(
+    'postgresql://managed-identity@example.postgres.database.azure.com:5432/postgres?sslmode=verify-full',
+    { getToken: async () => ({ token: 'managed-identity-token' }) },
+    false,
+    false,
+  );
+  const queries: Array<{ text: string; values?: unknown[] }> = [];
+  const client = {
+    async query(text: string, values?: unknown[]) {
+      queries.push({ text, values });
+      if (text.startsWith('UPDATE enterprise_account_bindings')) {
+        return {
+          rowCount: 1,
+          rows: [{ object_id: '22222222-2222-4222-8222-222222222222' }],
+        };
+      }
+      if (text.includes("SELECT 'enrollment.catalog_updated'")) {
+        return {
+          rowCount: 2,
+          rows: [
+            { subject_id: '33333333-3333-4333-8333-333333333333' },
+            { subject_id: '44444444-4444-4444-8444-444444444444' },
+          ],
+        };
+      }
+      if (text.startsWith('SELECT object_id')) {
+        return {
+          rowCount: 2,
+          rows: [
+            { object_id: '22222222-2222-4222-8222-222222222222' },
+            { object_id: '55555555-5555-4555-8555-555555555555' },
+          ],
+        };
+      }
+      return { rowCount: 1, rows: [] };
+    },
+    release() {},
+  };
+  const originalConnect = store.pool.connect.bind(store.pool);
+  store.pool.connect = (async () => client) as typeof store.pool.connect;
+  try {
+    const result = await store.reconcileModelCatalog(
+      '11111111-1111-4111-8111-111111111111',
+      ['claude-sonnet-5.5', 'claude-opus-5.5', 'claude-sonnet-5.5'],
+    );
+    assert.deepEqual(result, {
+      objectIds: [
+        '22222222-2222-4222-8222-222222222222',
+        '55555555-5555-4555-8555-555555555555',
+      ],
+      changedBindings: 1,
+      changedEnrollments: 2,
+    });
+    assert.ok(queries.some(query =>
+      query.text.includes('revision = revision + 1')
+      && query.text.includes('models IS DISTINCT FROM $2::jsonb')));
+    assert.ok(queries.some(query =>
+      query.text.startsWith('UPDATE enterprise_admissions')
+      && query.text.includes('object_id = ANY($2::uuid[])')));
+    assert.ok(queries.some(query => query.text.includes("'binding.catalog_updated'")));
+    assert.ok(queries.some(query =>
+      query.text.includes("status IN ('pending', 'authorizing')")
+      && query.text.includes("'enrollment.catalog_updated'")));
+    assert.ok(queries.some(query =>
+      query.text.startsWith('SELECT object_id FROM (')
+      && query.text.includes('FROM enterprise_account_bindings')
+      && query.text.includes('UNION')
+      && query.text.includes('FROM enterprise_enrollments')));
+    assert.deepEqual(JSON.parse(String(queries[1]?.values?.[1] ?? queries[0]?.values?.[1])), [
+      'claude-sonnet-5.5',
+      'claude-opus-5.5',
+    ]);
+    assert.equal(queries.at(-1)?.text, 'COMMIT');
+  } finally {
+    store.pool.connect = originalConnect;
+    await store.close();
+  }
+});
+
 const connection = process.env.CCGC_TEST_POSTGRES_URL;
 
 test('PostgreSQL store atomically binds, reserves, fences, audits and revokes', { skip: !connection }, async () => {

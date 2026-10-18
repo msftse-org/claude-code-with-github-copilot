@@ -160,69 +160,27 @@
             <div>
               <p class="context">Preferred onboarding path</p>
               <h1 id="enroll-title" tabindex="-1">Create employee enrollment</h1>
-              <p>Bind the immutable GitHub identity now. The employee completes GitHub authorization on their own workstation.</p>
+              <p>Enter the employee's email and expected GitHub username. The employee completes GitHub authorization on their own workstation.</p>
             </div>
           </div>
 
           <form id="enrollment-form" class="form-layout">
             <div class="form-section">
-              <h2>Organization identity</h2>
+              <h2>Employee identity</h2>
               <div class="field-grid">
-                <label>
-                  <span>Tenant ID</span>
-                  <input name="tenantId" type="text" inputmode="text" autocomplete="off" required
-                    pattern="[0-9a-fA-F-]{36}" aria-describedby="tenant-help">
-                  <small id="tenant-help">The employee's Microsoft Entra tenant UUID.</small>
-                </label>
                 <label>
                   <span>Employee email</span>
                   <input name="userEmail" type="email" autocomplete="email" required>
                 </label>
                 <label>
-                  <span>Employee alias</span>
-                  <input name="userAlias" type="text" autocomplete="off" required maxlength="64"
-                    pattern="[A-Za-z0-9._-]{1,64}" aria-describedby="alias-help">
-                  <small id="alias-help">Used for the isolated user and enrollment label.</small>
-                </label>
-              </div>
-            </div>
-
-            <div class="form-section">
-              <h2>GitHub identity</h2>
-              <div class="field-grid">
-                <label>
-                  <span>GitHub login</span>
+                  <span>GitHub username</span>
                   <input name="githubLogin" type="text" autocomplete="off" required maxlength="39"
-                    pattern="[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})">
-                </label>
-                <label>
-                  <span>GitHub account ID</span>
-                  <input name="githubAccountId" type="number" inputmode="numeric" autocomplete="off" required min="1" step="1"
-                    aria-describedby="github-id-help">
-                  <small id="github-id-help">Use the immutable numeric account ID, not a profile URL.</small>
+                    pattern="[A-Za-z0-9](?:[A-Za-z0-9-]{0,37}[A-Za-z0-9])?"
+                    aria-describedby="github-login-help">
+                  <small id="github-login-help">The employee must authorize this account during enrollment.</small>
                 </label>
               </div>
             </div>
-
-            <fieldset class="form-section">
-              <legend>Allowed models</legend>
-              <div class="model-options">
-                <label class="check-option">
-                  <input type="checkbox" name="models" value="claude-sonnet-4.5" checked>
-                  <span><strong>Claude Sonnet 4.5</strong><small>Balanced default for daily engineering work.</small></span>
-                </label>
-                <label class="check-option">
-                  <input type="checkbox" name="models" value="claude-haiku-4.5" checked>
-                  <span><strong>Claude Haiku 4.5</strong><small>Fast option for smaller tasks.</small></span>
-                </label>
-              </div>
-              <label class="custom-model">
-                <span>Additional model IDs</span>
-                <input name="additionalModels" type="text" autocomplete="off"
-                  placeholder="claude-model-id, claude-another-model">
-                <small>Optional. Enter comma-separated broker model IDs beginning with claude-.</small>
-              </label>
-            </fieldset>
 
             <div id="enrollment-error" class="form-error hidden" role="alert"></div>
             <div class="form-actions">
@@ -335,7 +293,8 @@
           <div class="instruction-block standalone">
             <ol>
               <li>Send the broker URL and one-time code through an approved channel.</li>
-              <li>The employee runs the enrollment command on their own workstation.</li>
+              <li>The employee saves the tracked <code>scripts/ccgc-enterprise-macos.sh</code> script on their Mac.</li>
+              <li>The employee runs the script's enrollment command on their own workstation.</li>
               <li>The employee completes GitHub authorization using the expected GitHub account.</li>
               <li>The employee verifies the model list before starting Claude Code.</li>
             </ol>

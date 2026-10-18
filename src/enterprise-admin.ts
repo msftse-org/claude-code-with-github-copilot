@@ -191,6 +191,33 @@ async function litellmAdminRequest(path: string, init: RequestInit = {}): Promis
   });
 }
 
+export async function reconcileLiteLLMUsers(
+  userIds: string[],
+  models: string[],
+  request: (path: string, init?: RequestInit) => Promise<Response> = litellmAdminRequest,
+): Promise<void> {
+  const uniqueUserIds = [...new Set(userIds)];
+  const uniqueModels = [...new Set(models)];
+  if (uniqueUserIds.some(userId => !/^[0-9a-f-]{36}$/i.test(userId))
+    || !uniqueModels.length || uniqueModels.length > 100
+    || uniqueModels.some(model => !/^claude-[a-z0-9.-]+$/.test(model))) {
+    throw new BridgeError('INVALID_REQUEST', 'LiteLLM user catalog reconciliation input is invalid.');
+  }
+  for (const userId of uniqueUserIds) {
+    const response = await request('/user/update', {
+      method: 'POST',
+      body: JSON.stringify({ user_id: userId, models: uniqueModels }),
+    });
+    if (!response.ok) {
+      throw new BridgeError(
+        'GATEWAY_UNAVAILABLE',
+        `LiteLLM user catalog update failed for ${userId} with HTTP ${response.status}.`,
+        502,
+      );
+    }
+  }
+}
+
 export async function bootstrapLiteLLM(input: Record<string, unknown>): Promise<void> {
   const credentialName = text(input.litellmCredentialName, 'LiteLLM credential name');
   const models = Array.isArray(input.models) ? input.models.map(value => text(value, 'model ID')) : [];

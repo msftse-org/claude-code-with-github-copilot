@@ -801,6 +801,10 @@ resource broker 'Microsoft.App/containerApps@2025-01-01' = if (deployRuntime) {
               value: litellmMasterKeySecret.name
             }
             {
+              name: 'CCGC_MODELS_JSON'
+              value: modelsJson
+            }
+            {
               name: 'APPLICATIONINSIGHTS_CONNECTION_STRING'
               value: insights.properties.ConnectionString
             }
@@ -920,6 +924,10 @@ resource bootstrapJob 'Microsoft.App/jobs@2025-01-01' = if (deployRuntime) {
             {
               name: 'CCGC_BROKER_DATABASE_PRINCIPAL'
               value: brokerIdentity.name
+            }
+            {
+              name: 'CCGC_ENTRA_TENANT_ID'
+              value: tenantId
             }
             {
               name: 'CCGC_LITELLM_CREDENTIAL_NAME'

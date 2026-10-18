@@ -60,5 +60,9 @@ hashes. The current backend contract satisfies that boundary.
 ## Enrollment handling
 
 The preferred onboarding form uses `POST /ccgc/admin/enrollments`. It never
-requests or displays a LiteLLM key. The returned CCGC enrollment code is held
-only in current page memory and is cleared on refresh or sign-out.
+requests or displays a LiteLLM key. Administrators provide only the employee
+email and expected GitHub username; tenant, alias, immutable GitHub account ID,
+and allowed models are resolved by the backend enrollment workflow. The
+returned CCGC enrollment code is held only in current page memory and is
+cleared on refresh or sign-out. Employee handoff instructions use the tracked
+`scripts/ccgc-enterprise-macos.sh` workflow.

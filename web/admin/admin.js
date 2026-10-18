@@ -420,9 +420,9 @@
       `Broker: ${global.location.origin}`,
       `One-time code: ${code}`,
       '',
-      'Run on your workstation:',
-      `./ccgc-enterprise enroll --gateway ${global.location.origin} --code ${code}`,
-      './ccgc-enterprise models',
+      'Save the tracked scripts/ccgc-enterprise-macos.sh file on your Mac, then run:',
+      `bash ccgc-enterprise-macos.sh enroll --gateway ${global.location.origin} --code ${code}`,
+      'bash ccgc-enterprise-macos.sh models',
       'claude',
       '',
       'Complete GitHub authorization with the GitHub account named by your administrator.',
@@ -472,27 +472,12 @@
     if (!(form instanceof HTMLFormElement) || !form.reportValidity()) return;
     const submit = form.querySelector('button[type="submit"]');
     const data = new FormData(form);
-    const models = data.getAll('models').map(String);
-    const additions = String(data.get('additionalModels') ?? '')
-      .split(',')
-      .map(value => value.trim())
-      .filter(Boolean);
-    const allModels = [...new Set([...models, ...additions])];
-    if (allModels.length === 0 || allModels.some(model => !/^claude-[a-z0-9.-]+$/.test(model))) {
-      elements.enrollmentError.textContent = 'Select at least one valid model ID beginning with claude-.';
-      elements.enrollmentError.classList.remove('hidden');
-      return;
-    }
     setBusy(submit, true, 'Creating enrollment');
     clearEnrollment();
     try {
       const result = await api('/ccgc/admin/enrollments', {
-        tenantId: String(data.get('tenantId') ?? '').trim(),
         userEmail: String(data.get('userEmail') ?? '').trim(),
-        userAlias: String(data.get('userAlias') ?? '').trim(),
         githubLogin: String(data.get('githubLogin') ?? '').trim(),
-        githubAccountId: Number(data.get('githubAccountId')),
-        models: allModels,
       });
       state.access.loaded = false;
       showEnrollment(result);

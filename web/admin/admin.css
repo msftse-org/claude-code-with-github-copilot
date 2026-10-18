@@ -413,10 +413,6 @@ fieldset.form-section {
   gap: 18px;
 }
 
-.field-grid label:first-child {
-  grid-column: 1 / -1;
-}
-
 label,
 .custom-model {
   display: grid;
@@ -1024,10 +1020,6 @@ tbody tr:last-child td {
   .readiness article + article {
     border-top: 1px solid var(--border);
     border-left: 0;
-  }
-
-  .field-grid label:first-child {
-    grid-column: auto;
   }
 
   .table-wrap {

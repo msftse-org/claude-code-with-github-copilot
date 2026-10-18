@@ -5,6 +5,8 @@ import test from 'node:test';
 import vm from 'node:vm';
 
 const authSource = await readFile(new URL('../web/admin/auth.js', import.meta.url), 'utf8');
+const adminSource = await readFile(new URL('../web/admin/admin.js', import.meta.url), 'utf8');
+const adminHtml = await readFile(new URL('../web/admin/index.html', import.meta.url), 'utf8');
 const tenantId = '11111111-1111-1111-1111-111111111111';
 const clientId = '33333333-3333-3333-3333-333333333333';
 const scope = `api://${clientId}/CCGC.Invoke`;
@@ -32,6 +34,34 @@ function unsignedJwt(payload: Record<string, unknown>): string {
   const encoded = Buffer.from(JSON.stringify(payload)).toString('base64url');
   return `eyJhbGciOiJub25lIn0.${encoded}.`;
 }
+
+test('employee enrollment asks only for email and GitHub username', () => {
+  const form = adminHtml.match(/<form id="enrollment-form"[\s\S]*?<\/form>/u)?.[0];
+  assert.ok(form);
+  assert.deepEqual(
+    [...form.matchAll(/<input\b[^>]*\bname="([^"]+)"/gu)].map(match => match[1]),
+    ['userEmail', 'githubLogin'],
+  );
+  assert.doesNotMatch(form, /tenantId|userAlias|githubAccountId|additionalModels|name="models"/u);
+});
+
+test('employee enrollment submits only the minimal backend handoff', () => {
+  const handler = adminSource.match(
+    /async function submitEnrollment\(event\) \{[\s\S]*?\n  \}\n\n  async function submitRevocation/u,
+  )?.[0];
+  assert.ok(handler);
+  assert.match(
+    handler,
+    /api\('\/ccgc\/admin\/enrollments', \{\s*userEmail:[\s\S]*?githubLogin:[\s\S]*?\}\)/u,
+  );
+  assert.doesNotMatch(handler, /tenantId|userAlias|githubAccountId|additionalModels|allModels|models:/u);
+});
+
+test('employee instructions use the tracked macOS enrollment script', () => {
+  assert.match(adminSource, /bash ccgc-enterprise-macos\.sh enroll --gateway/u);
+  assert.match(adminSource, /bash ccgc-enterprise-macos\.sh models/u);
+  assert.doesNotMatch(adminSource, /\.\/ccgc-enterprise enroll/u);
+});
 
 test('browser auth exchanges a validated PKCE callback without persisting tokens', async () => {
   const verifier = 'v'.repeat(64);

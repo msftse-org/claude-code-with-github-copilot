@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import { DefaultAzureCredential } from '@azure/identity';
-import { bootstrapLiteLLM } from './enterprise-admin.ts';
+import { bootstrapLiteLLM, reconcileLiteLLMUsers } from './enterprise-admin.ts';
 import { PostgresEnterpriseStore } from './enterprise-store.ts';
 import { BridgeError, object, parseJson, safeError, text } from './protocol.ts';
 
@@ -10,7 +10,11 @@ function required(name: string): string {
   return value;
 }
 
-async function bootstrapDatabase(): Promise<void> {
+async function bootstrapDatabase(models: string[]): Promise<{
+  objectIds: string[];
+  changedBindings: number;
+  changedEnrollments: number;
+}> {
   const principal = required('CCGC_BROKER_DATABASE_PRINCIPAL');
   if (!/^[A-Za-z0-9-]{1,128}$/.test(principal)) {
     throw new BridgeError('INVALID_OPTIONS', 'Broker database principal is invalid.');
@@ -29,6 +33,7 @@ async function bootstrapDatabase(): Promise<void> {
     await store.pool.query(`GRANT USAGE, SELECT, UPDATE ON ALL SEQUENCES IN SCHEMA public TO ${identifier}`);
     await store.pool.query(`ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO ${identifier}`);
     await store.pool.query(`ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT USAGE, SELECT, UPDATE ON SEQUENCES TO ${identifier}`);
+    return await store.reconcileModelCatalog(required('CCGC_ENTRA_TENANT_ID'), models);
   } finally {
     await store.close();
   }
@@ -38,12 +43,13 @@ async function main(): Promise<void> {
   const catalog = object(parseJson(required('CCGC_MODELS_JSON')));
   if (!Array.isArray(catalog.models)) throw new BridgeError('INVALID_OPTIONS', 'Model catalog is invalid.');
   const models = catalog.models.map(value => text(object(value).id, 'model ID'));
-  await bootstrapDatabase();
   await bootstrapLiteLLM({
     litellmCredentialName: required('CCGC_LITELLM_CREDENTIAL_NAME'),
     models,
   });
-  console.log(JSON.stringify({ status: 'bootstrapped', models }));
+  const reconciliation = await bootstrapDatabase(models);
+  await reconcileLiteLLMUsers(reconciliation.objectIds, models);
+  console.log(JSON.stringify({ status: 'bootstrapped', models, reconciliation }));
 }
 
 main().catch(error => {

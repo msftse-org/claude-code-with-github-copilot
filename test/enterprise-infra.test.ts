@@ -15,13 +15,57 @@ test('enterprise model catalog uses the worker model contract', async () => {
   const catalog = JSON.parse(match[1]!) as {
     models: Array<Record<string, unknown>>;
   };
-  assert.deepEqual(catalog.models, [{
-    id: 'claude-sonnet-5.5',
-    name: 'Claude Sonnet 5.5',
-    responseIds: ['claude-sonnet-5.5', 'claude-sonnet-5-5'],
-    context: 1000000,
-    output: 128000,
-  }]);
+  assert.deepEqual(catalog.models, [
+    {
+      id: 'claude-sonnet-5.5',
+      name: 'Claude Sonnet 5.5',
+      responseIds: ['claude-sonnet-5.5', 'claude-sonnet-5-5'],
+      context: 1000000,
+      output: 128000,
+    },
+    {
+      id: 'claude-sonnet-5',
+      name: 'Claude Sonnet 5',
+      responseIds: ['claude-sonnet-5'],
+      context: 1000000,
+      output: 16384,
+    },
+    {
+      id: 'claude-opus-5.5',
+      name: 'Claude Opus 5.5',
+      responseIds: ['claude-opus-5.5', 'claude-opus-5-5'],
+      context: 1000000,
+      output: 16384,
+    },
+    {
+      id: 'claude-opus-5',
+      name: 'Claude Opus 5',
+      responseIds: ['claude-opus-5'],
+      context: 1000000,
+      output: 16384,
+    },
+    {
+      id: 'claude-opus-4.8',
+      name: 'Claude Opus 4.8',
+      responseIds: ['claude-opus-4.8', 'claude-opus-4-8'],
+      context: 1000000,
+      output: 16384,
+    },
+    {
+      id: 'claude-haiku-5.5',
+      name: 'Claude Haiku 5.5',
+      responseIds: ['claude-haiku-5.5', 'claude-haiku-5-5'],
+      context: 1000000,
+      output: 16384,
+    },
+    {
+      id: 'claude-haiku-4.5',
+      name: 'Claude Haiku 4.5',
+      responseIds: ['claude-haiku-4.5', 'claude-haiku-4-5', 'claude-haiku-4-5-20251001'],
+      context: 200000,
+      output: 16384,
+    },
+  ]);
 });
 
 test('enterprise deployment stages private image publication before runtime', async () => {
@@ -62,6 +106,7 @@ test('the broker is the only public API and carries separate employee and admin 
   assert.match(platform, /var entraTokenAudience = startsWith\(entraAudience, 'api:\/\/'\) \? substring\(entraAudience, 6\) : entraAudience/);
   assert.match(platform, /name: 'CCGC_ENTRA_AUDIENCE'[\s\S]*value: entraTokenAudience/);
   assert.match(platform, /name: 'CCGC_ENTRA_ROLE'[\s\S]*value: 'CCGC\.Access'/);
+  assert.equal((platform.match(/name: 'CCGC_MODELS_JSON'/g) ?? []).length, 3);
   assert.match(platform, /enterprise-bootstrap\.ts/);
   assert.match(platform, /brokerIdentity[\s\S]*Key Vault Secrets Officer/);
   assert.match(platform, /bootstrapIdentity[\s\S]*Key Vault Secrets User/);
