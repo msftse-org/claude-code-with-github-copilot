@@ -468,8 +468,26 @@ export class EnterpriseManagement {
       const githubLogin = github.login;
       const githubAccountId = github.accountId;
       const models = this.enrollmentModels;
-      const objectId = existingObjectId ?? randomUUID();
-      const litellmApiKey = existingApiKey ?? text(
+      let objectId = existingObjectId;
+      let litellmApiKey = existingApiKey;
+      if (!objectId || !litellmApiKey) {
+        const recoveryStore = this.store();
+        try {
+          const reusable = await recoveryStore.reusableEnrollmentUser(tenantId, githubAccountId);
+          if (reusable) {
+            objectId = reusable.objectId;
+            litellmApiKey = await this.secrets().get(reusable.pendingSecretName);
+            await this.request('/user/update', this.litellmMasterKey, {
+              method: 'POST',
+              body: JSON.stringify({ user_id: objectId, models }),
+            });
+          }
+        } finally {
+          await recoveryStore.close();
+        }
+      }
+      objectId ??= randomUUID();
+      litellmApiKey ??= text(
         (await this.createUser({ userId: objectId, userEmail, userAlias, models })).litellmApiKey,
         'LiteLLM user key',
       );

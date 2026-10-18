@@ -65,6 +65,10 @@ export interface EnterpriseStore {
     models: string[];
     ttlSeconds: number;
   }): Promise<{ id: string; expiresAt: string }>;
+  reusableEnrollmentUser(tenantId: string, githubAccountId: number): Promise<{
+    objectId: string;
+    pendingSecretName: string;
+  } | null>;
   enrollment(codeHash: string): Promise<EnterpriseEnrollment>;
   setEnrollmentFlow(id: string, flowHandle: string, expiresIn: number): Promise<void>;
   beginEnrollmentCompletion(id: string): Promise<boolean>;
@@ -507,6 +511,32 @@ export class PostgresEnterpriseStore implements EnterpriseStore {
       ...(row.flow_expires_at ? { flowExpiresAt: new Date(row.flow_expires_at as string).toISOString() } : {}),
       status: String(row.status) as EnterpriseEnrollment['status'],
       expiresAt: new Date(row.expires_at as string).toISOString(),
+    };
+  }
+
+  async reusableEnrollmentUser(tenantId: string, githubAccountId: number): Promise<{
+    objectId: string;
+    pendingSecretName: string;
+  } | null> {
+    if (!/^[0-9a-f-]{36}$/i.test(tenantId)
+      || !Number.isSafeInteger(githubAccountId) || githubAccountId <= 0) {
+      throw new BridgeError('INVALID_REQUEST', 'Reusable enrollment identity is invalid.');
+    }
+    const result = await this.pool.query(
+      `SELECT object_id, pending_secret_name
+       FROM enterprise_enrollments
+       WHERE tenant_id = $1
+         AND github_account_id = $2
+         AND consumed_at IS NULL
+         AND status IN ('pending', 'authorizing')
+       ORDER BY created_at DESC
+       LIMIT 1`,
+      [tenantId.toLowerCase(), githubAccountId],
+    );
+    if (result.rowCount !== 1) return null;
+    return {
+      objectId: String(result.rows[0].object_id),
+      pendingSecretName: String(result.rows[0].pending_secret_name),
     };
   }
 

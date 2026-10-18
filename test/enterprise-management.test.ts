@@ -62,6 +62,7 @@ function brokerDependencies() {
     issueApiKey: async () => { throw new Error('not used'); },
     revokeApiKey: async () => { throw new Error('not used'); },
     createEnrollment: async () => { throw new Error('not used'); },
+    reusableEnrollmentUser: async () => null,
     enrollment: async () => { throw new Error('not used'); },
     setEnrollmentFlow: async () => { throw new Error('not used'); },
     beginEnrollmentCompletion: async () => { throw new Error('not used'); },
@@ -486,6 +487,7 @@ test('self-service enrollment is retry-safe and consumes temporary secrets after
   let consumed = false;
   let linkCalls = 0;
   const store = {
+    reusableEnrollmentUser: async () => null,
     createEnrollment: async (input: {
       codeHash: string;
       tenantId: string;
@@ -629,6 +631,69 @@ test('self-service enrollment is retry-safe and consumes temporary secrets after
     () => management.pollEnrollment({ code }),
     (error: unknown) => error instanceof BridgeError && error.code === 'GATEWAY_AUTH_REQUIRED',
   );
+});
+
+test('self-service enrollment reuses an expired pending user without exposing recovery fields', async () => {
+  let createdInput: Record<string, unknown> | undefined;
+  let userCreationAttempted = false;
+  let userUpdated = false;
+  const store = {
+    reusableEnrollmentUser: async () => ({
+      objectId: '55555555-5555-4555-8555-555555555555',
+      pendingSecretName: 'ccgc-enrollment-pending-expired',
+    }),
+    createEnrollment: async (input: Record<string, unknown>) => {
+      createdInput = input;
+      return {
+        id: '33333333-3333-4333-8333-333333333333',
+        expiresAt: '2099-01-01T00:00:00.000Z',
+      };
+    },
+    close: async () => undefined,
+  };
+  const management = new EnterpriseManagement({
+    litellmUrl: 'https://litellm.internal',
+    litellmMasterKey: `sk-${'m'.repeat(32)}`,
+    postgresUrl: 'postgresql://broker@postgres.internal/postgres?sslmode=require',
+    tenantId: principal.tenantId,
+    enrollmentModels: ['claude-sonnet-5.5', 'claude-opus-5.5'],
+    enrollmentSecrets: {
+      set: async () => undefined,
+      get: async name => {
+        assert.equal(name, 'ccgc-enrollment-pending-expired');
+        return `sk-${'u'.repeat(32)}`;
+      },
+      remove: async () => undefined,
+    },
+    storeFactory: () => store as unknown as PostgresEnterpriseStore,
+    fetcher: (async (input, init) => {
+      const url = String(input);
+      if (url === 'https://api.github.com/users/marina-marenkov') {
+        return Response.json({ login: 'marina-marenkov', id: 97739755, type: 'User' });
+      }
+      if (url === 'https://litellm.internal/user/update') {
+        userUpdated = true;
+        assert.deepEqual(JSON.parse(String(init?.body)), {
+          user_id: '55555555-5555-4555-8555-555555555555',
+          models: ['claude-sonnet-5.5', 'claude-opus-5.5'],
+        });
+        return Response.json({ status: 'success' });
+      }
+      if (url.endsWith('/user/new')) userCreationAttempted = true;
+      throw new Error(`unexpected URL ${url}`);
+    }) as typeof fetch,
+  });
+
+  const result = await management.createEnrollment({
+    userEmail: 'mmarenkov@microsoft.com',
+    githubLogin: 'marina-marenkov',
+  });
+
+  assert.equal(userCreationAttempted, false);
+  assert.equal(userUpdated, true);
+  assert.equal(result.objectId, '55555555-5555-4555-8555-555555555555');
+  assert.equal(createdInput?.objectId, '55555555-5555-4555-8555-555555555555');
+  assert.deepEqual(createdInput?.models, ['claude-sonnet-5.5', 'claude-opus-5.5']);
 });
 
 test('self-service enrollment completes when GitHub is already connected', async () => {

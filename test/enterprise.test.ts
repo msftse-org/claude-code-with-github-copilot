@@ -64,6 +64,7 @@ class FakeStore implements EnterpriseStore {
   async issueApiKey(): Promise<{ id: string; apiKey: string; expiresAt: string }> { throw new Error('not used'); }
   async revokeApiKey() { throw new Error('not used'); }
   async createEnrollment(): Promise<{ id: string; expiresAt: string }> { throw new Error('not used'); }
+  async reusableEnrollmentUser(): Promise<null> { return null; }
   async enrollment(): Promise<never> { throw new Error('not used'); }
   async setEnrollmentFlow() { throw new Error('not used'); }
   async beginEnrollmentCompletion(): Promise<boolean> { throw new Error('not used'); }

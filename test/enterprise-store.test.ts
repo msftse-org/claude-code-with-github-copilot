@@ -57,6 +57,44 @@ test('enrollment completion accepts an already-connected pending enrollment', as
   }
 });
 
+test('expired pending enrollment users remain reusable for the same immutable GitHub account', async () => {
+  const store = new PostgresEnterpriseStore(
+    'postgresql://managed-identity@example.postgres.database.azure.com:5432/postgres?sslmode=verify-full',
+    { getToken: async () => ({ token: 'managed-identity-token' }) },
+    false,
+    false,
+  );
+  let query = '';
+  let values: unknown[] | undefined;
+  const original = store.pool.query.bind(store.pool);
+  store.pool.query = (async (text: string, parameters?: unknown[]) => {
+    query = text;
+    values = parameters;
+    return {
+      rowCount: 1,
+      rows: [{
+        object_id: '55555555-5555-4555-8555-555555555555',
+        pending_secret_name: 'ccgc-enrollment-pending-expired',
+      }],
+    };
+  }) as typeof store.pool.query;
+  try {
+    assert.deepEqual(
+      await store.reusableEnrollmentUser('11111111-1111-4111-8111-111111111111', 97739755),
+      {
+        objectId: '55555555-5555-4555-8555-555555555555',
+        pendingSecretName: 'ccgc-enrollment-pending-expired',
+      },
+    );
+    assert.match(query, /status IN \('pending', 'authorizing'\)/);
+    assert.doesNotMatch(query, /expires_at > now\(\)/);
+    assert.deepEqual(values, ['11111111-1111-4111-8111-111111111111', 97739755]);
+  } finally {
+    store.pool.query = original;
+    await store.close();
+  }
+});
+
 test('dispatch reservation expires stale principal leases before enforcing concurrency', async () => {
   const store = new PostgresEnterpriseStore(
     'postgresql://managed-identity@example.postgres.database.azure.com:5432/postgres?sslmode=verify-full',
