@@ -4,13 +4,14 @@ set -euo pipefail
 umask 077
 
 DEFAULT_GATEWAY='https://ca-ccgc-pilot-broker.bluefield-2d967d14.swedencentral.azurecontainerapps.io'
-SUPPORTED_CLAUDE_VERSION='2.1.296'
+MINIMUM_CLAUDE_VERSION='2.1.296'
 INSTALL_PATH="$HOME/.local/share/ccgc/enterprise/ccgc-enterprise-macos.sh"
 PROFILE_PATH="$HOME/.local/share/ccgc/enterprise/profile.json"
 SETTINGS_PATH="$HOME/.claude/settings.json"
 JSON_SETUP_MARKER='__ccgc_setup_719ee977'
 TEMP_DIR=''
 PREAPPROVED_SETTING_CONFLICTS=''
+DETECTED_CLAUDE_VERSION=''
 
 fail() {
   printf 'ERROR: %s\n' "$*" >&2
@@ -69,8 +70,14 @@ require_macos_tools() {
 require_claude_version() {
   local output
   local version
+  local current_major
+  local current_minor
+  local current_patch
+  local minimum_major
+  local minimum_minor
+  local minimum_patch
   command -v claude >/dev/null 2>&1 ||
-    fail "Claude Code $SUPPORTED_CLAUDE_VERSION is required; install it before enrollment"
+    fail "Claude Code $MINIMUM_CLAUDE_VERSION or newer is required; install it before enrollment"
   output="$(claude --version 2>/dev/null)" ||
     fail 'could not determine the installed Claude Code version'
   if [[ "$output" =~ ([0-9]+\.[0-9]+\.[0-9]+) ]]; then
@@ -78,8 +85,15 @@ require_claude_version() {
   else
     fail 'could not parse the installed Claude Code version'
   fi
-  [ "$version" = "$SUPPORTED_CLAUDE_VERSION" ] ||
-    fail "Claude Code $SUPPORTED_CLAUDE_VERSION is required (found $version); run 'claude install $SUPPORTED_CLAUDE_VERSION'"
+  IFS='.' read -r current_major current_minor current_patch <<<"$version"
+  IFS='.' read -r minimum_major minimum_minor minimum_patch <<<"$MINIMUM_CLAUDE_VERSION"
+  if [ "$current_major" -lt "$minimum_major" ] ||
+    { [ "$current_major" -eq "$minimum_major" ] && [ "$current_minor" -lt "$minimum_minor" ]; } ||
+    { [ "$current_major" -eq "$minimum_major" ] && [ "$current_minor" -eq "$minimum_minor" ] &&
+      [ "$current_patch" -lt "$minimum_patch" ]; }; then
+    fail "Claude Code $MINIMUM_CLAUDE_VERSION or newer is required (found $version); run 'claude install $MINIMUM_CLAUDE_VERSION'"
+  fi
+  DETECTED_CLAUDE_VERSION="$version"
 }
 
 json_raw() {
@@ -853,7 +867,8 @@ doctor() {
   verify_gateway_access "$gateway" "$api_key" "$default_model" "$tmp_dir"
 
   printf 'CCGC doctor passed.\n'
-  printf 'Claude Code: %s\n' "$SUPPORTED_CLAUDE_VERSION"
+  printf 'Claude Code: %s (minimum supported: %s)\n' \
+    "$DETECTED_CLAUDE_VERSION" "$MINIMUM_CLAUDE_VERSION"
   printf 'GitHub account: %s (%s)\n' \
     "$(json_value "$tmp_dir/info.json" githubLogin)" \
     "$(json_value "$tmp_dir/info.json" githubAccountId)"

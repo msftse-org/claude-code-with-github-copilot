@@ -7,7 +7,7 @@ architecture.
 
 | Item | What it does | Required action |
 |---|---|---|
-| Official Claude Code `2.1.296` | Provides the unchanged coding interface and runs local Read, Edit, Bash, and permission decisions. | Install and verify the exact supported version. |
+| Official Claude Code `2.1.296` or newer | Provides the unchanged coding interface and runs local Read, Edit, Bash, and permission decisions. | Install and verify the minimum supported version. |
 | Enterprise CCGC helper | Shell-based self-enrollment client and Claude `apiKeyHelper`. | Keep the installed private script at its stable path. |
 | Admission credential in macOS Keychain | Authenticates Claude requests for one employee and one bounded admission. | Allow the helper to create and renew it; never copy it manually. |
 | `~/.claude/settings.json` | Routes Claude to the enterprise broker and installs the credential helper. | Enrollment applies a conflict-checked update. |
@@ -22,7 +22,7 @@ matching LiteLLM user key used by workers.
 Required for self-service API-key enrollment:
 
 - macOS
-- Official Claude Code `2.1.296`
+- Official Claude Code `2.1.296` or newer
 - The repository's `scripts/ccgc-enterprise-macos.sh` enrollment script
 - A broker URL and unexpired single-use enrollment code from Enterprise IT
 
@@ -46,7 +46,7 @@ approved corporate software channel. Employees should not accept a script from
 chat, email, or an unverified fork. If IT publishes a SHA-256 checksum, verify
 it with `shasum -a 256` before enrollment.
 
-If Claude Code is missing or has another version:
+If Claude Code is missing or older than the minimum supported version:
 
 ```bash
 claude install 2.1.296

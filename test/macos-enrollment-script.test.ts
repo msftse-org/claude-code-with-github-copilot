@@ -50,11 +50,36 @@ test('macOS enrollment script requires a choice before replacing enterprise-mana
   assert.match(source, /ANTHROPIC_BASE_URL=\$gateway/);
 });
 
-test('macOS enrollment requires the verified Claude Code compatibility version before network access', async () => {
+test('macOS enrollment requires the minimum Claude Code compatibility version before network access', async () => {
   const source = await readFile(script, 'utf8');
-  assert.match(source, /SUPPORTED_CLAUDE_VERSION='2\.1\.296'/);
+  assert.match(source, /MINIMUM_CLAUDE_VERSION='2\.1\.296'/);
   assert.match(source, /require_claude_version[\s\S]*preflight_enrollment_settings "\$gateway"[\s\S]*install_self/);
-  assert.match(source, /claude install \$SUPPORTED_CLAUDE_VERSION/);
+  assert.match(source, /Claude Code \$MINIMUM_CLAUDE_VERSION or newer is required/);
+  assert.match(source, /\[ "\$current_patch" -lt "\$minimum_patch" \]/);
+  assert.doesNotMatch(source, /\[ "\$version" = "\$MINIMUM_CLAUDE_VERSION" \]/);
+});
+
+test('macOS enrollment accepts newer Claude Code versions and rejects older ones', async () => {
+  const harness = `
+eval "$(/usr/bin/sed '/^command=/,$d' "$1")"
+claude() { printf '%s\\n' "$CLAUDE_TEST_VERSION"; }
+require_claude_version
+printf '%s\\n' "$DETECTED_CLAUDE_VERSION"
+`;
+  const newer = await exec('/bin/bash', ['-c', harness, 'bash', script.pathname], {
+    env: { ...process.env, CLAUDE_TEST_VERSION: '2.1.302' },
+  });
+  assert.equal(newer.stdout.trim(), '2.1.302');
+
+  await assert.rejects(
+    exec('/bin/bash', ['-c', harness, 'bash', script.pathname], {
+      env: { ...process.env, CLAUDE_TEST_VERSION: '2.1.295' },
+    }),
+    error => {
+      assert.match(String((error as { stderr?: string }).stderr), /2\.1\.296 or newer is required \(found 2\.1\.295\)/);
+      return true;
+    },
+  );
 });
 
 test('macOS enrollment verifies health, discovery, output limits and inference before acknowledgment', async () => {

@@ -1,7 +1,7 @@
 # Enterprise Windows setup
 
 The Windows x64 client is a single native executable. It requires the official
-Claude Code `2.1.296`, the public enterprise broker URL, and an unexpired
+Claude Code `2.1.296` or newer, the public enterprise broker URL, and an unexpired
 single-use enrollment code from Enterprise IT.
 
 ## Install and enroll

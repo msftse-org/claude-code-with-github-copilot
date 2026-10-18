@@ -113,7 +113,7 @@ and one-time code during employee connection.
 
 Each employee needs:
 
-- Official Claude Code `2.1.296`
+- Official Claude Code `2.1.296` or newer
 - The project-developed enterprise `ccgc` command-line helper
 - A bounded opaque admission credential stored in macOS Keychain
 - `~/.claude/settings.json` pointing Claude Code to the enterprise broker
@@ -438,7 +438,8 @@ cache policy.
 
 - The GitHub Copilot connector is unofficial and requires explicit organization
   and vendor-policy approval.
-- Claude Code is pinned to the validated `2.1.296` client contract.
+- Claude Code `2.1.296` is the minimum validated client; newer semantic
+  versions are accepted by the managed enrollment script.
 - Fixed-budget thinking is model-limited, and the Advisor tool remains available
   only through the direct Anthropic API.
 - Initial enrollment binaries are not yet Apple-notarized or
