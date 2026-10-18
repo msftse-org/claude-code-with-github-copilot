@@ -1,25 +1,41 @@
+<img src="https://img.icons8.com/fluency/96/microsoft.png" width="36"/> &nbsp; <img src="https://img.icons8.com/fluency/96/azure-1.png" width="36"/> &nbsp; <img src="https://github.githubassets.com/assets/GitHub-Mark-ea2971cee799.png" width="36"/>
+
+![Node.js 24](https://img.shields.io/badge/Node.js-24-339933?logo=node.js&logoColor=white)
+![Azure Container Apps](https://img.shields.io/badge/Azure-Container%20Apps-0078D4?logo=microsoftazure&logoColor=white)
+![Claude Code](https://img.shields.io/badge/Claude%20Code-2.1.296-D97757)
+![Status](https://img.shields.io/badge/status-enterprise%20pilot-blue)
+
 # Enterprise Claude Code with GitHub Copilot
 
 This repository implements an enterprise architecture that lets employees use
 the **official Claude Code CLI** with Anthropic models provided through **each
 employee's own GitHub Copilot seat**.
 
-```text
-Employee Claude Code
-        |
-        | Microsoft Entra identity or employee API key
-        v
-Enterprise admission broker
-        |
-        v
-Multi-user worker Container App (2-30 shared replicas)
-        |
-        v
-LiteLLM Gateway Container App (2-10 shared replicas)
-        |
-        v
-        Employee's GitHub Copilot seat -> Anthropic Models
-```
+---
+
+## Table of Contents
+
+- [Architecture](#architecture)
+- [Why LiteLLM and a broker](#why-the-enterprise-path-uses-litellm-and-a-broker)
+- [Enterprise Azure components](#enterprise-azure-components)
+- [Employee setup](#on-the-mac)
+- [Claude Code feature compatibility](#claude-code-feature-compatibility)
+- [Prerequisites](#prerequisites)
+- [Getting started](#getting-started)
+- [Developer validation](#developer-validation)
+- [Project structure](#project-structure)
+- [Enterprise pilot automation](#enterprise-pilot-automation)
+- [Employee onboarding](#litellm-bootstrap-and-employee-onboarding)
+- [Security properties](#security-properties)
+- [Known limitations](#known-limitations)
+- [Deployment status and remaining gates](#deployment-status-and-remaining-gates)
+- [Resources](#resources)
+
+---
+
+## Architecture
+
+![Enterprise multi-user architecture](docs/diagrams/ccgc-enterprise-runtime-multiuser-litellm-presentation-v16.png)
 
 Each employee has a separate identity binding, LiteLLM user key, GitHub OAuth
 connection, Copilot authorization, model catalog, admission, limits, and
@@ -29,7 +45,7 @@ exchange, Anthropic Messages transport, streaming conversion, and provider
 session caches.
 
 > [!IMPORTANT]
-> The enterprise pilot is deployed and validated. Production rollout still
+> The Azure enterprise pilot is deployed and validated. Production rollout still
 > requires the release gates documented in
 > [docs/ENTERPRISE.md](docs/ENTERPRISE.md).
 
@@ -135,18 +151,35 @@ Auto mode remains opt-in: the generated profile sets
 classifier instead of requesting Anthropic-only server safeguard verdicts.
 Normal allow/deny rules and explicit approvals remain authoritative.
 
-## Developer validation
+## Prerequisites
 
-Requirements:
-
-- macOS for the enterprise client and Keychain integration
 - Node.js 24
 - npm
-- Docker
-- Azure CLI and Bicep for infrastructure validation
+- Docker for local image validation
+- Azure CLI with Bicep for infrastructure validation and deployment
+- Go 1.25 or later for the cross-platform enrollment binary
+- macOS for Keychain integration or Windows for DPAPI integration
+- An Azure subscription and Microsoft Entra permissions for enterprise deployment
+- A GitHub Copilot seat for every employee who uses the gateway
+
+## Getting started
 
 ```bash
+git clone https://github.com/msftse-org/claude-code-with-github-copilot.git
+cd claude-code-with-github-copilot
 npm ci
+npm run check
+npm test
+```
+
+See [Mac enterprise setup](docs/mac/README.md) or
+[Windows enterprise setup](docs/windows/README.md) for employee installation.
+Infrastructure operators should start with
+[the enterprise deployment guide](docs/ENTERPRISE.md).
+
+## Developer validation
+
+```bash
 npm run check
 npm test
 npm run test:bootstrap
@@ -172,6 +205,19 @@ migration that are not yet in the pinned published image. A non-secret invalid
 Copilot token sentinel permits router initialization only; disconnected users
 still fail closed before any upstream request, and real per-user sessions
 replace the sentinel on connected requests.
+
+## Project structure
+
+| Path | Purpose |
+|---|---|
+| [`src/`](src) | Broker, worker, enterprise administration, operator API, client, and protocol implementation |
+| [`cmd/ccgc-enterprise/`](cmd/ccgc-enterprise) | Cross-platform enrollment and credential-helper binary |
+| [`web/admin/`](web/admin) | Dependency-free Entra-authenticated administration panel |
+| [`infra/enterprise/`](infra/enterprise) | Enterprise Azure Bicep deployment and generated ARM template |
+| [`server/`](server) | LiteLLM overlay, bootstrap, image definitions, and supporting tests |
+| [`scripts/`](scripts) | Entra, deployment, packaging, and managed-device automation |
+| [`test/`](test) | Unit, integration, lifecycle, infrastructure, and regression tests |
+| [`docs/`](docs) | Architecture, operations, platform setup, examples, and diagram provenance |
 
 ## Enterprise pilot automation
 
@@ -359,25 +405,36 @@ cache policy.
 - Prompt and response bodies are not logged or stored by the broker.
 - No provider fallback or cross-user response cache is used.
 
+## Known limitations
+
+- The GitHub Copilot connector is unofficial and requires explicit organization
+  and vendor-policy approval.
+- Claude Code is pinned to the validated `2.1.296` client contract.
+- Fixed-budget thinking is model-limited, and the Advisor tool remains available
+  only through the direct Anthropic API.
+- Initial enrollment binaries are not yet Apple-notarized or
+  Authenticode-signed.
+- The deployed environment is an enterprise pilot, not a general production
+  service.
+
 ## Deployment status and remaining gates
 
-No enterprise Azure resources have been deployed from this repository.
-Production deployment still requires:
+The enterprise pilot is deployed in Azure Sweden Central with a healthy public
+broker and private worker and LiteLLM revisions. Enrollment, account isolation,
+model discovery, Sonnet 5.5 limits, inference, stale-dispatch recovery, and
+revocation paths have been exercised against the live environment.
 
-1. Entra API registration, permissions, and Conditional Access approval
-2. Private PostgreSQL administrator/bootstrap flow
-3. Built, scanned, signed, and immutable broker, worker, and LiteLLM images
-4. Approved LiteLLM license/edition and user-key lifecycle
-5. Live two-user, revocation, load, replica-failure, restore, and noisy-neighbor testing
-6. Monitoring privacy review
-7. Azure cost and change-plan approval
-8. Vendor and organization approval for the unofficial Copilot route
+Production rollout still requires:
+
+1. Organization and vendor approval for the unofficial Copilot route
+2. Apple Developer ID notarization and Windows Authenticode signing
+3. Broader two-user, load, replica-failure, restore, and noisy-neighbor testing
+4. Monitoring privacy, cost, capacity, and operational-readiness approval
+5. Production release, rollback, backup, disaster-recovery, and support runbooks
 
 The foundation must not be described as production-ready until these gates pass.
 
-## Architecture poster
-
-![Enterprise multi-user architecture](docs/diagrams/ccgc-enterprise-runtime-multiuser-litellm-presentation-v16.png)
+## Diagram provenance
 
 The current poster and technical architecture show one public Entra-authorized broker
 with separate `CCGC.Access` and `CCGC.Admin` route groups and one shared Azure
@@ -389,11 +446,12 @@ remain the authoritative technical architecture; the GPT-image poster is its
 presentation companion. Diagram sources, model provenance, and validation
 receipts are in [docs/diagrams](docs/diagrams/README.md).
 
-## Documentation
+## Resources
 
 | Document | Purpose |
 |---|---|
 | [docs/ENTERPRISE.md](docs/ENTERPRISE.md) | Enterprise architecture, implementation, onboarding, and release gates |
 | [docs/mac/README.md](docs/mac/README.md) | Employee Mac setup and daily operation |
+| [docs/windows/README.md](docs/windows/README.md) | Employee Windows setup and credential storage |
 | [docs/PRD.md](docs/PRD.md) | Product and security contract |
 | [docs/diagrams/README.md](docs/diagrams/README.md) | Diagram sources and provenance |
