@@ -1,6 +1,8 @@
 import assert from 'node:assert/strict';
 import { execFile } from 'node:child_process';
-import { readFile } from 'node:fs/promises';
+import { chmod, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import test from 'node:test';
 import { promisify } from 'node:util';
 
@@ -48,6 +50,33 @@ test('macOS enrollment script requires a choice before replacing enterprise-mana
   assert.match(source, /ccgc-backup\./);
   assert.match(source, /plutil -remove "env\.\$key"/);
   assert.match(source, /ANTHROPIC_BASE_URL=\$gateway/);
+});
+
+test('macOS enrollment preflight succeeds when settings are absent or conflict-free', async () => {
+  const harness = `
+eval "$(/usr/bin/sed '/^command=/,$d' "$1")"
+preflight_enrollment_settings 'https://broker.example'
+printf 'preflight-ok\\n'
+`;
+  const home = await mkdtemp(join(tmpdir(), 'ccgc-preflight-'));
+  try {
+    const absent = await exec('/bin/bash', ['-c', harness, 'bash', script.pathname], {
+      env: { ...process.env, HOME: home },
+    });
+    assert.equal(absent.stdout.trim(), 'preflight-ok');
+
+    const claudeDirectory = join(home, '.claude');
+    const settings = join(claudeDirectory, 'settings.json');
+    await mkdir(claudeDirectory, { recursive: true });
+    await writeFile(settings, '{}\n', { mode: 0o600 });
+    await chmod(settings, 0o600);
+    const clean = await exec('/bin/bash', ['-c', harness, 'bash', script.pathname], {
+      env: { ...process.env, HOME: home },
+    });
+    assert.equal(clean.stdout.trim(), 'preflight-ok');
+  } finally {
+    await rm(home, { recursive: true, force: true });
+  }
 });
 
 test('macOS enrollment requires the minimum Claude Code compatibility version before network access', async () => {

@@ -227,7 +227,7 @@ preflight_enrollment_settings() {
 
   [ ! -L "$SETTINGS_PATH" ] ||
     fail 'existing Claude settings must not be a symlink'
-  [ -e "$SETTINGS_PATH" ] || return
+  [ -e "$SETTINGS_PATH" ] || return 0
   [ -f "$SETTINGS_PATH" ] ||
     fail 'existing Claude settings must be a regular file'
   [ "$(/usr/bin/stat -f '%u' "$SETTINGS_PATH")" = "$(/usr/bin/id -u)" ] ||
@@ -252,7 +252,7 @@ preflight_enrollment_settings() {
   if [ -n "$existing" ] && [ "$existing" != "$gateway" ]; then
     setting_conflicts+=('ANTHROPIC_BASE_URL')
   fi
-  [ "${#setting_conflicts[@]}" -gt 0 ] || return
+  [ "${#setting_conflicts[@]}" -gt 0 ] || return 0
 
   printf 'Existing Claude setting(s) conflict with the enterprise gateway:\n' >&2
   for key in "${setting_conflicts[@]}"; do
