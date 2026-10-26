@@ -39,8 +39,7 @@ const binding: AccountBinding = {
 };
 
 class FakeAuthenticator implements EnterpriseAuthenticator {
-  async authenticate(token: string): Promise<EnterprisePrincipal> {
-    if (token !== 'valid') throw new BridgeError('GATEWAY_AUTH_REQUIRED', 'invalid', 401);
+  async authenticate(_token: string): Promise<EnterprisePrincipal> {
     return principal;
   }
 }
@@ -166,6 +165,38 @@ test('enterprise broker gives API-key employees the same bound profile and admis
       body: JSON.stringify({ ttlSeconds: 3600, maxAttempts: 10 }),
     });
     assert.equal(admission.status, 201);
+  } finally {
+    await server.close();
+  }
+});
+
+test('single-tenant control plane publishes central LiteLLM and does not proxy inference', async () => {
+  const store = new FakeStore();
+  const server = await startEnterpriseServer({
+    authenticator: new DualEnterpriseAuthenticator(new FakeAuthenticator(), store),
+    store,
+    inferenceGateway: 'https://litellm.customer.example',
+  });
+  try {
+    const base = `http://127.0.0.1:${server.port}`;
+    const config = await fetch(`${base}/ccgc/enterprise/config`);
+    assert.equal(config.status, 200);
+    assert.deepEqual(await config.json(), { inferenceGateway: 'https://litellm.customer.example' });
+    const info = await fetch(`${base}/ccgc/enterprise/info`, {
+      headers: { authorization: 'invalid' },
+    });
+    assert.equal(info.status, 401);
+    const authenticatedInfo = await fetch(`${base}/ccgc/enterprise/info`, {
+      headers: { authorization: ['Bearer', 'valid'].join(' ') },
+    });
+    assert.equal(authenticatedInfo.status, 200);
+    assert.equal((await authenticatedInfo.json()).inferenceGateway, 'https://litellm.customer.example');
+    const inference = await fetch(`${base}/v1/messages`, {
+      method: 'POST',
+      headers: { authorization: `Bearer ${'a'.repeat(64)}`, 'content-type': 'application/json' },
+      body: JSON.stringify({ model: model.id, max_tokens: 1, messages: [] }),
+    });
+    assert.equal(inference.status, 404);
   } finally {
     await server.close();
   }
@@ -610,8 +641,10 @@ test('enterprise client uses Entra for control and an opaque admission token for
           githubAccountId: binding.githubAccountId,
           models: binding.models,
           bindingRevision: 1,
+          inferenceGateway: 'https://litellm.example',
         });
       }
+      assert.equal(url, 'https://enterprise.example/ccgc/enterprise/admissions');
       admissions++;
       return Response.json({
         id: '33333333-3333-3333-3333-333333333333',
@@ -624,13 +657,15 @@ test('enterprise client uses Entra for control and an opaque admission token for
     const profile = await client.login('https://enterprise.example', 'api://ccgc');
     assert.equal(profile.objectId, principal.objectId);
     assert.equal(profile.authMethod, 'entra');
+    assert.equal(profile.controlPlane, 'https://enterprise.example');
+    assert.equal(profile.gateway, 'https://litellm.example');
     assert.equal(await client.token(), 'a'.repeat(64));
     assert.equal(await client.token(), 'a'.repeat(64));
     assert.equal(admissions, 1);
     const configured = await configureEnterprise(await client.load(), true, home);
     assert.equal(configured.applied, true);
     const settings = JSON.parse(await readFile(join(home, '.claude', 'settings.json'), 'utf8')) as Record<string, unknown>;
-    assert.equal((settings.env as Record<string, string>).ANTHROPIC_BASE_URL, 'https://enterprise.example');
+    assert.equal((settings.env as Record<string, string>).ANTHROPIC_BASE_URL, 'https://litellm.example');
     assert.equal((settings.env as Record<string, string>).CLAUDE_CODE_DISABLE_BACKGROUND_TASKS, undefined);
     assert.equal((settings.env as Record<string, string>).CLAUDE_CODE_DISABLE_AUTO_MEMORY, undefined);
     assert.equal((settings.env as Record<string, string>).CLAUDE_CODE_DISABLE_CRON, undefined);
@@ -673,8 +708,10 @@ test('enterprise client keeps a long-lived API key only in Keychain and exchange
           models: binding.models,
           bindingRevision: 1,
           authentication: 'apiKey',
+          inferenceGateway: 'https://litellm.example',
         });
       }
+      assert.equal(String(input), 'https://enterprise.example/ccgc/enterprise/admissions');
       admissions++;
       return Response.json({
         id: '33333333-3333-3333-3333-333333333333',
@@ -687,6 +724,7 @@ test('enterprise client keeps a long-lived API key only in Keychain and exchange
     const loggedIn = await client.loginApiKey('https://enterprise.example', apiKey);
     assert.equal(loggedIn.authMethod, 'apiKey');
     assert.equal(loggedIn.audience, undefined);
+    assert.equal(loggedIn.gateway, 'https://litellm.example');
     const persisted = await readFile(join(home, '.local', 'share', 'ccgc', 'enterprise', 'profile.json'), 'utf8');
     assert.equal(persisted.includes(apiKey), false);
     assert.equal([...values.values()].includes(apiKey), true);

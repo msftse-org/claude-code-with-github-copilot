@@ -5,7 +5,7 @@ import { mkdtemp, mkdir, readFile, realpath, rm, writeFile, access } from 'node:
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { startGateway } from '../src/gateway.ts';
-import { CLAUDE_VERSION, childEnvironment, clientVersion, inspectSettings, runClaude } from '../src/claude.ts';
+import { CLAUDE_VERSION, childEnvironment, clientVersion, inspectSettings, runClaude, supportedClaudeVersion } from '../src/claude.ts';
 import { clientHistory } from '../src/remote.ts';
 import type { ClaudeOptions } from '../src/claude.ts';
 import { object, parseJson } from '../src/protocol.ts';
@@ -18,7 +18,7 @@ async function checkedRun(options: ClaudeOptions, errors: string[]) {
 }
 
 async function fixture() {
-  assert.equal(await clientVersion(), CLAUDE_VERSION, 'Integration test requires the exact client profile.');
+  assert.equal(supportedClaudeVersion(await clientVersion()), true, `Integration test requires Claude Code ${CLAUDE_VERSION} or newer.`);
   const directory = await mkdtemp(join(tmpdir(), 'ccgc-client-'));
   const home = join(directory, 'home');
   const project = join(directory, 'project');

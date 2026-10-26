@@ -113,9 +113,10 @@ printf '%s\\n' "$DETECTED_CLAUDE_VERSION"
 
 test('macOS enrollment verifies health, discovery, output limits and inference before acknowledgment', async () => {
   const source = await readFile(script, 'utf8');
-  assert.match(source, /preflight_enrollment_settings "\$gateway"[\s\S]*install_self[\s\S]*ccgc\/enroll\/start/);
-  assert.match(source, /verify_gateway_health "\$gateway" "\$tmp_dir\/health\.json"[\s\S]*ccgc\/enroll\/start/);
-  assert.match(source, /verify_gateway_access "\$gateway" "\$api_key" "\$default_model" "\$tmp_dir"[\s\S]*prepare_profile/);
+  assert.match(source, /ccgc\/enterprise\/config[\s\S]*preflight_enrollment_settings "\$gateway"[\s\S]*ccgc\/enroll\/start/);
+  assert.match(source, /verify_gateway_health "\$control_plane" "\$tmp_dir\/health\.json"[\s\S]*ccgc\/enroll\/start/);
+  assert.match(source, /verify_gateway_access "\$control_plane" "\$gateway" "\$api_key" "\$default_model" "\$tmp_dir"[\s\S]*prepare_profile/);
+  assert.match(source, /plutil -insert controlPlane/);
   assert.match(source, /output_limit=128000/);
   assert.match(source, /Reply exactly CCGC_CLIENT_READY/);
   assert.match(source, /gateway model display mismatch/);
@@ -132,7 +133,7 @@ test('macOS doctor covers local security, conflicts, Keychain, binding and live 
   assert.match(source, /CLAUDE_CODE_OAUTH_TOKEN/);
   assert.match(source, /Claude settings do not route to the enrolled enterprise gateway/);
   assert.match(source, /enterprise profile models no longer match the gateway binding/);
-  assert.match(source, /verify_gateway_access "\$gateway" "\$api_key" "\$default_model" "\$tmp_dir"/);
+  assert.match(source, /verify_gateway_access "\$control_plane" "\$gateway" "\$api_key" "\$default_model" "\$tmp_dir"/);
   assert.match(source, /CCGC doctor passed/);
 });
 

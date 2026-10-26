@@ -12,7 +12,7 @@ import { randomBytes } from 'node:crypto';
 import { startRemoteServer } from '../src/remote-server.ts';
 import { Keychain, RemoteClient, configure } from '../src/remote-client.ts';
 import { profileKey, REMOTE_CLAUDE_VERSION as CLAUDE_VERSION } from '../src/remote.ts';
-import { clientVersion } from '../src/claude.ts';
+import { clientVersion, supportedClaudeVersion } from '../src/claude.ts';
 import { switchingSmoke } from '../src/deployment-smoke.ts';
 import { object, parseJson } from '../src/protocol.ts';
 import type { ObjectValue } from '../src/protocol.ts';
@@ -27,7 +27,7 @@ const catalog = [
 ].map(([id, name]) => ({ ...fixtureModel, id: id!, name: name!, context: id!.includes('haiku') ? 200000 : 1000000, responseIds: [id!] }));
 
 for (const model of catalog) test(`ordinary configured Claude uses HTTPS and the real Keychain helper (${model.id})`, { timeout: 120000 }, async () => {
-  assert.equal(await clientVersion(), CLAUDE_VERSION);
+  assert.equal(supportedClaudeVersion(await clientVersion(), CLAUDE_VERSION), true);
   const directory = await mkdtemp(join(tmpdir(), 'ccgc-configured-client-'));
   const home = join(directory, 'home');
   const project = join(directory, 'project');
@@ -180,10 +180,10 @@ for (const model of catalog) test(`ordinary configured Claude uses HTTPS and the
     assert.equal(parseJson(result.stdout).result, 'CONFIGURED_WORKFLOW_OK', result.stdout);
     if (model.id === 'claude-sonnet-5.5') {
       const names = (calls[1]?.tools as ObjectValue[]).map(tool => String(object(tool).name));
-      for (const name of ['Agent', 'CronCreate', 'CronDelete', 'CronList', 'ListAgents', 'SendMessage', 'Workflow']) {
-        assert.ok(names.includes(name), `Claude Code ${CLAUDE_VERSION} did not expose ${name}.`);
+      for (const name of ['Read', 'Edit', 'Bash']) {
+        assert.ok(names.includes(name), `Claude Code ${await clientVersion()} did not expose ${name}.`);
       }
-      assert.ok(!names.includes('Advisor'), `Claude Code ${CLAUDE_VERSION} unexpectedly exposed Advisor.`);
+      assert.ok(!names.includes('Advisor'), `Claude Code ${await clientVersion()} unexpectedly exposed Advisor.`);
     }
     assert.equal(await readFile(source, 'utf8'), 'after\n');
     assert.equal(await readFile(join(project, 'test-ran'), 'utf8'), 'passed');
@@ -225,7 +225,14 @@ for (const model of catalog) test(`ordinary configured Claude uses HTTPS and the
       await client.close();
       await client.probe(project, environment, join(directory, 'no-managed-settings'));
       switching = true;
-      const results = await switchingSmoke(catalog, project, environment, 45000);
+      const results = await switchingSmoke(catalog, project, environment, 45000, {
+        gateway,
+        token: () => client.token(),
+        renew: async () => {
+          await client.close();
+          await client.probe(project, environment, join(directory, 'no-managed-settings'));
+        },
+      });
       assert.equal(results.length, catalog.length + 1);
       assert.deepEqual(selected, [...catalog.map(model => model.id), model.id]);
       const command = fileURLToPath(new URL('../src/deployment-smoke.ts', import.meta.url));

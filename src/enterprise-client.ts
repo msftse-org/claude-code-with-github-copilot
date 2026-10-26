@@ -12,6 +12,7 @@ import { Keychain, type Secrets } from './remote-client.ts';
 import { readState, writePrivate } from './private-state.ts';
 
 export interface EnterpriseProfile {
+  controlPlane: string;
   gateway: string;
   authMethod: 'entra' | 'apiKey';
   audience?: string;
@@ -48,8 +49,13 @@ function profile(value: ObjectValue): EnterpriseProfile {
   if (authMethod === 'entra' && !audience) {
     throw new BridgeError('INVALID_RESPONSE', 'Enterprise Entra profile has no audience.');
   }
+  const legacyGateway = gatewayUrl(text(value.gateway, 'gateway'));
+  const controlPlane = value.controlPlane === undefined
+    ? legacyGateway
+    : gatewayUrl(text(value.controlPlane, 'control plane'));
   return {
-    gateway: gatewayUrl(text(value.gateway, 'gateway')),
+    controlPlane,
+    gateway: legacyGateway,
     authMethod,
     ...(audience ? { audience } : {}),
     tenantId: text(value.tenantId, 'tenant ID'),
@@ -100,16 +106,25 @@ export class EnterpriseClient {
   }
 
   async login(gateway: string, audience: string): Promise<EnterpriseProfile> {
-    const url = gatewayUrl(gateway);
+    const controlPlane = gatewayUrl(gateway);
     const access = await this.entra(audience);
-    const info = await responseJson(await this.fetcher(`${url}/ccgc/enterprise/info`, {
+    const info = await responseJson(await this.fetcher(`${controlPlane}/ccgc/enterprise/info`, {
       headers: { authorization: `Bearer ${access}` },
       redirect: 'error',
       signal: AbortSignal.timeout(30_000),
     }));
-    const next = profile({ gateway: url, authMethod: 'entra', audience, ...info });
-    await this.secrets.remove(profileKey(url));
-    await this.secrets.remove(apiKeyId(url));
+    const inferenceGateway = info.inferenceGateway === undefined
+      ? controlPlane
+      : gatewayUrl(text(info.inferenceGateway, 'inference gateway'));
+    const next = profile({
+      controlPlane,
+      gateway: inferenceGateway,
+      authMethod: 'entra',
+      audience,
+      ...info,
+    });
+    await this.secrets.remove(profileKey(controlPlane));
+    await this.secrets.remove(apiKeyId(controlPlane));
     await writePrivate(this.statePath, { ...next });
     return next;
   }
@@ -118,17 +133,20 @@ export class EnterpriseClient {
     if (!/^ccgc_sk_[A-Za-z0-9_-]{43}$/.test(apiKey)) {
       throw new BridgeError('GATEWAY_AUTH_REQUIRED', 'Enterprise API key is invalid.', 401);
     }
-    const url = gatewayUrl(gateway);
-    const info = await responseJson(await this.fetcher(`${url}/ccgc/enterprise/info`, {
+    const controlPlane = gatewayUrl(gateway);
+    const info = await responseJson(await this.fetcher(`${controlPlane}/ccgc/enterprise/info`, {
       headers: { authorization: ['Bearer', apiKey].join(' ') },
       redirect: 'error',
       signal: AbortSignal.timeout(30_000),
     }));
-    const next = profile({ gateway: url, authMethod: 'apiKey', ...info });
-    const keyId = apiKeyId(url);
+    const inferenceGateway = info.inferenceGateway === undefined
+      ? controlPlane
+      : gatewayUrl(text(info.inferenceGateway, 'inference gateway'));
+    const next = profile({ controlPlane, gateway: inferenceGateway, authMethod: 'apiKey', ...info });
+    const keyId = apiKeyId(controlPlane);
     await this.secrets.set(keyId, apiKey);
     try {
-      await this.secrets.remove(profileKey(url));
+      await this.secrets.remove(profileKey(controlPlane));
       await writePrivate(this.statePath, { ...next });
     } catch (error) {
       await this.secrets.remove(keyId);
@@ -139,14 +157,14 @@ export class EnterpriseClient {
 
   async token(): Promise<string> {
     const current = await this.load();
-    const id = profileKey(current.gateway);
+    const id = profileKey(current.controlPlane);
     if (current.grant && current.grant.expires > Date.now() + 5 * 60_000) {
       try { return await this.secrets.get(id); } catch { /* acquire a replacement below */ }
     }
     const access = current.authMethod === 'apiKey'
-      ? await this.secrets.get(apiKeyId(current.gateway))
+      ? await this.secrets.get(apiKeyId(current.controlPlane))
       : await this.entra(current.audience!);
-    const value = await responseJson(await this.fetcher(`${current.gateway}/ccgc/enterprise/admissions`, {
+    const value = await responseJson(await this.fetcher(`${current.controlPlane}/ccgc/enterprise/admissions`, {
       method: 'POST',
       headers: { authorization: ['Bearer', access].join(' '), 'content-type': 'application/json' },
       body: JSON.stringify({ ttlSeconds: 28_800, maxAttempts: 50 }),
@@ -267,5 +285,5 @@ export async function configureEnterprise(value: EnterpriseProfile, apply: boole
 }
 
 export function enterpriseProfileId(value: EnterpriseProfile): string {
-  return createHash('sha256').update(`${value.gateway}\n${value.objectId}`).digest('hex');
+  return createHash('sha256').update(`${value.controlPlane}\n${value.objectId}`).digest('hex');
 }

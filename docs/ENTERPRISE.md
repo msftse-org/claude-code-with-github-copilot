@@ -1,38 +1,35 @@
-# Enterprise foundation
+# Enterprise single-tenant foundation
 
-The repository contains an **implemented, locally validated multi-user
-enterprise foundation** based on Azure Container Apps. It is not deployed and
-is not yet approved for production use. Employees and enterprise administrators
-reach one public HTTPS broker. Employee routes require `CCGC.Access`; lifecycle
-routes require `CCGC.Admin`. The assignment-required Enterprise Application
-grants those roles to separate security groups. Worker, LiteLLM, PostgreSQL, Key
-Vault, ACR, checkpoint storage, and the one-shot bootstrap job remain private.
+Each deployment serves exactly one customer and one Microsoft Entra tenant.
+LiteLLM is the central inference gateway. The CCGC control plane manages
+enrollment, revocation, bounded admissions, administration, and reconciliation,
+but it does not proxy inference.
+
+Two deployment modes share the same identity and enrollment contract:
+
+- **Managed LiteLLM:** deploy the full solution, including CCGC-enabled LiteLLM
+  and its PostgreSQL database.
+- **Existing LiteLLM:** install the CCGC authentication overlay on the
+  customer's approved LiteLLM image and point the control plane and bootstrap
+  job at that existing gateway.
+
+The central-LiteLLM migration is implemented and locally validated. The
+previous deployed pilot remains on the legacy broker/worker revision until an
+approved zero-delete what-if and controlled runtime rollout are completed.
 
 ## Required runtime components
 
 | Component | Responsibility |
 |---|---|
-| Enterprise broker | Validates Microsoft Entra identity. `CCGC.Access` routes resolve immutable GitHub bindings, issue bounded admissions, reserve attempts transactionally, fence dispatches, sign worker assertions, and emit audit intent. `CCGC.Admin` routes manage internal users, split GitHub device authorization, binding, status, and revocation. |
-| Bootstrap job | A one-shot private Container Apps job defined by Bicep initializes the enterprise database, grants broker permissions, and creates the LiteLLM per-user OAuth credential and model mappings. |
-| Shared multi-user worker fleet | Runs as one Container App scaled across 2-30 replicas. Each replica verifies broker assertions, enforces per-user and global capacity, restores durable branch state, and forwards native Messages calls with the bound LiteLLM user key. |
-| LiteLLM Gateway | Runs as a separate private Container App scaled across 2-10 replicas. It owns per-user GitHub OAuth, encrypted user connections, Copilot token exchange/session caching, Anthropic Messages transport, streaming, and token counting. |
-| PostgreSQL | Stores account bindings, admission budgets, active branch reservations, monotonic fences, outcomes, and the audit outbox. |
-| LiteLLM PostgreSQL | Dedicated private database for encrypted per-user GitHub connections, virtual keys, and gateway state. |
-| Encrypted Blob checkpoints | Stores pending tool lineage and other branch state encrypted by the worker. Blob ETags reject concurrent or stale writes. |
+| CCGC-enabled LiteLLM | Public Anthropic Messages gateway. Its custom-auth extension accepts normal customer LiteLLM keys unchanged and resolves CCGC Entra, API-key, or bounded admission credentials to the enrolled employee's LiteLLM virtual key. |
+| CCGC control plane | Public administration and enrollment service. `CCGC.Access` or employee API keys create bounded admissions; `CCGC.Admin` manages employees, GitHub device authorization, bindings, model reconciliation, status, and revocation. |
+| Bootstrap job | Initializes the enterprise schema, grants both control-plane and LiteLLM database principals, and idempotently creates the per-user OAuth credential, approved model groups, and user catalogs. |
+| CCGC PostgreSQL | Stores immutable Entra-to-GitHub bindings, employee API keys, enrollment state, admission budgets, revisions, and audit intent. |
+| LiteLLM PostgreSQL | Stores virtual keys, encrypted per-user GitHub connections, policies, and gateway state. It is deployed only in managed mode. |
+| Azure Key Vault | Stores employee LiteLLM virtual-key references and the administration secrets required by the selected deployment mode. |
 
-The broker is the only public service. Its administration routes accept only
-assigned `CCGC.Admin` principals and are distinct from inference routes.
-LiteLLM has internal ingress and is used only by workers, broker lifecycle
-operations, and the Bicep-managed bootstrap job.
-API Management is
-omitted because it would duplicate broker controls and add another streaming
-hop. Public access does not bypass authorization: Entra gates profile and
-admission creation, while each model request requires a bounded opaque admission
-issued to that immutable principal and binding revision.
-
-The broker and worker are TypeScript modules running on Node.js 24. The worker
-keeps only account-keyed `LiteLLMBackend` clients; GitHub tokens and Copilot
-sessions are owned by LiteLLM and are never loaded into Node.js worker memory.
+API Management remains omitted. LiteLLM is already the policy and inference
+gateway, while the control plane owns only lifecycle operations.
 
 ## Implemented request path
 
@@ -42,47 +39,31 @@ sessions are owned by LiteLLM and are never loaded into Node.js worker memory.
 2. Claude's `apiKeyHelper` creates or renews a bounded admission and stores only
    its random 256-bit token in macOS Keychain. API keys are stored only as
    SHA-256 digests by the broker and never authorize administration routes.
-3. Claude sends native `/v1/messages` and `/v1/models` requests to the broker.
-4. PostgreSQL locks the admission, verifies binding revision, model and limits,
-   rejects an already-active branch, increments the attempt and fence, and
-   writes audit intent in the same transaction.
-5. The broker signs a short-lived assertion containing the tenant, principal,
-   immutable binding revision, GitHub account, Key Vault credential reference,
-   admission, branch, model, fence, and dispatch ID.
-6. Any shared worker replica verifies the assertion, loads only the matching
-   LiteLLM user key, and selects or creates that account's LiteLLM client.
-7. The worker loads the branch checkpoint from private Blob Storage, decrypts
-   and validates its full identity envelope, then forwards the Messages request.
-   LiteLLM resolves the same authenticated user's encrypted GitHub connection
-   and performs the Copilot request.
-   Checkpoint updates use ETag compare-and-swap; neither broker nor worker
-   transparently retries inference.
+3. Claude sends `/v1/messages` and `/v1/models` directly to central LiteLLM.
+4. `ccgc_litellm_auth` hashes opaque CCGC credentials or validates an Entra JWT,
+   reads only the fixed tenant's binding, enforces the admission attempt budget,
+   and loads the bound Key Vault secret.
+5. The extension verifies that the secret's GitHub login and immutable numeric
+   account ID match the database binding, then returns the employee's existing
+   LiteLLM virtual key.
+6. Normal LiteLLM authorization applies model/team/budget policy and selects the
+   same user's encrypted GitHub connection for Copilot inference.
 
-The broker stores no prompt or response body. The checkpoint can contain
-pending assistant tool blocks and arguments, so it is encrypted before leaving
-the worker and must never be logged.
+Existing LiteLLM keys that do not match a CCGC credential format fall through
+to normal LiteLLM authentication in `custom_auth_settings.mode: auto`.
 
-## Multi-user isolation and scaling
+## Employee isolation and scaling
 
-- Worker replicas are interchangeable; sticky sessions are not required.
-- LiteLLM client cache keys include tenant, principal, binding revision, GitHub
-  account ID, and credential secret name.
-- Each cached client contains only one LiteLLM user key. LiteLLM isolates
-  encrypted GitHub connections and short-lived Copilot sessions by user.
-- PostgreSQL permits one active dispatch per admission branch and at most four
-  active dispatches per principal by default.
-- Each worker also enforces per-user and global active-branch limits before
-  allocating connector/session state.
-- Branch checkpoints include tenant, principal, binding revision, admission,
-  branch, and GitHub account ID as authenticated encryption context.
-- Container Apps runs 2-30 worker replicas and scales on concurrent HTTP
-  requests. Dedicated workload-profile capacity, NAT/SNAT use, memory per
-  connector, and long stream duration remain live sizing gates.
-
-Multi-user workers provide logical rather than per-container isolation. This is
-an explicit density tradeoff. The compensating controls are immutable bindings,
-signed dispatches, account-keyed objects, encrypted state, conditional writes,
-strict input validation, no dynamic user code, and adversarial two-user tests.
+- The configured Entra tenant is fixed for the deployment; cross-tenant
+  bindings fail closed.
+- Each binding contains one Entra object ID, immutable GitHub numeric account
+  ID, GitHub login, revision, approved model catalog, and Key Vault reference.
+- The Key Vault secret must contain the same GitHub identity and exactly one
+  LiteLLM virtual key.
+- LiteLLM isolates encrypted GitHub connections and Copilot sessions by user.
+- Managed mode scales LiteLLM independently from the control plane.
+- Existing mode preserves customer scaling, keys, teams, budgets, callbacks,
+  databases, and unrelated models.
 
 ## Source layout
 
@@ -90,19 +71,16 @@ strict input validation, no dynamic user code, and adversarial two-user tests.
 |---|---|
 | `src/enterprise-auth.ts` | Entra issuer/audience/tenant/scope and immutable object-ID validation |
 | `src/enterprise-store.ts` | PostgreSQL bindings, admissions, per-branch reservations/fences, per-user concurrency, and audit outbox |
-| `src/enterprise-dispatch.ts` | Short-lived broker dispatch signing and worker verification |
-| `src/enterprise-server.ts` | Broker control, role-separated administration, native Messages/model routes, and signed worker dispatch |
-| `src/enterprise-connector.ts` | Key Vault LiteLLM user-key resolution and account-scoped LiteLLM client pool |
-| `src/litellm.ts` | Fixed-origin Anthropic Messages and token-count forwarding to LiteLLM |
-| `src/enterprise-checkpoint.ts` | Client-side encrypted Azure Blob checkpoints with ETag conditional writes |
-| `src/enterprise-worker-server.ts` | Shared multi-user worker authorization, fairness, branch state, and LiteLLM routing |
-| `src/enterprise-client.ts` | Entra enrollment, admission renewal, Keychain, and Claude settings patch |
+| `server/ccgc_litellm_auth.py` | LiteLLM custom auth for Entra, employee API keys, bounded admissions, immutable GitHub binding verification, and virtual-key resolution |
+| `src/enterprise-server.ts` | Role-separated control-plane administration, enrollment, profile, admission, and central-LiteLLM discovery routes |
+| `src/enterprise-client.ts` | Separate control-plane and inference-gateway profile, admission renewal, Keychain, and Claude settings patch |
 | `src/enterprise-admin.ts` | Explicit same-user credential link, binding revocation, and reusable LiteLLM bootstrap logic |
-| `src/enterprise-management*.ts` | `CCGC.Admin` client and broker lifecycle actions for status, internal users, GitHub connection, binding, and revocation |
+| `src/enterprise-management*.ts` | `CCGC.Admin` lifecycle actions for status, internal users, GitHub connection, binding, and revocation |
 | `src/enterprise-bootstrap.ts` | One-shot database and LiteLLM initialization run by the private bootstrap job |
-| `infra/enterprise/` | One public role-separated broker plus private, zone-redundant inference/data foundation and bootstrap job |
+| `infra/enterprise/` | Dual-mode Azure deployment for managed or existing LiteLLM |
+| `deploy/existing-litellm/` | Additive image and configuration overlay for a customer-owned LiteLLM |
 | `scripts/enterprise-entra.mjs` | Idempotent Entra API, access/admin roles, assignment-required service principal, and separate employee/admin group assignments |
-| `scripts/enterprise-pilot.mjs` | Foundation what-if/deploy, private ACR image publication, and runtime what-if/deploy |
+| `scripts/enterprise-pilot.mjs` | Mode-aware foundation, image publication, runtime what-if/deploy, and bootstrap |
 
 ## Infrastructure
 
@@ -110,33 +88,32 @@ strict input validation, no dynamic user code, and adversarial two-user tests.
 not reference, modify, or adopt `rg-ccgc-dev-87b7`. The topology includes:
 
 - Internet-reachable, zone-redundant Container Apps workload-profile
-  environment with only the broker configured for external ingress.
-- Public HTTPS broker Container App with 2-10 replicas and application-level
+  environment.
+- Public HTTPS control-plane Container App with 2-10 replicas and application-level
   Entra tenant/audience/permission validation for separate `CCGC.Access` and
   `CCGC.Admin` route groups.
 - Private one-shot Container Apps bootstrap job with a dedicated managed
   identity that is PostgreSQL Entra administrator only for initialization.
-- Internal shared worker Container App with 2-30 replicas.
-- Internal LiteLLM Gateway Container App with 2-10 replicas.
+- Public CCGC-enabled LiteLLM Container App with 2-10 replicas in managed mode,
+  or a fixed existing customer LiteLLM HTTPS origin in existing mode.
 - Entra-only PostgreSQL for enterprise control state.
-- Dedicated private password-authenticated PostgreSQL for LiteLLM's Prisma state.
-- NAT Gateway for deterministic connector egress.
+- Dedicated private password-authenticated PostgreSQL for LiteLLM's Prisma state
+  only in managed mode.
 - Private Key Vault with RBAC, soft delete, and purge protection.
-- Private GZRS StorageV2 account with shared-key access disabled and a private
-  `checkpoints` Blob container.
 - Private Premium ACR with admin and anonymous access disabled, plus a
   scale-to-zero VNet-attached ACR task agent pool for image publication.
-- Separate user-assigned broker, bootstrap, worker, and LiteLLM identities. The
-  worker receives only Key Vault Secrets User, Storage Blob Data Contributor,
-  and ACR pull roles. The broker receives Key Vault Secrets Officer because its
+- Separate user-assigned control-plane, bootstrap, and managed LiteLLM
+  identities. An existing LiteLLM workload identity receives only Key Vault
+  secret-read and CCGC PostgreSQL permissions. The control plane receives Key
+  Vault Secrets Officer because its
   `CCGC.Admin` routes create and rotate account-scoped LiteLLM user-key secrets.
 - Log Analytics and workspace-based Application Insights. Application payload
   logging remains prohibited.
 
-The Bicep accepts secure deployment parameters for the broker/worker HMAC
-secret, checkpoint key, LiteLLM master/salt keys, and dedicated LiteLLM database
-password. Employee GitHub tokens are never IaC parameters; LiteLLM obtains them
-through each user's device flow after deployment.
+The Bicep accepts `litellmMode: managed|existing`. Existing mode additionally
+requires the customer LiteLLM URL, workload identity object ID, database
+principal name, and a scoped administration key. Employee GitHub tokens are
+never IaC parameters; LiteLLM obtains them through each user's device flow.
 
 ## Build and validate
 
@@ -148,8 +125,12 @@ npm run test:bootstrap
 npm run test:client
 
 docker build -f server/Dockerfile.enterprise -t ccgc-enterprise-broker:test .
-docker build -f server/Dockerfile.enterprise-worker -t ccgc-enterprise-worker:test .
 docker build -f server/Dockerfile.enterprise-litellm -t ccgc-enterprise-litellm:test .
+
+docker build \
+  --build-arg LITELLM_IMAGE=customer-registry/litellm@sha256:APPROVED_DIGEST \
+  -f deploy/existing-litellm/Dockerfile \
+  -t customer-registry/litellm-ccgc:test .
 
 az bicep build --file infra/enterprise/main.bicep --stdout > enterprise.json
 checkov -d infra/enterprise --framework bicep --skip-download --compact \
@@ -225,9 +206,9 @@ npm run enterprise:pilot -- runtime \
   --confirm-deploy
 ```
 
-The public output is `brokerPublicFqdn` for employees and assigned enterprise IT
-administrators. `bootstrapJobName`, `workerInternalFqdn`, and
-`litellmInternalFqdn` are not public endpoints.
+The public outputs are `brokerPublicFqdn` for control-plane operations and
+`litellmGatewayUrl` for Claude Code inference. `bootstrapJobName` is not a
+public endpoint.
 
 ## Deployment gate
 
@@ -278,7 +259,7 @@ npm run enterprise:manage -- create-enrollment \
   --output /private/path/enrollment.json
 ```
 
-Only the broker URL and `CCGC-...` code are sent to the employee. The employee
+Only the control-plane URL and `CCGC-...` code are sent to the employee. The employee
 runs the native executable:
 
 ```bash
@@ -540,7 +521,7 @@ npm run enterprise:manage -- create-enrollment \
   --output "$HOME/.config/ccgc/pilot/employee-one/enrollment.json"
 ```
 
-Transfer only the broker URL and one-time code through an approved channel. The
+Transfer only the control-plane URL and one-time code through an approved channel. The
 employee runs:
 
 ```bash

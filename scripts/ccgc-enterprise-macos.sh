@@ -25,6 +25,7 @@ cleanup_temp() {
   /bin/rm -f \
     "$TEMP_DIR/body.json" \
     "$TEMP_DIR/complete.json" \
+    "$TEMP_DIR/config.json" \
     "$TEMP_DIR/health.json" \
     "$TEMP_DIR/info.json" \
     "$TEMP_DIR/admission.json" \
@@ -310,10 +311,11 @@ verify_gateway_health() {
 }
 
 verify_gateway_access() {
-  local gateway="$1"
-  local api_key="$2"
-  local default_model="$3"
-  local tmp_dir="$4"
+  local control_plane="$1"
+  local gateway="$2"
+  local api_key="$3"
+  local default_model="$4"
+  local tmp_dir="$5"
   local admission
   local client_id
   local display_name
@@ -327,7 +329,7 @@ verify_gateway_access() {
   local block_type
 
   write_body "$tmp_dir/admission-body.json" '{"ttlSeconds":300,"maxAttempts":3}'
-  request_json POST "$gateway/ccgc/enterprise/admissions" "$api_key" \
+  request_json POST "$control_plane/ccgc/enterprise/admissions" "$api_key" \
     "$tmp_dir/admission-body.json" "$tmp_dir/admission.json"
   admission="$(json_value "$tmp_dir/admission.json" token)"
   validate_admission "$admission"
@@ -540,13 +542,15 @@ EOF
 
 prepare_profile() {
   local output="$1"
-  local gateway="$2"
-  local enrollment_file="$3"
-  local info_file="$4"
+  local control_plane="$2"
+  local gateway="$3"
+  local enrollment_file="$4"
+  local info_file="$5"
   local models
 
   models="$(json_array "$info_file" models)" || fail 'gateway response is missing models'
   printf '{"%s":"active"}\n' "$JSON_SETUP_MARKER" >"$output"
+  /usr/bin/plutil -insert controlPlane -string "$control_plane" "$output"
   /usr/bin/plutil -insert gateway -string "$gateway" "$output"
   /usr/bin/plutil -insert authMethod -string apiKey "$output"
   /usr/bin/plutil -insert tenantId -string "$(json_value "$info_file" tenantId)" "$output"
@@ -573,7 +577,8 @@ prepare_profile() {
 }
 
 enroll() {
-  local gateway="$DEFAULT_GATEWAY"
+  local control_plane="$DEFAULT_GATEWAY"
+  local gateway
   local code=''
   local tmp_dir
   local response
@@ -592,7 +597,7 @@ enroll() {
     case "$1" in
       --gateway)
         [ "$#" -ge 2 ] || fail '--gateway requires a value'
-        gateway="${2%/}"
+        control_plane="${2%/}"
         shift 2
         ;;
       --code)
@@ -604,12 +609,10 @@ enroll() {
     esac
   done
 
-  validate_gateway "$gateway"
+  validate_gateway "$control_plane"
   validate_code "$code"
   require_macos_tools
   require_claude_version
-  preflight_enrollment_settings "$gateway"
-  install_self
 
   tmp_dir="$(/usr/bin/mktemp -d "${TMPDIR:-/tmp}/ccgc-enroll.XXXXXX")"
   TEMP_DIR="$tmp_dir"
@@ -617,9 +620,14 @@ enroll() {
   body="$tmp_dir/body.json"
   trap cleanup_temp EXIT
 
-  verify_gateway_health "$gateway" "$tmp_dir/health.json"
+  verify_gateway_health "$control_plane" "$tmp_dir/health.json"
+  request_json GET "$control_plane/ccgc/enterprise/config" '' '' "$tmp_dir/config.json"
+  gateway="$(json_value "$tmp_dir/config.json" inferenceGateway)"
+  validate_gateway "$gateway"
+  preflight_enrollment_settings "$gateway"
+  install_self
   write_body "$body" "{\"code\":\"$code\"}"
-  request_json POST "$gateway/ccgc/enroll/start" '' "$body" "$response"
+  request_json POST "$control_plane/ccgc/enroll/start" '' "$body" "$response"
   status="$(json_value "$response" status)"
 
   if [ "$status" = 'authorization_required' ]; then
@@ -642,7 +650,7 @@ enroll() {
       /bin/sleep "$interval"
       [ $(( $(/bin/date +%s) + interval )) -lt "$deadline" ] ||
         fail 'GitHub authorization expired; create a new enrollment and run again'
-      request_json POST "$gateway/ccgc/enroll/poll" '' "$body" "$response"
+      request_json POST "$control_plane/ccgc/enroll/poll" '' "$body" "$response"
       status="$(json_value "$response" status)"
       case "$status" in
         completed) break ;;
@@ -661,16 +669,18 @@ enroll() {
   api_key="$(json_value "$response" apiKey)"
   validate_api_key "$api_key"
 
-  request_json GET "$gateway/ccgc/enterprise/info" "$api_key" '' "$tmp_dir/info.json"
+  request_json GET "$control_plane/ccgc/enterprise/info" "$api_key" '' "$tmp_dir/info.json"
+  [ "$(json_value "$tmp_dir/info.json" inferenceGateway)" = "$gateway" ] ||
+    fail 'control plane changed the central LiteLLM gateway during enrollment'
   default_model="$(json_value "$tmp_dir/info.json" models.0)"
   [[ "$default_model" =~ ^claude-[a-z0-9.-]+$ ]] ||
     fail 'gateway returned an invalid default model'
 
-  verify_gateway_access "$gateway" "$api_key" "$default_model" "$tmp_dir"
-  prepare_profile "$tmp_dir/profile.json" "$gateway" "$response" "$tmp_dir/info.json"
+  verify_gateway_access "$control_plane" "$gateway" "$api_key" "$default_model" "$tmp_dir"
+  prepare_profile "$tmp_dir/profile.json" "$control_plane" "$gateway" "$response" "$tmp_dir/info.json"
   prepare_settings "$gateway" "$default_model" "$tmp_dir/settings.json"
 
-  service="$(api_key_service "$gateway")"
+  service="$(api_key_service "$control_plane")"
   keychain_set "$service" "$api_key"
   key_saved=1
   if ! /bin/mkdir -p "$(dirname "$PROFILE_PATH")" "$(dirname "$SETTINGS_PATH")" ||
@@ -680,7 +690,7 @@ enroll() {
     fail 'could not install the enterprise profile and Claude settings'
   fi
 
-  request_json POST "$gateway/ccgc/enroll/complete" '' "$body" "$tmp_dir/complete.json"
+  request_json POST "$control_plane/ccgc/enroll/complete" '' "$body" "$tmp_dir/complete.json"
   model_count="$(json_array "$tmp_dir/info.json" models | /usr/bin/grep -o '"claude-[^"]*"' | /usr/bin/wc -l | /usr/bin/tr -d ' ')"
   printf 'Enrollment complete for GitHub account %s (%s).\n' \
     "$(json_value "$tmp_dir/info.json" githubLogin)" \
@@ -718,6 +728,7 @@ update_grant() {
 }
 
 token() {
+  local control_plane
   local gateway
   local expires
   local now
@@ -732,7 +743,9 @@ token() {
   require_macos_tools
   [ -f "$PROFILE_PATH" ] || fail 'enterprise profile is unavailable; run enrollment first'
   valid_json "$PROFILE_PATH" || fail 'enterprise profile is invalid'
+  control_plane="$(json_raw "$PROFILE_PATH" controlPlane 2>/dev/null || json_value "$PROFILE_PATH" gateway)"
   gateway="$(json_value "$PROFILE_PATH" gateway)"
+  validate_gateway "$control_plane"
   validate_gateway "$gateway"
   service="$(admission_service "$gateway")"
   expires="$(json_raw "$PROFILE_PATH" grant.expires 2>/dev/null || true)"
@@ -745,7 +758,7 @@ token() {
     fi
   fi
 
-  api_key="$(keychain_get "$(api_key_service "$gateway")" || true)"
+  api_key="$(keychain_get "$(api_key_service "$control_plane")" || true)"
   validate_api_key "$api_key"
   tmp_dir="$(/usr/bin/mktemp -d "${TMPDIR:-/tmp}/ccgc-token.XXXXXX")"
   TEMP_DIR="$tmp_dir"
@@ -753,7 +766,7 @@ token() {
   body="$tmp_dir/body.json"
   response="$tmp_dir/response.json"
   write_body "$body" '{"ttlSeconds":28800,"maxAttempts":50}'
-  request_json POST "$gateway/ccgc/enterprise/admissions" "$api_key" "$body" "$response"
+  request_json POST "$control_plane/ccgc/enterprise/admissions" "$api_key" "$body" "$response"
   admission="$(json_value "$response" token)"
   validate_admission "$admission"
   id="$(json_value "$response" id)"
@@ -793,6 +806,7 @@ configure() {
 }
 
 doctor() {
+  local control_plane
   local gateway
   local default_model
   local expected_model
@@ -808,7 +822,9 @@ doctor() {
   require_private_file "$SETTINGS_PATH" 'Claude settings'
   valid_json "$PROFILE_PATH" || fail 'enterprise profile is invalid'
   valid_json "$SETTINGS_PATH" || fail 'Claude settings are invalid'
+  control_plane="$(json_raw "$PROFILE_PATH" controlPlane 2>/dev/null || json_value "$PROFILE_PATH" gateway)"
   gateway="$(json_value "$PROFILE_PATH" gateway)"
+  validate_gateway "$control_plane"
   validate_gateway "$gateway"
   default_model="$(json_value "$PROFILE_PATH" models.0)"
   [[ "$default_model" =~ ^claude-[a-z0-9.-]+$ ]] ||
@@ -849,13 +865,15 @@ doctor() {
     fail 'enterprise profile must not contain credentials'
   fi
 
-  api_key="$(keychain_get "$(api_key_service "$gateway")" || true)"
+  api_key="$(keychain_get "$(api_key_service "$control_plane")" || true)"
   validate_api_key "$api_key"
   tmp_dir="$(/usr/bin/mktemp -d "${TMPDIR:-/tmp}/ccgc-doctor.XXXXXX")"
   TEMP_DIR="$tmp_dir"
   trap cleanup_temp EXIT
-  verify_gateway_health "$gateway" "$tmp_dir/health.json"
-  request_json GET "$gateway/ccgc/enterprise/info" "$api_key" '' "$tmp_dir/info.json"
+  verify_gateway_health "$control_plane" "$tmp_dir/health.json"
+  request_json GET "$control_plane/ccgc/enterprise/info" "$api_key" '' "$tmp_dir/info.json"
+  [ "$(json_value "$tmp_dir/info.json" inferenceGateway)" = "$gateway" ] ||
+    fail 'enterprise profile central LiteLLM gateway no longer matches the control plane'
   [ "$(json_value "$PROFILE_PATH" tenantId)" = "$(json_value "$tmp_dir/info.json" tenantId)" ] ||
     fail 'enterprise profile tenant no longer matches the gateway binding'
   [ "$(json_value "$PROFILE_PATH" objectId)" = "$(json_value "$tmp_dir/info.json" objectId)" ] ||
@@ -864,7 +882,7 @@ doctor() {
     fail 'enterprise profile GitHub account no longer matches the gateway binding'
   [ "$(json_array "$PROFILE_PATH" models)" = "$(json_array "$tmp_dir/info.json" models)" ] ||
     fail 'enterprise profile models no longer match the gateway binding'
-  verify_gateway_access "$gateway" "$api_key" "$default_model" "$tmp_dir"
+  verify_gateway_access "$control_plane" "$gateway" "$api_key" "$default_model" "$tmp_dir"
 
   printf 'CCGC doctor passed.\n'
   printf 'Claude Code: %s (minimum supported: %s)\n' \

@@ -14,17 +14,36 @@ param tenantId string
 @description('Application ID URI or client ID expected in broker access tokens.')
 param entraAudience string
 
-@description('Deploy the broker, bootstrap job, worker, and LiteLLM Container Apps after immutable images have been published.')
+@description('Deploy the single-tenant control plane, bootstrap job, and CCGC-enabled LiteLLM after immutable images have been published.')
 param deployRuntime bool = true
 
 @description('Immutable broker container image, preferably an ACR digest.')
 param brokerImage string = ''
 
-@description('Immutable shared multi-user worker container image, preferably an ACR digest.')
+@description('Deprecated legacy worker image retained only for explicit migration rollbacks.')
 param workerImage string = ''
+
+@description('Deploy the deprecated worker path during a controlled migration rollback.')
+param deployLegacyWorker bool = false
 
 @description('Immutable LiteLLM Gateway container image built from server/Dockerfile.enterprise-litellm, preferably an ACR digest.')
 param litellmImage string = ''
+
+@allowed([
+  'managed'
+  'existing'
+])
+@description('Use the fully managed LiteLLM deployment or attach CCGC to an existing customer LiteLLM.')
+param litellmMode string = 'managed'
+
+@description('Existing customer LiteLLM HTTPS origin. Required only when litellmMode is existing.')
+param existingLiteLLMUrl string = ''
+
+@description('Workload identity object ID used by the existing LiteLLM deployment.')
+param existingLiteLLMPrincipalId string = ''
+
+@description('Microsoft Entra principal name used by the existing LiteLLM workload when connecting to CCGC PostgreSQL.')
+param existingLiteLLMDatabasePrincipalName string = ''
 
 @minValue(0)
 @maxValue(10)
@@ -35,9 +54,8 @@ param buildAgentPoolCount int = 0
 param litellmPostgresAdminLogin string = 'litellmadmin'
 
 @secure()
-@minLength(16)
 @description('Administrator password for the private LiteLLM PostgreSQL server.')
-param litellmPostgresAdminPassword string
+param litellmPostgresAdminPassword string = ''
 
 @secure()
 @minLength(32)
@@ -45,9 +63,8 @@ param litellmPostgresAdminPassword string
 param litellmMasterKey string
 
 @secure()
-@minLength(32)
 @description('Stable LiteLLM encryption salt for database-backed credentials.')
-param litellmSaltKey string
+param litellmSaltKey string = ''
 
 @secure()
 @minLength(32)
@@ -87,7 +104,12 @@ module platform 'modules/platform.bicep' = {
     deployRuntime: deployRuntime
     brokerImage: brokerImage
     workerImage: workerImage
+    deployLegacyWorker: deployLegacyWorker
     litellmImage: litellmImage
+    litellmMode: litellmMode
+    existingLiteLLMUrl: existingLiteLLMUrl
+    existingLiteLLMPrincipalId: existingLiteLLMPrincipalId
+    existingLiteLLMDatabasePrincipalName: existingLiteLLMDatabasePrincipalName
     buildAgentPoolCount: buildAgentPoolCount
     litellmPostgresAdminLogin: litellmPostgresAdminLogin
     litellmPostgresAdminPassword: litellmPostgresAdminPassword
@@ -102,6 +124,8 @@ module platform 'modules/platform.bicep' = {
 
 output resourceGroupName string = resourceGroup.name
 output brokerPublicFqdn string = platform.outputs.brokerPublicFqdn
+output litellmPublicFqdn string = platform.outputs.litellmPublicFqdn
+output litellmGatewayUrl string = platform.outputs.litellmGatewayUrl
 output bootstrapJobName string = platform.outputs.bootstrapJobName
 output workerInternalFqdn string = platform.outputs.workerInternalFqdn
 output litellmInternalFqdn string = platform.outputs.litellmInternalFqdn

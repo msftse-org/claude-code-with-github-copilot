@@ -2,45 +2,34 @@
 
 The enterprise target is split into **two separate diagrams**. Runtime contains
 no CI/CD, IaC or setup flow; provisioning contains no inference topology.
-The runtime foundation is **implemented, deployed, and validated as an
-enterprise pilot**. The provisioning diagram documents the governed path from
-scope approval through private deployment, script-based employee enrollment,
-acceptance, staged rollout, and recovery. Production promotion remains gated.
+The central-LiteLLM runtime is **implemented and locally validated but not yet
+deployed**. The currently deployed pilot still runs the superseded
+broker/worker topology. The provisioning diagram documents the governed path
+from scope approval through either a full managed LiteLLM deployment or an
+additive overlay on an existing customer LiteLLM.
 
 | Enterprise diagram | Presentation PNG | Interactive HTML | Technical source |
 |---|---|---|---|
-| Runtime architecture | [LiteLLM presentation poster](ccgc-enterprise-runtime-multiuser-litellm-presentation-v16.png) | [Poster structure viewer](ccgc-enterprise-runtime-poster.html) | [Poster architecture JSON](ccgc-enterprise-runtime-poster.architecture.json) |
+| Runtime architecture | Pending regenerated PNG | Pending regenerated HTML | [Central-LiteLLM architecture JSON](ccgc-enterprise-runtime-poster.architecture.json) |
 | Provisioning and rollout | [Provisioning poster](ccgc-enterprise-provisioning.png) | [Workflow viewer](ccgc-enterprise-provisioning.html) | [Workflow JSON](ccgc-enterprise-provisioning.workflow.json) |
 
-The [PRD enterprise target contract](../PRD.md#enterprise-target-revision-017)
+The [PRD enterprise target contract](../PRD.md#enterprise-implementation-revision-022)
 records the design rationale, implementation gaps, official Azure references
 and production gates. These diagrams do not certify enterprise readiness.
 
 ## Enterprise runtime
 
-![Enterprise multi-user runtime architecture](ccgc-enterprise-runtime-multiuser-litellm-presentation-v16.png)
+The primary request path is **Claude Code -> public single-tenant CCGC-enabled
+LiteLLM -> the employee's GitHub Copilot seat -> entitled Claude models**.
+Claude's local tools, hooks, and background execution remain local. A separate
+CCGC control plane handles enrollment, administration, bounded admissions, and
+revocation, but is not in the inference path.
 
-The primary request path is **Claude Code -> public Entra-authorized enterprise broker ->
-shared multi-user worker Container App -> private LiteLLM Gateway Container App
--> the employee's GitHub Copilot seat -> entitled Claude models**. Native Messages and streamed responses follow this route;
-Claude's Read/Edit/Bash, hooks, and background execution remain local. The
-broker owns admission and branch fencing. Any worker replica can load the
-matching encrypted checkpoint and forwards with only that account's LiteLLM
-user key. LiteLLM stores encrypted per-user GitHub connections in its dedicated
-PostgreSQL database and owns Copilot token exchange, transport, streaming, and
-token counting. `CCGC.Admin` lifecycle routes on the same broker give enterprise
-IT internal-user creation, employee GitHub connection, binding, status, and
-revocation controls. A private one-shot Bicep bootstrap job initializes the
-enterprise database and LiteLLM configuration. Node.js marks identify the
-broker and worker; one Container Apps mark identifies the shared worker/LiteLLM
-boundary; the LiteLLM logo identifies the gateway.
-
-The presentation poster consolidates the worker and LiteLLM cards inside one
-**Shared inference plane - Azure Container Apps** boundary. They remain two
-separate peer Container Apps with independent 2-30 and 2-10 replica ranges; the
-shared outer box is a visual/scaling-plane grouping, not a merged process.
-Employee and administrator routes remain authorization-wise separate on the
-same public broker.
+The LiteLLM custom-auth extension validates the fixed Entra tenant or hashes an
+opaque CCGC credential, resolves the active immutable Entra-to-GitHub binding,
+verifies the Key Vault secret's GitHub account ID, and returns that employee's
+LiteLLM virtual key. Existing customer LiteLLM keys continue through native
+authentication.
 
 The compatibility labels reflect the latest verified implementation: images,
 PDFs, adaptive thinking, exact token counts, coordinated agent branches,
@@ -48,18 +37,13 @@ background tasks, completed-turn resume, exact pending-tool restart, automatic
 compaction, Cron lifecycle, and automatic-memory persistence are working.
 Claude Code `2.1.296` does not expose an Advisor tool through this route.
 
-Entra authenticates broker access, not Copilot entitlement. Each immutable
+Entra authenticates CCGC access, not Copilot entitlement. Each immutable
 enterprise principal must be linked to that same employee's authorized GitHub
-account. The broker reads signing and lifecycle secrets from Key Vault; workers
-use managed identity to resolve dispatch/checkpoint keys and the signed LiteLLM
-user-key reference; LiteLLM receives its database, master, and salt secrets
-through Key Vault-backed Container Apps secrets. Client caches remain account
-keyed. Enterprise PostgreSQL
-holds durable reservations, per-branch active locks, fences, quotas, and audit
-intent. LiteLLM PostgreSQL holds encrypted OAuth connections and gateway state.
-Private Blob Storage holds client-side-encrypted checkpoints with ETag
-conditional writes. Azure Monitor collects restricted metadata, never
-prompt/response bodies.
+account. The control plane and LiteLLM use managed identities for narrowly
+scoped Key Vault and CCGC PostgreSQL access. CCGC PostgreSQL stores bindings,
+enrollment state, admission budgets, and audit intent. LiteLLM's existing or
+managed database stores virtual keys, encrypted OAuth connections, and gateway
+state. Azure Monitor collects restricted metadata, never prompt/response bodies.
 
 The private-workload outline is a logical boundary, not a subnet-placement map.
 Key Vault is also an Azure managed service, reached privately. The JWT trust
@@ -100,19 +84,13 @@ PaaS modules, per-user services or acceptance gates.
 | Initial image brief | [Current Archify-first prompt](ccgc-enterprise-runtime-multiuser-litellm-presentation-v16.prompt.txt), [focused dependency correction](ccgc-enterprise-runtime-multiuser-litellm-presentation-v16-correction.prompt.txt), [Archify runtime prompt](ccgc-enterprise-runtime.prompt.txt), and historical prompts | [Provisioning prompt](ccgc-enterprise-provisioning.prompt.txt) |
 | Image generation provenance | [Current dual-provenance presentation receipt](ccgc-enterprise-runtime-multiuser-litellm-presentation-v16.receipt.json) and retained historical receipts | [Selected-image receipt](ccgc-enterprise-provisioning.receipt.json) |
 
-The runtime presentation PNG preserves the approved light executive style while
-consolidating employee and administrator authorization on one public broker and
-excluding deployment-time status and bootstrap content. It shows the
-independently scaled broker plus a shared inference-plane
-boundary containing the separate worker and LiteLLM Gateway services. A single
-Container Apps icon labels that boundary rather than being repeated inside both
-cards. The validated
-[technical runtime capture](ccgc-enterprise-runtime.png),
-reviewed JSON, and interactive HTML remain authoritative when presentation
-artwork and implementation details differ. The more detailed
-[implementation topology](ccgc-enterprise-runtime.html) and
-[implementation architecture JSON](ccgc-enterprise-runtime.architecture.json)
-remain available as engineering evidence. The previous
+The existing runtime PNG, HTML, delivery receipts, and visual captures document
+the superseded revision 0.21 broker/worker architecture. They remain historical
+engineering and presentation evidence and are not authoritative for revision
+0.22. The reviewed
+[central-LiteLLM architecture JSON](ccgc-enterprise-runtime-poster.architecture.json)
+is the current technical source until replacement HTML and PNG artifacts are
+generated. The previous
 [v8 operator presentation](ccgc-enterprise-runtime-multiuser-litellm-presentation-v8.png),
 [v7 light presentation](ccgc-enterprise-runtime-multiuser-litellm-presentation-v7.png),
 and earlier

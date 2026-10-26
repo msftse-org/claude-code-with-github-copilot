@@ -380,7 +380,7 @@ test('native model validation consumes shared attempts without resetting convers
   const check = {
     model: clientModelId(opus), max_tokens: 1,
     system: [
-      { type: 'text', text: 'x-anthropic-billing-header: cc_version=2.1.296.abc; cc_entrypoint=sdk-cli;' },
+      { type: 'text', text: 'x-anthropic-billing-header: cc_version=2.1.308.abc; cc_entrypoint=sdk-cli;' },
       { type: 'text', text: "You are Claude Code, Anthropic's official CLI for Claude." },
     ],
     messages: [{ role: 'user', content: [{ type: 'text', text: 'Hi' }] }],

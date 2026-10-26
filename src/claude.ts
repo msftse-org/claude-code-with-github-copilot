@@ -44,6 +44,20 @@ export async function clientVersion(): Promise<string> {
   }
 }
 
+export function supportedClaudeVersion(version: string, minimum = CLAUDE_VERSION): boolean {
+  const actual = version.split('.').map(Number);
+  const required = minimum.split('.').map(Number);
+  if (actual.length !== 3 || required.length !== 3
+    || actual.some(value => !Number.isSafeInteger(value) || value < 0)
+    || required.some(value => !Number.isSafeInteger(value) || value < 0)) {
+    return false;
+  }
+  for (let index = 0; index < 3; index += 1) {
+    if (actual[index] !== required[index]) return actual[index]! > required[index]!;
+  }
+  return true;
+}
+
 export async function inspectSettings(project: string, home = homedir(), managed = '/Library/Application Support/ClaudeCode/managed-settings.json'): Promise<void> {
   const locations = [
     join(home, '.claude', 'settings.json'),
@@ -72,7 +86,9 @@ export async function preflight(project: string, surface: string): Promise<strin
   const resolved = await realpath(project);
   if (!(await stat(resolved)).isDirectory()) throw new BridgeError('INVALID_OPTIONS', 'Project must be a directory.');
   const version = await clientVersion();
-  if (version !== CLAUDE_VERSION) throw new BridgeError('VERSION_UNSUPPORTED', `This experimental profile is pinned to Claude Code ${CLAUDE_VERSION}; installed ${version}.`);
+  if (!supportedClaudeVersion(version)) {
+    throw new BridgeError('VERSION_UNSUPPORTED', `Claude Code ${CLAUDE_VERSION} or newer is required; installed ${version}.`);
+  }
   await inspectSettings(resolved);
   return resolved;
 }

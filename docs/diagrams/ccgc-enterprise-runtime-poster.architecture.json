@@ -2,177 +2,143 @@
   "schema_version": 1,
   "diagram_type": "architecture",
   "meta": {
-    "title": "Claude Code with GitHub Copilot - Enterprise runtime",
+    "title": "Claude Code with GitHub Copilot - Single-tenant runtime",
     "locale": "en",
     "quality_profile": "showcase",
-    "viewBox": [1390, 760]
+    "viewBox": [1340, 780]
   },
   "components": [
     {
-      "id": "claude-code",
+      "id": "employee",
       "type": "frontend",
       "label": "Claude Code",
-      "sublabel": "Client / local tools",
+      "sublabel": "Employee client and local tools",
       "brand": "claude",
-      "pos": [20, 350],
-      "size": [145, 92]
+      "pos": [60, 350],
+      "size": [170, 92]
+    },
+    {
+      "id": "administrator",
+      "type": "frontend",
+      "label": "Enterprise administrator",
+      "sublabel": "Enroll and revoke employees",
+      "pos": [60, 90],
+      "size": [190, 92]
     },
     {
       "id": "entra-id",
       "type": "security",
       "label": "Microsoft Entra ID",
-      "sublabel": "SSO / conditional access",
-      "pos": [200, 90],
+      "sublabel": "One fixed customer tenant",
+      "pos": [300, 90],
       "size": [190, 92]
     },
     {
-      "id": "enterprise-broker",
+      "id": "control-plane",
       "type": "backend",
-      "label": "Enterprise broker",
-      "sublabel": "CCGC.Access + CCGC.Admin",
+      "label": "CCGC control plane",
+      "sublabel": "Enrollment / admission",
       "tag": "2-10 replicas",
       "brand": "node-js",
-      "pos": [200, 350],
-      "size": [190, 92]
-    },
-    {
-      "id": "multiuser-worker",
-      "type": "backend",
-      "label": "Multi-user worker",
-      "sublabel": "Fairness / branch restore",
-      "tag": "2-30 replicas",
-      "brand": "node-js",
-      "pos": [440, 350],
-      "size": [190, 92]
+      "pos": [580, 90],
+      "size": [210, 92]
     },
     {
       "id": "litellm-gateway",
       "type": "backend",
-      "label": "LiteLLM Gateway",
-      "sublabel": "Per-user OAuth / 2-10 replicas",
-      "pos": [690, 350],
-      "size": [190, 92]
+      "label": "CCGC-enabled LiteLLM",
+      "sublabel": "Entra + GitHub binding custom auth",
+      "tag": "managed or existing",
+      "pos": [330, 350],
+      "size": [230, 92]
     },
     {
       "id": "key-vault",
       "type": "security",
       "label": "Azure Key Vault",
-      "sublabel": "Signing / user / master keys",
-      "pos": [690, 90],
-      "size": [190, 92]
+      "sublabel": "Per-user virtual-key references",
+      "pos": [900, 90],
+      "size": [200, 92]
     },
     {
       "id": "github-copilot",
       "type": "external",
-      "label": "Copilot seat",
-      "sublabel": "Employee entitlement",
+      "label": "GitHub Copilot seat",
+      "sublabel": "Employee-specific entitlement",
       "brand": "github",
-      "pos": [1050, 350],
-      "size": [150, 92]
+      "pos": [850, 350],
+      "size": [180, 92]
     },
     {
       "id": "claude-models",
       "type": "external",
       "label": "Claude models",
-      "sublabel": "Entitled model catalog",
+      "sublabel": "Approved entitled catalog",
       "brand": "claude",
-      "pos": [1230, 350],
-      "size": [140, 92]
-    },
-    {
-      "id": "azure-monitor",
-      "type": "cloud",
-      "label": "Azure Monitor",
-      "sublabel": "Metadata / no prompt bodies",
-      "pos": [200, 615],
-      "size": [180, 88]
+      "pos": [1120, 350],
+      "size": [170, 92]
     },
     {
       "id": "enterprise-postgres",
       "type": "database",
-      "label": "Enterprise PostgreSQL HA",
-      "sublabel": "Bindings / quotas / audit",
+      "label": "CCGC PostgreSQL",
+      "sublabel": "Bindings / admissions / audit",
       "brand": "postgresql",
-      "pos": [400, 615],
-      "size": [210, 88]
-    },
-    {
-      "id": "blob-checkpoints",
-      "type": "database",
-      "label": "Encrypted Blob checkpoints",
-      "sublabel": "Branch state / ETag compare-and-swap",
-      "pos": [630, 615],
+      "pos": [350, 620],
       "size": [210, 88]
     },
     {
       "id": "litellm-postgres",
       "type": "database",
-      "label": "LiteLLM PostgreSQL HA",
-      "sublabel": "Encrypted OAuth / gateway state",
+      "label": "LiteLLM PostgreSQL",
+      "sublabel": "Existing or managed gateway state",
+      "tag": "customer owned",
       "brand": "postgresql",
-      "pos": [860, 615],
-      "size": [180, 88]
+      "pos": [660, 620],
+      "size": [210, 88]
+    },
+    {
+      "id": "azure-monitor",
+      "type": "cloud",
+      "label": "Azure Monitor",
+      "sublabel": "Metadata only / no prompt bodies",
+      "pos": [970, 620],
+      "size": [200, 88]
     }
   ],
   "boundaries": [
     {
       "kind": "region",
-      "label": "Microsoft Azure",
+      "label": "One customer deployment / one Microsoft Entra tenant",
       "wraps": [
+        "administrator",
         "entra-id",
-        "enterprise-broker",
-        "multiuser-worker",
+        "control-plane",
         "litellm-gateway",
         "key-vault",
-        "azure-monitor",
         "enterprise-postgres",
-        "blob-checkpoints",
-        "litellm-postgres"
+        "litellm-postgres",
+        "azure-monitor"
       ],
-      "pad": 30
-    },
-    {
-      "kind": "region",
-      "label": "Shared inference plane - Azure Container Apps",
-      "wraps": [
-        "multiuser-worker",
-        "litellm-gateway"
-      ],
-      "pad": 24
+      "pad": 28
     }
   ],
   "connections": [
     {
-      "id": "client-to-broker",
-      "from": "claude-code",
-      "to": "enterprise-broker",
-      "label": "Public HTTPS",
-      "variant": "emphasis",
-      "labelAt": [183, 456]
-    },
-    {
-      "id": "broker-to-worker",
-      "from": "enterprise-broker",
-      "to": "multiuser-worker",
-      "label": "signed fenced dispatch",
-      "variant": "emphasis",
-      "labelAt": [415, 456]
-    },
-    {
-      "id": "worker-to-litellm",
-      "from": "multiuser-worker",
+      "id": "employee-to-litellm",
+      "from": "employee",
       "to": "litellm-gateway",
-      "label": "per-user virtual key",
+      "label": "Anthropic Messages + bounded admission",
       "variant": "emphasis",
-      "labelAt": [660, 456]
+      "labelAt": [285, 456]
     },
     {
       "id": "litellm-to-copilot",
       "from": "litellm-gateway",
       "to": "github-copilot",
-      "label": "GitHub OAuth / TLS / SSE",
+      "label": "per-user GitHub OAuth / TLS / SSE",
       "variant": "emphasis",
-      "labelAt": [965, 456]
+      "labelAt": [715, 456]
     },
     {
       "id": "copilot-to-models",
@@ -180,108 +146,97 @@
       "to": "claude-models",
       "label": "entitled model",
       "variant": "emphasis",
-      "labelAt": [1210, 456]
+      "labelAt": [1095, 456]
     },
     {
-      "id": "entra-to-broker",
+      "id": "admin-to-entra",
+      "from": "administrator",
+      "to": "entra-id",
+      "label": "administrator sign-in",
+      "variant": "security",
+      "labelAt": [270, 196]
+    },
+    {
+      "id": "entra-to-control",
       "from": "entra-id",
-      "to": "enterprise-broker",
-      "label": "SSO / JWT validation",
-      "variant": "dashed",
-      "fromSide": "bottom",
-      "toSide": "top",
-      "labelAt": [295, 196]
+      "to": "control-plane",
+      "label": "CCGC.Admin JWT",
+      "variant": "security",
+      "labelAt": [545, 196]
     },
     {
-      "id": "broker-to-vault",
-      "from": "enterprise-broker",
-      "to": "key-vault",
-      "label": "signing + user keys",
-      "variant": "dashed",
-      "fromSide": "top",
-      "toSide": "left",
-      "via": [[295, 250], [660, 250], [660, 136]]
-    },
-    {
-      "id": "vault-to-litellm",
-      "from": "key-vault",
+      "id": "entra-to-litellm",
+      "from": "entra-id",
       "to": "litellm-gateway",
-      "label": "master + salt",
-      "variant": "dashed",
-      "fromSide": "bottom",
-      "toSide": "top",
-      "labelAt": [785, 196]
-    },
-    {
-      "id": "worker-to-vault",
-      "from": "multiuser-worker",
-      "to": "key-vault",
-      "label": "dispatch + checkpoint + user keys",
-      "variant": "dashed",
-      "fromSide": "top",
-      "toSide": "right",
-      "via": [[535, 275], [910, 275], [910, 136]],
-      "labelAt": [625, 265]
-    },
-    {
-      "id": "broker-to-monitor",
-      "from": "enterprise-broker",
-      "to": "azure-monitor",
-      "label": "metadata telemetry",
-      "fromSide": "bottom",
-      "toSide": "top",
-      "labelAt": [230, 530]
-    },
-    {
-      "id": "broker-to-postgres",
-      "from": "enterprise-broker",
-      "to": "enterprise-postgres",
-      "label": "bindings / admissions",
-      "fromSide": "bottom",
-      "toSide": "top"
-    },
-    {
-      "id": "worker-to-checkpoints",
-      "from": "multiuser-worker",
-      "to": "blob-checkpoints",
-      "label": "encrypted branch state",
+      "label": "CCGC.Access JWT",
       "variant": "security",
       "fromSide": "bottom",
-      "toSide": "top"
+      "toSide": "top",
+      "labelAt": [430, 250]
+    },
+    {
+      "id": "control-to-litellm",
+      "from": "control-plane",
+      "to": "litellm-gateway",
+      "label": "users / models / OAuth enrollment",
+      "variant": "dashed",
+      "fromSide": "bottom",
+      "toSide": "top",
+      "labelAt": [610, 250]
     },
     {
       "id": "litellm-to-postgres",
       "from": "litellm-gateway",
-      "to": "litellm-postgres",
-      "label": "encrypted OAuth state",
+      "to": "enterprise-postgres",
+      "label": "validate tenant + immutable GitHub binding",
       "variant": "security",
       "fromSide": "bottom",
-      "toSide": "top"
+      "toSide": "top",
+      "labelAt": [320, 535]
+    },
+    {
+      "id": "litellm-to-vault",
+      "from": "litellm-gateway",
+      "to": "key-vault",
+      "label": "resolve employee virtual key",
+      "variant": "security",
+      "fromSide": "top",
+      "toSide": "bottom",
+      "labelAt": [790, 280]
+    },
+    {
+      "id": "litellm-state",
+      "from": "litellm-gateway",
+      "to": "litellm-postgres",
+      "label": "existing or managed gateway state",
+      "fromSide": "bottom",
+      "toSide": "top",
+      "labelAt": [650, 565]
     }
   ],
   "cards": [
     {
       "dot": "cyan",
-      "title": "Isolation and security",
+      "title": "Two installation modes",
       "items": [
-        "Same LiteLLM user who connected GitHub.",
-        "No cross-user credentials, cache, or uncertain inference replay."
+        "Managed: deploy the complete CCGC-enabled LiteLLM and its PostgreSQL.",
+        "Existing: add the CCGC extension without replacing customer models, keys, teams, or policies."
       ]
     },
     {
-      "dot": "violet",
-      "title": "Claude Code compatibility",
+      "dot": "emerald",
+      "title": "Single-tenant identity",
       "items": [
-        "Images, PDFs, tools, streaming, compaction, Cron, agents, and model switching.",
-        "Exact token counting and encrypted restart recovery."
+        "The deployment accepts exactly one Microsoft Entra tenant.",
+        "Every employee maps to one immutable GitHub account and one Copilot seat."
       ]
     },
     {
       "dot": "amber",
-      "title": "Current limitations",
+      "title": "Reduced runtime",
       "items": [
-        "Fixed-budget thinking remains model-limited.",
-        "Advisor remains Anthropic API only."
+        "LiteLLM is the only inference gateway.",
+        "The legacy broker-to-worker inference path is disabled by default."
       ]
     }
   ]

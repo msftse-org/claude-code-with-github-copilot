@@ -26,9 +26,6 @@ if (!Array.isArray(modelCatalog.models) || modelCatalog.models.length === 0) {
 }
 const enrollmentModels = modelCatalog.models.map(value => text(object(value).id, 'model ID'));
 const vault = new SecretClient(vaultUrl, credential);
-const dispatchSecret = await vault.getSecret(required('CCGC_DISPATCH_SECRET_NAME'));
-if (!dispatchSecret.value) throw new BridgeError('STARTUP_FAILED', 'Dispatch signing secret is unavailable.');
-const workerUrl = required('CCGC_WORKER_URL');
 const litellmMasterKey = await vault.getSecret(required('CCGC_LITELLM_MASTER_KEY_SECRET_NAME'));
 if (!litellmMasterKey.value) throw new BridgeError('STARTUP_FAILED', 'LiteLLM administration secret is unavailable.');
 const store = new PostgresEnterpriseStore(
@@ -42,11 +39,22 @@ const employeeEntra = new EntraAuthenticator({
   audience: entraAudience,
   requiredRole: process.env.CCGC_ENTRA_ROLE,
 });
+const workerUrl = process.env.CCGC_LEGACY_WORKER_URL;
+const dispatchSecretName = process.env.CCGC_DISPATCH_SECRET_NAME;
+const dispatchSecret = workerUrl && dispatchSecretName
+  ? await vault.getSecret(dispatchSecretName)
+  : undefined;
+if (workerUrl && !dispatchSecret?.value) {
+  throw new BridgeError('STARTUP_FAILED', 'Legacy dispatch signing secret is unavailable.');
+}
 const server = await startEnterpriseServer({
   authenticator: new DualEnterpriseAuthenticator(employeeEntra, store),
   store,
-  workers: new SharedWorkerResolver(workerUrl, required('CCGC_WORKER_DNS_SUFFIX')),
-  dispatchSigner: new DispatchSigner(dispatchSecret.value, brokerOrigin, workerUrl),
+  ...(workerUrl && dispatchSecret?.value ? {
+    workers: new SharedWorkerResolver(workerUrl, required('CCGC_WORKER_DNS_SUFFIX')),
+    dispatchSigner: new DispatchSigner(dispatchSecret.value, brokerOrigin, workerUrl),
+  } : {}),
+  inferenceGateway: required('CCGC_LITELLM_PUBLIC_URL'),
   adminAuthenticator: new EntraAuthenticator({
     tenantId: entraTenantId,
     audience: entraAudience,

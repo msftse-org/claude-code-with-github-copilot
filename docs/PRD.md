@@ -3,53 +3,57 @@
 | Field | Value |
 |---|---|
 | Project | `claude-code-with-github-copilot` |
-| Revision | 0.21 - LiteLLM per-user OAuth gateway |
-| Created / revised | 2026-10-04 / 2026-10-11 |
-| Status | Single-user alpha live evidence retained; enterprise foundation locally validated but not deployed or production-approved |
+| Revision | 0.22 - single-tenant central LiteLLM |
+| Created / revised | 2026-10-04 / 2026-10-26 |
+| Status | Central-LiteLLM migration implemented and locally validated; deployed pilot remains on the prior runtime pending approved rollout |
 | Working name / command | Copilot Gateway for Claude Code / ordinary Claude client, with optional `ccgc` setup and diagnostics |
 | Initial platform | macOS on Apple silicon |
 | Product decision owner | Project owner |
 
 ## 1. Product decision
 
-### Enterprise implementation (revision 0.21)
+### Enterprise implementation (revision 0.22)
 
-Revision 0.21 retains the Entra broker, shared multi-user worker fleet,
-PostgreSQL fencing, encrypted Blob checkpoints, and no-replay state machine from
-revision 0.20, but replaces the enterprise-critical native Copilot connector
-with a separately scaled LiteLLM Gateway Container App.
+Revision 0.22 defines one deployment as exactly one customer and one Microsoft
+Entra tenant. LiteLLM becomes the central inference gateway rather than a
+private connector behind a project broker and worker.
 
-Current LiteLLM Gateway supports per-user GitHub OAuth. Each employee connects
-GitHub once as their LiteLLM user; the GitHub token is encrypted in LiteLLM's
-dedicated PostgreSQL database. Every worker request uses that employee's
-LiteLLM virtual key, so LiteLLM selects the same user's connection and owns
-Copilot token exchange, provider endpoint validation, Anthropic Messages
-transport, streaming, token counting, and per-user session caches.
+The CCGC LiteLLM custom-auth extension accepts three CCGC credential forms:
+single-tenant Entra JWTs, revocable employee API keys, and bounded admission
+tokens. It resolves the active `(tenant ID, Entra object ID)` binding, verifies
+the bound immutable GitHub numeric account ID against the Key Vault secret, and
+returns only that employee's existing LiteLLM virtual key. LiteLLM then applies
+its normal user/team/model/budget policy and selects the same user's encrypted
+GitHub Copilot connection. Ordinary customer LiteLLM keys continue through
+normal authentication in custom-auth `auto` mode.
 
-LiteLLM does not replace the project broker or worker. They continue to enforce
-immutable Entra-to-GitHub binding, bounded admissions, signed dispatch claims,
-per-user branch capacity, durable encrypted checkpoint lineage, cancellation,
-and the rule that uncertain inference is never replayed. API Management remains
-unnecessary because these controls are already implemented at the broker.
+The project control plane remains for enrollment, revocation, administration,
+admission issuance, and idempotent model/user reconciliation. It is not in the
+inference data path. The legacy broker-to-worker path is disabled by default and
+retained only for an explicit migration rollback.
 
-The deployment contains three independently scaled Container Apps: one public
-HTTPS broker (2-10), an internal worker (2-30), and an internal LiteLLM Gateway
-(2-10), plus a one-shot private bootstrap job defined by Bicep. Employee broker
-routes accept only `CCGC.Access`; lifecycle routes accept only `CCGC.Admin`.
-The Enterprise Application is assignment-required and assigns the two roles to
-separate employee and administrator groups. LiteLLM receives a dedicated private PostgreSQL
-Flexible Server because its Prisma-backed credential store requires a stable
-database password; the enterprise control database remains Entra-only. Redis is
-not required for correctness: without it, LiteLLM reads user connections from
-PostgreSQL and still keeps short-lived Copilot sessions user-scoped in each
-replica. Redis may be added after load testing if database pressure justifies
-another stateful dependency.
+The deployment supports two modes:
 
-This revision is locally implemented and validated, not deployed or
-production-approved. Release remains blocked on two real Copilot users,
-same-prompt isolation, disconnect/reconnect, revoked-seat behavior, long SSE,
-scale-out/restart/draining, LiteLLM license review, and proof that no uncertain
-request is replayed.
+1. `managed` deploys the complete CCGC-enabled LiteLLM, its PostgreSQL database,
+   CCGC PostgreSQL, Key Vault, monitoring, control plane, and bootstrap job.
+2. `existing` deploys CCGC control resources and attaches to one fixed customer
+   LiteLLM origin and workload identity. The additive overlay preserves existing
+   models, keys, teams, budgets, callbacks, scaling, and unrelated workloads.
+
+API Management remains unnecessary because LiteLLM is already the customer's
+inference and policy gateway. Release remains blocked on controlled deployment,
+two-user live isolation, existing-LiteLLM compatibility across approved
+versions, revoked-seat behavior, long SSE, scale-out/draining, license review,
+and zero-delete infrastructure review.
+
+### Superseded enterprise implementation (revision 0.21, historical)
+
+Revision 0.21 used one public broker, an internal shared worker, and an internal
+LiteLLM Gateway. It introduced LiteLLM per-user GitHub OAuth but kept project
+dispatch signing, worker forwarding, encrypted branch checkpoints, and separate
+inference routing. Revision 0.22 supersedes that runtime to remove redundant
+inference components while preserving the enrollment and immutable identity
+contract.
 
 ### Superseded enterprise implementation (revision 0.20, historical)
 

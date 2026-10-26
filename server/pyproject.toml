@@ -3,7 +3,14 @@ name = "ccgc-litellm-runtime"
 version = "0.2.0"
 requires-python = ">=3.12,<3.15"
 # LiteLLM's authentication-error classifier imports Prisma even without a database.
-dependencies = ["litellm[proxy]==1.104.0", "prisma==0.15.0"]
+dependencies = [
+  "asyncpg==0.30.0",
+  "azure-identity==1.25.1",
+  "azure-keyvault-secrets==4.10.0",
+  "litellm[proxy]==1.104.0",
+  "prisma==0.15.0",
+  "PyJWT[crypto]==2.10.1",
+]
 
 [tool.uv]
 package = false

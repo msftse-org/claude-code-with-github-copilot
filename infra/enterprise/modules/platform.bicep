@@ -5,7 +5,12 @@ param entraAudience string
 param deployRuntime bool
 param brokerImage string
 param workerImage string
+param deployLegacyWorker bool
 param litellmImage string
+param litellmMode string
+param existingLiteLLMUrl string
+param existingLiteLLMPrincipalId string
+param existingLiteLLMDatabasePrincipalName string
 param buildAgentPoolCount int
 param litellmPostgresAdminLogin string
 @secure()
@@ -22,6 +27,7 @@ param cryptographicSecretExpiration int
 param modelsJson string
 
 var compact = replace(prefix, '-', '')
+var managedLiteLLM = litellmMode == 'managed'
 var unique = toLower(uniqueString(subscription().id, resourceGroup().id, prefix))
 var entraTokenAudience = startsWith(entraAudience, 'api://') ? substring(entraAudience, 6) : entraAudience
 var vnetName = 'vnet-${prefix}-enterprise'
@@ -43,6 +49,9 @@ var workerName = 'ca-${prefix}-worker'
 var litellmName = 'ca-${prefix}-litellm'
 var workspaceName = 'log-${prefix}-enterprise'
 var insightsName = 'appi-${prefix}-enterprise'
+var managedLiteLLMUrl = 'https://${litellmName}.${environment.properties.defaultDomain}'
+var litellmGatewayUrl = managedLiteLLM ? managedLiteLLMUrl : existingLiteLLMUrl
+var litellmDatabasePrincipalName = managedLiteLLM ? litellmIdentity!.name : existingLiteLLMDatabasePrincipalName
 var postgresDnsZoneName = '${compact}.postgres.database.azure.com'
 var tags = {
   project: 'claude-code-with-github-copilot'
@@ -68,7 +77,7 @@ resource workerIdentity 'Microsoft.ManagedIdentity/userAssignedIdentities@2024-1
   tags: tags
 }
 
-resource litellmIdentity 'Microsoft.ManagedIdentity/userAssignedIdentities@2024-11-30' = {
+resource litellmIdentity 'Microsoft.ManagedIdentity/userAssignedIdentities@2024-11-30' = if (managedLiteLLM) {
   name: litellmIdentityName
   location: location
   tags: tags
@@ -357,7 +366,7 @@ module postgresAdmin 'postgres-admin.bicep' = {
   }
 }
 
-resource litellmPostgres 'Microsoft.DBforPostgreSQL/flexibleServers@2024-08-01' = {
+resource litellmPostgres 'Microsoft.DBforPostgreSQL/flexibleServers@2024-08-01' = if (managedLiteLLM) {
   name: litellmPostgresName
   location: location
   tags: tags
@@ -447,11 +456,11 @@ resource checkpointKeySecret 'Microsoft.KeyVault/vaults/secrets@2024-11-01' = {
   }
 }
 
-resource litellmDatabaseSecret 'Microsoft.KeyVault/vaults/secrets@2024-11-01' = {
+resource litellmDatabaseSecret 'Microsoft.KeyVault/vaults/secrets@2024-11-01' = if (managedLiteLLM) {
   parent: vault
   name: 'litellm-database-url'
   properties: {
-    value: 'postgresql://${litellmPostgresAdminLogin}:${uriComponent(litellmPostgresAdminPassword)}@${litellmPostgres.properties.fullyQualifiedDomainName}:5432/postgres?sslmode=require'
+    value: 'postgresql://${litellmPostgresAdminLogin}:${uriComponent(litellmPostgresAdminPassword)}@${litellmPostgres!.properties.fullyQualifiedDomainName}:5432/postgres?sslmode=require'
     contentType: 'application/vnd.ccgc.litellm-database-url'
     attributes: {
       enabled: true
@@ -473,7 +482,7 @@ resource litellmMasterKeySecret 'Microsoft.KeyVault/vaults/secrets@2024-11-01' =
   }
 }
 
-resource litellmSaltKeySecret 'Microsoft.KeyVault/vaults/secrets@2024-11-01' = {
+resource litellmSaltKeySecret 'Microsoft.KeyVault/vaults/secrets@2024-11-01' = if (managedLiteLLM) {
   parent: vault
   name: 'litellm-salt-key'
   properties: {
@@ -769,20 +778,8 @@ resource broker 'Microsoft.App/containerApps@2025-01-01' = if (deployRuntime) {
               value: vault.properties.vaultUri
             }
             {
-              name: 'CCGC_WORKER_DNS_SUFFIX'
-              value: '.${environment.properties.defaultDomain}'
-            }
-            {
-              name: 'CCGC_WORKER_URL'
-              value: 'https://${workerName}.${privateEnvironmentDomain}'
-            }
-            {
               name: 'CCGC_BROKER_ORIGIN'
               value: 'https://${brokerName}.${environment.properties.defaultDomain}'
-            }
-            {
-              name: 'CCGC_DISPATCH_SECRET_NAME'
-              value: dispatchSecret.name
             }
             {
               name: 'CCGC_POSTGRES_URL'
@@ -794,7 +791,11 @@ resource broker 'Microsoft.App/containerApps@2025-01-01' = if (deployRuntime) {
             }
             {
               name: 'CCGC_LITELLM_URL'
-              value: 'https://${litellmName}.${privateEnvironmentDomain}'
+              value: litellmGatewayUrl
+            }
+            {
+              name: 'CCGC_LITELLM_PUBLIC_URL'
+              value: litellmGatewayUrl
             }
             {
               name: 'CCGC_LITELLM_MASTER_KEY_SECRET_NAME'
@@ -911,7 +912,7 @@ resource bootstrapJob 'Microsoft.App/jobs@2025-01-01' = if (deployRuntime) {
             }
             {
               name: 'CCGC_LITELLM_URL'
-              value: 'https://${litellmName}.${privateEnvironmentDomain}'
+              value: litellmGatewayUrl
             }
             {
               name: 'CCGC_LITELLM_MASTER_KEY'
@@ -922,8 +923,11 @@ resource bootstrapJob 'Microsoft.App/jobs@2025-01-01' = if (deployRuntime) {
               value: 'postgresql://${bootstrapIdentity.name}@${postgres.properties.fullyQualifiedDomainName}:5432/postgres?sslmode=require'
             }
             {
-              name: 'CCGC_BROKER_DATABASE_PRINCIPAL'
-              value: brokerIdentity.name
+              name: 'CCGC_DATABASE_PRINCIPALS_JSON'
+              value: string([
+                brokerIdentity.name
+                litellmDatabasePrincipalName
+              ])
             }
             {
               name: 'CCGC_ENTRA_TENANT_ID'
@@ -955,7 +959,7 @@ resource bootstrapJob 'Microsoft.App/jobs@2025-01-01' = if (deployRuntime) {
   ]
 }
 
-resource worker 'Microsoft.App/containerApps@2025-01-01' = if (deployRuntime) {
+resource worker 'Microsoft.App/containerApps@2025-01-01' = if (deployRuntime && deployLegacyWorker) {
   name: workerName
   location: location
   tags: tags
@@ -1104,14 +1108,14 @@ resource worker 'Microsoft.App/containerApps@2025-01-01' = if (deployRuntime) {
   ]
 }
 
-resource litellm 'Microsoft.App/containerApps@2025-01-01' = if (deployRuntime) {
+resource litellm 'Microsoft.App/containerApps@2025-01-01' = if (deployRuntime && managedLiteLLM) {
   name: litellmName
   location: location
   tags: tags
   identity: {
     type: 'UserAssigned'
     userAssignedIdentities: {
-      '${litellmIdentity.id}': {}
+      '${litellmIdentity!.id}': {}
     }
   }
   properties: {
@@ -1121,31 +1125,31 @@ resource litellm 'Microsoft.App/containerApps@2025-01-01' = if (deployRuntime) {
       activeRevisionsMode: 'Single'
       ingress: {
         allowInsecure: false
-        external: false
+        external: true
         targetPort: 4000
         transport: 'http'
       }
       registries: [
         {
-          identity: litellmIdentity.id
+          identity: litellmIdentity!.id
           server: registry.properties.loginServer
         }
       ]
       secrets: [
         {
           name: 'litellm-database-url'
-          keyVaultUrl: litellmDatabaseSecret.properties.secretUriWithVersion
-          identity: litellmIdentity.id
+          keyVaultUrl: litellmDatabaseSecret!.properties.secretUriWithVersion
+          identity: litellmIdentity!.id
         }
         {
           name: 'litellm-master-key'
           keyVaultUrl: litellmMasterKeySecret.properties.secretUriWithVersion
-          identity: litellmIdentity.id
+          identity: litellmIdentity!.id
         }
         {
           name: 'litellm-salt-key'
-          keyVaultUrl: litellmSaltKeySecret.properties.secretUriWithVersion
-          identity: litellmIdentity.id
+          keyVaultUrl: litellmSaltKeySecret!.properties.secretUriWithVersion
+          identity: litellmIdentity!.id
         }
       ]
     }
@@ -1169,7 +1173,35 @@ resource litellm 'Microsoft.App/containerApps@2025-01-01' = if (deployRuntime) {
             }
             {
               name: 'PROXY_BASE_URL'
-              value: 'https://${litellmName}.${privateEnvironmentDomain}'
+              value: litellmGatewayUrl
+            }
+            {
+              name: 'AZURE_CLIENT_ID'
+              value: litellmIdentity!.properties.clientId
+            }
+            {
+              name: 'CCGC_ENTRA_TENANT_ID'
+              value: tenantId
+            }
+            {
+              name: 'CCGC_ENTRA_AUDIENCE'
+              value: entraTokenAudience
+            }
+            {
+              name: 'CCGC_ENTRA_ROLE'
+              value: 'CCGC.Access'
+            }
+            {
+              name: 'CCGC_KEY_VAULT_URL'
+              value: vault.properties.vaultUri
+            }
+            {
+              name: 'CCGC_POSTGRES_URL'
+              value: 'postgresql://${litellmIdentity!.name}@${postgres.properties.fullyQualifiedDomainName}:5432/postgres?sslmode=require'
+            }
+            {
+              name: 'CCGC_POSTGRES_ENTRA'
+              value: 'true'
             }
           ]
           probes: [
@@ -1233,7 +1265,7 @@ resource brokerKeyVaultAccess 'Microsoft.Authorization/roleAssignments@2022-04-0
   }
 }
 
-resource workerKeyVaultAccess 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
+resource workerKeyVaultAccess 'Microsoft.Authorization/roleAssignments@2022-04-01' = if (deployLegacyWorker) {
   name: guid(vault.id, workerIdentity.id, 'Key Vault Secrets User')
   scope: vault
   properties: {
@@ -1243,11 +1275,21 @@ resource workerKeyVaultAccess 'Microsoft.Authorization/roleAssignments@2022-04-0
   }
 }
 
-resource litellmKeyVaultAccess 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
-  name: guid(vault.id, litellmIdentity.id, 'Key Vault Secrets User')
+resource litellmKeyVaultAccess 'Microsoft.Authorization/roleAssignments@2022-04-01' = if (managedLiteLLM) {
+  name: guid(vault.id, litellmIdentity!.id, 'Key Vault Secrets User')
   scope: vault
   properties: {
-    principalId: litellmIdentity.properties.principalId
+    principalId: litellmIdentity!.properties.principalId
+    principalType: 'ServicePrincipal'
+    roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', '4633458b-17de-408a-b874-0445c86b69e6')
+  }
+}
+
+resource existingLiteLLMKeyVaultAccess 'Microsoft.Authorization/roleAssignments@2022-04-01' = if (!managedLiteLLM && !empty(existingLiteLLMPrincipalId)) {
+  name: guid(vault.id, existingLiteLLMPrincipalId, 'Key Vault Secrets User')
+  scope: vault
+  properties: {
+    principalId: existingLiteLLMPrincipalId
     principalType: 'ServicePrincipal'
     roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', '4633458b-17de-408a-b874-0445c86b69e6')
   }
@@ -1273,7 +1315,7 @@ resource registryPull 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
   }
 }
 
-resource workerRegistryPull 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
+resource workerRegistryPull 'Microsoft.Authorization/roleAssignments@2022-04-01' = if (deployLegacyWorker) {
   name: guid(registry.id, workerIdentity.id, 'AcrPull')
   scope: registry
   properties: {
@@ -1283,11 +1325,11 @@ resource workerRegistryPull 'Microsoft.Authorization/roleAssignments@2022-04-01'
   }
 }
 
-resource litellmRegistryPull 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
-  name: guid(registry.id, litellmIdentity.id, 'AcrPull')
+resource litellmRegistryPull 'Microsoft.Authorization/roleAssignments@2022-04-01' = if (managedLiteLLM) {
+  name: guid(registry.id, litellmIdentity!.id, 'AcrPull')
   scope: registry
   properties: {
-    principalId: litellmIdentity.properties.principalId
+    principalId: litellmIdentity!.properties.principalId
     principalType: 'ServicePrincipal'
     roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', '7f951dda-4ed3-4680-a7ca-43fe172d538d')
   }
@@ -1303,7 +1345,7 @@ resource bootstrapRegistryPull 'Microsoft.Authorization/roleAssignments@2022-04-
   }
 }
 
-resource workerStorageAccess 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
+resource workerStorageAccess 'Microsoft.Authorization/roleAssignments@2022-04-01' = if (deployLegacyWorker) {
   name: guid(storage.id, workerIdentity.id, 'Storage Blob Data Contributor')
   scope: storage
   properties: {
@@ -1315,11 +1357,13 @@ resource workerStorageAccess 'Microsoft.Authorization/roleAssignments@2022-04-01
 
 output brokerPublicFqdn string = deployRuntime ? broker!.properties.configuration.ingress.fqdn : ''
 output bootstrapJobName string = deployRuntime ? bootstrapJob!.name : ''
-output workerInternalFqdn string = deployRuntime ? worker!.properties.configuration.ingress.fqdn : ''
-output litellmInternalFqdn string = deployRuntime ? litellm!.properties.configuration.ingress.fqdn : ''
+output workerInternalFqdn string = deployRuntime && deployLegacyWorker ? worker!.properties.configuration.ingress.fqdn : ''
+output litellmInternalFqdn string = deployRuntime && managedLiteLLM ? litellm!.properties.configuration.ingress.fqdn : ''
+output litellmPublicFqdn string = deployRuntime && managedLiteLLM ? litellm!.properties.configuration.ingress.fqdn : ''
+output litellmGatewayUrl string = litellmGatewayUrl
 output keyVaultName string = vault.name
 output postgresHost string = postgres.properties.fullyQualifiedDomainName
-output litellmPostgresHost string = litellmPostgres.properties.fullyQualifiedDomainName
+output litellmPostgresHost string = managedLiteLLM ? litellmPostgres!.properties.fullyQualifiedDomainName : ''
 output registryName string = registry.name
 output registryLoginServer string = registry.properties.loginServer
 output buildAgentPoolName string = buildAgentPoolCount > 0 ? buildAgentPool!.name : ''

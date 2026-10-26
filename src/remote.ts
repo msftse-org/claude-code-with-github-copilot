@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto';
 import { BridgeError, object, parseJson, positive, text } from './protocol.ts';
 import type { Model, ObjectValue } from './protocol.ts';
+import { CLAUDE_VERSION, supportedClaudeVersion } from './claude.ts';
 
 export const LEGACY_REMOTE_PROFILE = 'remote-litellm-cli-2.1.220-v1';
 export const REMOTE_CLAUDE_VERSION = '2.1.296';
@@ -99,13 +100,16 @@ export function isModelCheck(body: ObjectValue): boolean {
   if (message.role !== 'user' || !Array.isArray(message.content) || message.content.length !== 1
     || object(message.content[0]).type !== 'text' || object(message.content[0]).text !== 'Hi') return false;
   if (!Array.isArray(body.system) || body.system.length !== 2) return false;
+  const billing = /^x-anthropic-billing-header: cc_version=(\d+\.\d+\.\d+)\.[a-z0-9]+; cc_entrypoint=[a-z-]+;$/
+    .exec(String(object(body.system[0]).text));
   return object(body.system[0]).type === 'text'
-    && /^x-anthropic-billing-header: cc_version=2\.1\.296\.[a-z0-9]+; cc_entrypoint=[a-z-]+;$/.test(String(object(body.system[0]).text))
+    && billing !== null
+    && supportedClaudeVersion(billing[1]!, CLAUDE_VERSION)
     && object(body.system[1]).type === 'text'
     && object(body.system[1]).text === "You are Claude Code, Anthropic's official CLI for Claude.";
 }
 
-// Claude 2.1.296 moves the same context between native system messages and
+// Supported Claude versions move the same context between native system messages and
 // leading user reminders when switching to/from Haiku. Only the comparison
 // representation changes; the actual request is forwarded without role edits.
 export function clientHistory(messages: unknown[]): ObjectValue[] {

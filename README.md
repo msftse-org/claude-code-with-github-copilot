@@ -16,7 +16,7 @@ employee's own GitHub Copilot seat**.
 ## Table of Contents
 
 - [Architecture](#architecture)
-- [Why LiteLLM and a broker](#why-the-enterprise-path-uses-litellm-and-a-broker)
+- [Why central LiteLLM](#why-the-enterprise-path-uses-central-litellm)
 - [Enterprise Azure components](#enterprise-azure-components)
 - [Employee setup](#on-the-mac)
 - [Claude Code feature compatibility](#claude-code-feature-compatibility)
@@ -37,14 +37,19 @@ employee's own GitHub Copilot seat**.
 
 ### Runtime architecture
 
-![Enterprise multi-user architecture](docs/diagrams/ccgc-enterprise-runtime-multiuser-litellm-presentation-v16.png)
+[Open the current interactive runtime architecture](docs/diagrams/ccgc-enterprise-runtime-poster.html).
 
-Each employee has a separate identity binding, LiteLLM user key, GitHub OAuth
-connection, Copilot authorization, model catalog, admission, limits, and
-encrypted conversation checkpoints. The broker and worker retain enterprise
-control and state safety; LiteLLM owns per-user GitHub OAuth, Copilot token
-exchange, Anthropic Messages transport, streaming conversion, and provider
-session caches.
+Each installation serves exactly one customer and one Microsoft Entra tenant.
+LiteLLM is the central inference gateway. Its CCGC custom-auth extension
+validates Entra, employee API-key, or bounded admission credentials; resolves
+the immutable Entra-to-GitHub binding; and returns only that employee's existing
+LiteLLM virtual key. LiteLLM then uses the same employee's encrypted GitHub
+connection and Copilot seat.
+
+The small CCGC control plane remains responsible for enrollment, revocation,
+admission issuance, administration, and idempotent LiteLLM reconciliation. It is
+not in the inference data path. The legacy broker-to-worker inference path is
+disabled by default and retained only as an explicit migration rollback.
 
 > [!IMPORTANT]
 > The Azure enterprise pilot is deployed and validated. Production rollout still
@@ -65,49 +70,49 @@ promotion, and approved recovery. Open the
 [interactive provisioning diagram](docs/diagrams/ccgc-enterprise-provisioning.html)
 for inspection and export.
 
-## Why the enterprise path uses LiteLLM and a broker
+## Why the enterprise path uses central LiteLLM
 
-The enterprise path has two required project components:
+The enterprise path has two runtime roles:
 
 | Component | What it is | Why it is required |
 |---|---|---|
-| Enterprise admission broker | Project-developed TypeScript/Node.js service. | Validates Entra identity or a user-scoped API key, resolves the employee binding, issues bounded admissions, reserves attempts, fences dispatches, and records audit metadata. |
-| Shared multi-user worker | Project-developed TypeScript/Node.js service. | Verifies short-lived broker-signed dispatches, enforces per-user fairness, restores encrypted branch checkpoints on any replica, and forwards each call with the bound LiteLLM user key. |
-| LiteLLM Gateway | Separate private Container App. | Implements per-user GitHub OAuth, encrypted user connections, Copilot token exchange, Anthropic Messages transport, streaming, token counting, and provider session caching. |
+| CCGC-enabled LiteLLM | The customer's existing LiteLLM or a managed LiteLLM deployed by this solution. | Serves Anthropic Messages directly, validates the single tenant, resolves immutable employee bindings, applies existing LiteLLM policy, and uses per-user GitHub Copilot OAuth. |
+| CCGC control plane | Project-developed TypeScript/Node.js service. | Provides administrator and employee enrollment, revocation, bounded admission issuance, model/user reconciliation, and audit state without proxying inference. |
 
 Current LiteLLM Gateway supports **Per-user GitHub OAuth**: each request is
 authenticated as the same LiteLLM user who connected GitHub, and each user's
 encrypted GitHub connection is stored separately in LiteLLM PostgreSQL. This
-removes the custom enterprise device flow, GitHub-token custody, Copilot token
-exchange, endpoint validation, and provider transport.
+solution adds the missing single-tenant Entra-to-GitHub binding through
+[`server/ccgc_litellm_auth.py`](server/ccgc_litellm_auth.py). Existing customer
+LiteLLM virtual keys continue through normal authentication because custom auth
+runs in `auto` mode.
 
-LiteLLM does not replace the broker or worker because it does not implement this
-project's Entra-to-GitHub immutable binding, bounded admissions, signed dispatch
-fences, per-user branch quotas, encrypted checkpoints, or no-replay state
-machine. API Management remains omitted because the broker already owns those
-controls.
+Two installation modes implement the same contract:
+
+| Mode | Result |
+|---|---|
+| `managed` | Deploys the complete control plane, CCGC-enabled LiteLLM, LiteLLM PostgreSQL, CCGC PostgreSQL, Key Vault, monitoring, and bootstrap job. |
+| `existing` | Deploys CCGC control resources and attaches to the customer's existing LiteLLM URL, workload identity, PostgreSQL, policies, and model estate. The overlay does not replace existing keys, teams, budgets, callbacks, or unrelated models. |
+
+The existing-LiteLLM overlay is in
+[`deploy/existing-litellm/`](deploy/existing-litellm/).
 
 ## Enterprise Azure components
 
 | Component | Purpose |
 |---|---|
-| Azure Container Apps | Independently scales the public broker (2-10), internal worker (2-30), and internal LiteLLM Gateway (2-10), and runs a one-shot Bicep-managed bootstrap job. |
-| Microsoft Entra ID | Authenticates employees and all administrators; employee API keys are an optional broker-managed alternative. |
-| Azure Database for PostgreSQL | Uses an Entra-only server for enterprise control state and a dedicated private server for LiteLLM's encrypted OAuth connections and gateway state. |
-| Azure Key Vault | Stores account-scoped LiteLLM user keys, LiteLLM master/salt keys, dispatch signing, database connection material, and checkpoint encryption. |
-| Azure Blob Storage | Stores client-side-encrypted branch checkpoints with ETag conditional writes. |
-| Azure Container Registry | Stores approved immutable broker, worker, and LiteLLM images. |
-| NAT Gateway | Gives the private workers controlled, stable outbound connectivity. |
+| Azure Container Apps | Scales the public CCGC control plane and, in managed mode, the public CCGC-enabled LiteLLM gateway; it also runs the one-shot bootstrap job. |
+| Microsoft Entra ID | Authenticates the one customer tenant's employees and administrators; employee API keys remain an optional control-plane-managed alternative. |
+| Azure Database for PostgreSQL | Stores CCGC identity/admission/audit state. Managed mode also provisions LiteLLM PostgreSQL; existing mode keeps the customer's database. |
+| Azure Key Vault | Stores account-scoped LiteLLM user-key references and managed LiteLLM administration secrets. |
+| Azure Container Registry | Stores approved immutable control-plane and managed LiteLLM images. |
 | Azure Monitor and Application Insights | Records operational metadata without prompt or response bodies. |
 
-The broker is the only public service. Employee inference and admission routes
-accept either `CCGC.Access` or a 30-day, user-scoped, revocable API key stored
-only as a SHA-256 digest. Lifecycle routes on the same broker remain Entra-only
-and require `CCGC.Admin`, assigned only to the enterprise IT administrator
-group. LiteLLM, worker, Key
-Vault, storage, ACR, both PostgreSQL servers, and the one-shot bootstrap job
-remain private. Administrators receive only GitHub's public verification URL
-and one-time code during employee connection.
+The control plane and LiteLLM are distinct public HTTPS origins. Claude Code
+uses LiteLLM for `/v1/messages` and `/v1/models`; its credential helper uses the
+control plane only to renew bounded admissions. Administration routes remain
+Entra-only and require `CCGC.Admin`. Existing LiteLLM keys remain valid and are
+not interpreted as CCGC credentials.
 
 ## On the Mac
 
@@ -116,13 +121,14 @@ Each employee needs:
 - Official Claude Code `2.1.296` or newer
 - The project-developed enterprise `ccgc` command-line helper
 - A bounded opaque admission credential stored in macOS Keychain
-- `~/.claude/settings.json` pointing Claude Code to the enterprise broker
+- `~/.claude/settings.json` pointing Claude Code to the central LiteLLM gateway
 - A private, non-secret profile containing authentication method, GitHub,
   model, and binding metadata
 
 The Mac uses Microsoft Entra or a Keychain-held employee API key to request an
-admission. GitHub OAuth tokens remain encrypted in LiteLLM PostgreSQL. The
-worker loads only the matching LiteLLM user key from Key Vault.
+admission from the control plane. The admission is presented directly to
+LiteLLM, whose CCGC extension resolves only the matching employee virtual key.
+GitHub OAuth tokens remain encrypted in LiteLLM PostgreSQL.
 
 See [Mac enterprise setup and operation](docs/mac/README.md) for installation,
 Entra sign-in, configuration, Keychain behavior, verification, and daily use.
@@ -143,6 +149,7 @@ The managed macOS enrollment entry point is the tracked
 - Exact token counting
 - Resume of completed turns across admission renewal and gateway restart
 - Resume of an exact pending tool batch after an enterprise worker restart
+  (validated on the legacy revision; central-LiteLLM revalidation is pending)
 - Coordinated agents/subagents with isolated branches
 - Background Bash tasks and result collection
 - Hooks
@@ -200,7 +207,6 @@ npm run test:bootstrap
 npm run test:client
 
 docker build -f server/Dockerfile.enterprise -t ccgc-enterprise-broker:test .
-docker build -f server/Dockerfile.enterprise-worker -t ccgc-enterprise-worker:test .
 docker build -f server/Dockerfile.enterprise-litellm -t ccgc-enterprise-litellm:test .
 
 az bicep build --file infra/enterprise/main.bicep --stdout > enterprise.json
@@ -224,22 +230,25 @@ replace the sentinel on connected requests.
 
 | Path | Purpose |
 |---|---|
-| [`src/`](src) | Broker, worker, enterprise administration, operator API, client, and protocol implementation |
+| [`src/`](src) | Enterprise control plane, administration, operator API, client, and legacy rollback implementation |
 | [`cmd/ccgc-enterprise/`](cmd/ccgc-enterprise) | Cross-platform enrollment and credential-helper binary |
 | [`web/admin/`](web/admin) | Dependency-free Entra-authenticated administration panel |
 | [`infra/enterprise/`](infra/enterprise) | Enterprise Azure Bicep deployment and generated ARM template |
 | [`server/`](server) | LiteLLM overlay, bootstrap, image definitions, and supporting tests |
+| [`deploy/existing-litellm/`](deploy/existing-litellm) | Additive CCGC overlay for a customer-owned LiteLLM |
 | [`scripts/`](scripts) | Entra, deployment, packaging, and managed-device automation |
 | [`test/`](test) | Unit, integration, lifecycle, infrastructure, and regression tests |
 | [`docs/`](docs) | Architecture, operations, platform setup, examples, and diagram provenance |
 
 ## Enterprise pilot automation
 
-The pilot exposes one employee-authenticated broker to the public internet. Worker
-and LiteLLM ingress and every data service remain private. The assignment-required
+The central architecture exposes the employee-authenticated control plane and
+the CCGC-enabled LiteLLM inference gateway. Every data service remains private.
+The assignment-required
 Enterprise Application gives the employee group only `CCGC.Access` and the IT
-administrator group only `CCGC.Admin`; the broker validates the required role
-independently for inference and administration routes.
+administrator group only `CCGC.Admin`; the control plane validates the required
+role for lifecycle operations, while LiteLLM custom auth validates inference
+credentials and the fixed tenant.
 
 ```bash
 npm run enterprise:entra -- \
@@ -274,7 +283,7 @@ then produces digest-only references consumed by runtime deployment.
 
 The confirmed runtime deployment starts the private Bicep-defined bootstrap job
 after the Container Apps revision is created. The job initializes the
-Entra-only control database, grants the broker its required database rights,
+Entra-only control database, grants the control plane and LiteLLM their required database rights,
 and idempotently creates the LiteLLM per-user OAuth credential and approved
 `github_copilot/<model>` mappings. It also reconciles every active binding,
 pending enrollment, and LiteLLM internal user to the deployment-approved Claude
@@ -283,7 +292,7 @@ endpoint or manual database command exists.
 
 For API-key employees, the normal onboarding path is a single-use self-service
 enrollment. The administrator enters only the employee email and GitHub
-username. The broker supplies the deployment tenant and complete approved model
+username. The control plane supplies the deployment tenant and complete approved model
 catalog, resolves the canonical GitHub login and immutable account ID
 server-side, and never returns the employee's 30-day API key to the
 administrator:
@@ -300,7 +309,7 @@ npm run enterprise:manage -- create-enrollment \
   --output /private/path/enrollment.json
 ```
 
-The administrator gives the employee only the broker URL and the `CCGC-...`
+The administrator gives the employee only the control-plane URL and the `CCGC-...`
 code from the private output. The code expires after 30 minutes and is consumed
 after one successful setup.
 
@@ -419,19 +428,17 @@ cache policy.
 - Every employee uses their own Copilot seat.
 - Admission tokens are random, bounded, hashed server-side, and stored locally
   only in macOS Keychain.
-- PostgreSQL atomically reserves attempts and creates monotonic dispatch fences.
-- Broker-signed, 60-second dispatch assertions bind tenant, principal, account,
-  credential reference, binding revision, admission, branch, model, fence, and
-  dispatch ID.
-- Shared workers reject invalid assertions, duplicate dispatch IDs, stale
-  branch fences, cross-account state, model drift, and per-user saturation.
-- Each dispatch uses only the bound LiteLLM user key; LiteLLM resolves the
+- LiteLLM custom auth accepts only the configured tenant and resolves opaque
+  credentials from their server-side hashes.
+- Admission attempts are consumed transactionally for Messages requests, not
+  model discovery.
+- The active database binding and Key Vault secret must agree on the immutable
+  GitHub numeric account ID and login.
+- Each request uses only the bound LiteLLM virtual key; LiteLLM resolves the
   corresponding encrypted GitHub connection and keeps Copilot sessions
   user-scoped.
-- Conversation checkpoints are encrypted before private Blob Storage and use
-  ETag compare-and-swap to detect concurrent writers.
-- Broker and worker do not retry inference.
-- Prompt and response bodies are not logged or stored by the broker.
+- Ordinary existing LiteLLM keys fall through to native LiteLLM authentication.
+- The control plane does not proxy, retry, log, or store inference bodies.
 - No provider fallback or cross-user response cache is used.
 
 ## Known limitations
@@ -449,16 +456,18 @@ cache policy.
 
 ## Deployment status and remaining gates
 
-The enterprise pilot is deployed in Azure Sweden Central with a healthy public
-broker and private worker and LiteLLM revisions. Enrollment, account isolation,
-model discovery, Sonnet 5.5 limits, inference, stale-dispatch recovery, and
-revocation paths have been exercised against the live environment.
+The Azure Sweden Central pilot is deployed and healthy on the superseded
+broker/worker revision. The central-LiteLLM revision is implemented and locally
+validated but has not yet been deployed. Enrollment, account isolation, model
+discovery, inference, stale-dispatch recovery, and revocation evidence from the
+legacy pilot remain useful but do not replace central-LiteLLM acceptance.
 
 Production rollout still requires:
 
 1. Organization and vendor approval for the unofficial Copilot route
 2. Apple Developer ID notarization and Windows Authenticode signing
-3. Broader two-user, load, replica-failure, restore, and noisy-neighbor testing
+3. Two-user central-LiteLLM isolation, existing-LiteLLM compatibility, load,
+   replica-failure, restore, and noisy-neighbor testing
 4. Monitoring privacy, cost, capacity, and operational-readiness approval
 5. Production release, rollback, backup, disaster-recovery, and support runbooks
 
@@ -466,15 +475,12 @@ The foundation must not be described as production-ready until these gates pass.
 
 ## Diagram provenance
 
-The current poster and technical architecture show one public Entra-authorized broker
-with separate `CCGC.Access` and `CCGC.Admin` route groups and one shared Azure
-Container Apps inference-plane boundary containing the independently scaled
-multi-user worker and LiteLLM Gateway apps. The runtime-only poster
-also includes the separate enterprise and LiteLLM databases, private Key Vault,
-and encrypted checkpoint store. The reviewed Archify JSON and interactive HTML
-remain the authoritative technical architecture; the GPT-image poster is its
-presentation companion. Diagram sources, model provenance, and validation
-receipts are in [docs/diagrams](docs/diagrams/README.md).
+The current Archify JSON shows Claude Code calling one public single-tenant
+CCGC-enabled LiteLLM, with a separate control plane for enrollment and
+administration. Historical PNG and HTML artifacts still show the superseded
+broker/worker revision and are labeled accordingly. Diagram sources,
+provenance, and validation receipts are in
+[docs/diagrams](docs/diagrams/README.md).
 
 ## Resources
 

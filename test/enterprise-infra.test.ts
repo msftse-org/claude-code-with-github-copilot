@@ -8,7 +8,7 @@ async function source(path: string): Promise<string> {
   return readFile(new URL(path, root), 'utf8');
 }
 
-test('enterprise model catalog uses the worker model contract', async () => {
+test('enterprise model catalog uses the central LiteLLM model contract', async () => {
   const main = await source('infra/enterprise/main.bicep');
   const match = main.match(/param modelsJson string = '([^']+)'/);
   assert.ok(match);
@@ -81,8 +81,10 @@ test('enterprise deployment stages private image publication before runtime', as
   assert.match(platform, /count: buildAgentPoolCount/);
   assert.match(platform, /resource broker .* = if \(deployRuntime\)/);
   assert.match(platform, /resource bootstrapJob 'Microsoft\.App\/jobs@2025-01-01' = if \(deployRuntime\)/);
-  assert.match(platform, /resource worker .* = if \(deployRuntime\)/);
-  assert.match(platform, /resource litellm .* = if \(deployRuntime\)/);
+  assert.match(platform, /resource worker .* = if \(deployRuntime && deployLegacyWorker\)/);
+  assert.match(platform, /resource litellm .* = if \(deployRuntime && managedLiteLLM\)/);
+  assert.match(main, /param litellmMode string = 'managed'/);
+  assert.match(main, /param existingLiteLLMUrl string = ''/);
   assert.match(automation, /deployRuntime: false/);
   assert.match(automation, /'acr', 'build'/);
   assert.match(automation, /'acr', 'agentpool', 'delete'/);
@@ -91,7 +93,7 @@ test('enterprise deployment stages private image publication before runtime', as
   assert.match(automation, /if \(action === 'what-if'\) args\.push\('--no-pretty-print'\)/);
 });
 
-test('the broker is the only public API and carries separate employee and admin authorization', async () => {
+test('the control plane and central LiteLLM enforce separate single-tenant authorization', async () => {
   const [platform, authenticator, entraAutomation] = await Promise.all([
     source('infra/enterprise/modules/platform.bicep'),
     source('src/enterprise-auth.ts'),
@@ -99,8 +101,8 @@ test('the broker is the only public API and carries separate employee and admin 
   ]);
 
   assert.match(platform, /internal: false/);
-  assert.equal((platform.match(/external: true/g) ?? []).length, 1);
-  assert.equal((platform.match(/external: false/g) ?? []).length, 2);
+  assert.equal((platform.match(/external: true/g) ?? []).length, 2);
+  assert.equal((platform.match(/external: false/g) ?? []).length, 1);
   assert.equal((platform.match(/transport: 'auto'/g) ?? []).length, 2);
   assert.equal((platform.match(/transport: 'http'/g) ?? []).length, 1);
   assert.match(platform, /var entraTokenAudience = startsWith\(entraAudience, 'api:\/\/'\) \? substring\(entraAudience, 6\) : entraAudience/);
@@ -112,11 +114,12 @@ test('the broker is the only public API and carries separate employee and admin 
   assert.match(platform, /bootstrapIdentity[\s\S]*Key Vault Secrets User/);
   assert.match(platform, /name: 'AZURE_CLIENT_ID'[\s\S]*value: brokerIdentity\.properties\.clientId/);
   assert.match(platform, /name: 'AZURE_CLIENT_ID'[\s\S]*value: bootstrapIdentity\.properties\.clientId/);
-  assert.match(platform, /name: 'AZURE_CLIENT_ID'[\s\S]*value: workerIdentity\.properties\.clientId/);
+  assert.match(platform, /name: 'AZURE_CLIENT_ID'[\s\S]*value: litellmIdentity!\.properties\.clientId/);
+  assert.match(platform, /name: 'CCGC_DATABASE_PRINCIPALS_JSON'/);
+  assert.match(platform, /name: 'CCGC_LITELLM_PUBLIC_URL'/);
+  assert.match(platform, /var litellmGatewayUrl = managedLiteLLM \? managedLiteLLMUrl : existingLiteLLMUrl/);
   assert.match(platform, /var privateEnvironmentDomain = 'internal\.\$\{environment\.properties\.defaultDomain\}'/);
-  assert.doesNotMatch(platform, /https:\/\/\$\{(?:workerName|litellmName)\}\.\$\{environment\.properties\.defaultDomain\}/);
   assert.match(platform, /https:\/\/\$\{workerName\}\.\$\{privateEnvironmentDomain\}/);
-  assert.match(platform, /https:\/\/\$\{litellmName\}\.\$\{privateEnvironmentDomain\}/);
   assert.match(authenticator, /requiredRole \?\? 'CCGC\.Access'/);
   assert.match(authenticator, /hasEnterpriseRole\(payload, this\.requiredRole\)/);
   assert.doesNotMatch(authenticator, /payload\.scp/);
@@ -141,40 +144,42 @@ test('the runtime design contract matches deployed service boundaries and depend
   };
   const ids = new Set(architecture.components.map(component => component.id));
   for (const id of [
-    'claude-code', 'entra-id', 'enterprise-broker', 'multiuser-worker',
+    'employee', 'administrator', 'entra-id', 'control-plane',
     'litellm-gateway', 'key-vault', 'github-copilot', 'claude-models',
-    'azure-monitor', 'enterprise-postgres', 'blob-checkpoints', 'litellm-postgres',
+    'azure-monitor', 'enterprise-postgres', 'litellm-postgres',
   ]) assert.equal(ids.has(id), true, `missing design component ${id}`);
 
-  const inferencePlane = architecture.boundaries.find(boundary =>
-    boundary.label === 'Shared inference plane - Azure Container Apps');
-  assert.deepEqual(inferencePlane?.wraps, ['multiuser-worker', 'litellm-gateway']);
+  assert.equal(ids.has('multiuser-worker'), false);
+  const customerBoundary = architecture.boundaries.find(boundary =>
+    boundary.label === 'One customer deployment / one Microsoft Entra tenant');
+  assert.ok(customerBoundary?.wraps.includes('litellm-gateway'));
 
   const connections = new Set(architecture.connections.map(connection =>
     `${connection.from}->${connection.to}`));
   for (const relationship of [
-    'claude-code->enterprise-broker',
-    'enterprise-broker->multiuser-worker',
-    'multiuser-worker->litellm-gateway',
+    'employee->litellm-gateway',
     'litellm-gateway->github-copilot',
     'github-copilot->claude-models',
-    'entra-id->enterprise-broker',
-    'enterprise-broker->key-vault',
-    'multiuser-worker->key-vault',
+    'administrator->entra-id',
+    'entra-id->control-plane',
+    'entra-id->litellm-gateway',
+    'control-plane->litellm-gateway',
     'key-vault->litellm-gateway',
-    'enterprise-broker->enterprise-postgres',
-    'multiuser-worker->blob-checkpoints',
     'litellm-gateway->litellm-postgres',
-  ]) assert.equal(connections.has(relationship), true, `missing design relationship ${relationship}`);
+  ]) {
+    const [from, to] = relationship.split('->');
+    assert.equal(
+      connections.has(relationship) || connections.has(`${to}->${from}`),
+      true,
+      `missing design relationship ${relationship}`,
+    );
+  }
 
   assert.match(platform, /resource broker 'Microsoft\.App\/containerApps@2025-01-01'/);
-  assert.match(platform, /resource worker 'Microsoft\.App\/containerApps@2025-01-01'/);
   assert.match(platform, /resource litellm 'Microsoft\.App\/containerApps@2025-01-01'/);
   assert.match(platform, /minReplicas: 2[\s\S]*maxReplicas: 10/);
-  assert.match(platform, /resource worker[\s\S]*minReplicas: 2[\s\S]*maxReplicas: 30/);
+  assert.match(platform, /resource worker[\s\S]*if \(deployRuntime && deployLegacyWorker\)/);
   assert.match(platform, /resource litellm[\s\S]*minReplicas: 2[\s\S]*maxReplicas: 10/);
-  assert.match(platform, /workerKeyVaultAccess[\s\S]*Key Vault Secrets User/);
   assert.match(platform, /litellmKeyVaultAccess[\s\S]*Key Vault Secrets User/);
-  assert.match(platform, /workerStorageAccess[\s\S]*Storage Blob Data Contributor/);
   assert.match(platform, /APPLICATIONINSIGHTS_CONNECTION_STRING/g);
 });

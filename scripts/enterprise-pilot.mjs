@@ -88,8 +88,25 @@ if (!parameterStat.isFile() || parameterStat.isSymbolicLink()
 }
 const configured = parameters(parameterPath);
 const prefix = configured.prefix;
+const litellmMode = configured.litellmMode ?? 'managed';
 const location = option('--location') ?? configured.location ?? 'swedencentral';
 if (!prefix || !/^[a-z0-9-]{3,18}$/.test(prefix)) fail('The parameter file must contain a valid prefix.');
+if (!['managed', 'existing'].includes(litellmMode)) fail('litellmMode must be managed or existing.');
+if (litellmMode === 'existing') {
+  try {
+    const existing = new URL(configured.existingLiteLLMUrl);
+    if (existing.protocol !== 'https:' || existing.username || existing.password
+      || existing.pathname !== '/' || existing.search || existing.hash) {
+      throw new Error();
+    }
+  } catch {
+    fail('existingLiteLLMUrl must be a fixed HTTPS origin when litellmMode is existing.');
+  }
+  if (!/^[0-9a-f-]{36}$/i.test(configured.existingLiteLLMPrincipalId ?? '')
+    || !/^[A-Za-z0-9-]{1,128}$/.test(configured.existingLiteLLMDatabasePrincipalName ?? '')) {
+    fail('Existing LiteLLM workload identity and database principal settings are required.');
+  }
+}
 const foundationName = `${prefix}-enterprise-foundation`;
 
 if (command === 'foundation') {
@@ -131,8 +148,9 @@ if (command === 'images') {
   const gitSha = run('git', ['rev-parse', '--short=12', 'HEAD'], { cwd: root });
   const images = [
     ['broker', 'ccgc-enterprise-broker', 'server/Dockerfile.enterprise'],
-    ['worker', 'ccgc-enterprise-worker', 'server/Dockerfile.enterprise-worker'],
-    ['litellm', 'ccgc-enterprise-litellm', 'server/Dockerfile.enterprise-litellm'],
+    ...(litellmMode === 'managed'
+      ? [['litellm', 'ccgc-enterprise-litellm', 'server/Dockerfile.enterprise-litellm']]
+      : []),
   ];
   let cleanupAgentPool = true;
   process.on('exit', () => {
@@ -190,7 +208,10 @@ if (command === 'images') {
 const imagePath = option('--images');
 if (!imagePath) fail('--images is required for runtime deployment.');
 const imageDocument = JSON.parse(readFileSync(resolve(imagePath), 'utf8'));
-for (const name of ['brokerImage', 'workerImage', 'litellmImage']) {
+for (const name of [
+  'brokerImage',
+  ...(litellmMode === 'managed' ? ['litellmImage'] : []),
+]) {
   if (!new RegExp(`^${registryLoginServer.replaceAll('.', '\\.')}\\/[^@]+@sha256:[a-f0-9]{64}$`).test(imageDocument[name] ?? '')) {
     fail(`${name} must be an immutable digest in ${registryLoginServer}.`);
   }
@@ -204,8 +225,9 @@ const result = run('az', deploymentArgs(
   {
     deployRuntime: true,
     brokerImage: imageDocument.brokerImage,
-    workerImage: imageDocument.workerImage,
-    litellmImage: imageDocument.litellmImage,
+    workerImage: '',
+    deployLegacyWorker: false,
+    litellmImage: litellmMode === 'managed' ? imageDocument.litellmImage : '',
     buildAgentPoolCount: 0,
   },
 ), { json: true, cwd: root });

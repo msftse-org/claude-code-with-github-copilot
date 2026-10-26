@@ -1,0 +1,27 @@
+{
+  "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentParameters.json#",
+  "contentVersion": "1.0.0.0",
+  "parameters": {
+    "prefix": {"value": "ccgc-prod"},
+    "location": {"value": "swedencentral"},
+    "tenantId": {"value": "00000000-0000-0000-0000-000000000000"},
+    "entraAudience": {"value": "api://00000000-0000-0000-0000-000000000000"},
+    "deployRuntime": {"value": false},
+    "brokerImage": {"value": ""},
+    "workerImage": {"value": ""},
+    "deployLegacyWorker": {"value": false},
+    "litellmImage": {"value": ""},
+    "litellmMode": {"value": "existing"},
+    "existingLiteLLMUrl": {"value": "https://litellm.customer.example/"},
+    "existingLiteLLMPrincipalId": {"value": "00000000-0000-0000-0000-000000000000"},
+    "existingLiteLLMDatabasePrincipalName": {"value": "customer-litellm-identity"},
+    "buildAgentPoolCount": {"value": 0},
+    "litellmPostgresAdminLogin": {"value": "unused"},
+    "litellmPostgresAdminPassword": {"value": ""},
+    "litellmMasterKey": {"value": "sk-existing-litellm-admin-key-from-private-parameters"},
+    "litellmSaltKey": {"value": ""},
+    "dispatchSigningSecret": {"value": "replace-with-at-least-32-random-characters"},
+    "checkpointEncryptionKey": {"value": "replace-with-base64-encoded-32-byte-key"},
+    "cryptographicSecretExpiration": {"value": 1893456000}
+  }
+}

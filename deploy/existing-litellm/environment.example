@@ -1,0 +1,6 @@
+CCGC_ENTRA_TENANT_ID=00000000-0000-0000-0000-000000000000
+CCGC_ENTRA_AUDIENCE=00000000-0000-0000-0000-000000000000
+CCGC_ENTRA_ROLE=CCGC.Access
+CCGC_KEY_VAULT_URL=https://customer-vault.vault.azure.net/
+CCGC_POSTGRES_URL=postgresql://ccgc-litellm@customer.postgres.database.azure.com:5432/postgres?sslmode=require
+CCGC_POSTGRES_ENTRA=true

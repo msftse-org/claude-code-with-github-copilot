@@ -31,8 +31,9 @@ export interface EnterpriseAdministrationActions {
 export interface EnterpriseServerOptions {
   authenticator: EnterpriseAuthenticator;
   store: EnterpriseStore;
-  workers: WorkerResolver;
-  dispatchSigner: DispatchSigner;
+  workers?: WorkerResolver;
+  dispatchSigner?: DispatchSigner;
+  inferenceGateway?: string;
   adminAuthenticator?: EnterpriseAuthenticator;
   adminActions?: EnterpriseAdministrationActions;
   adminBrowserOrigin?: string;
@@ -83,6 +84,18 @@ function send(response: ServerResponse, status: number, value: unknown): void {
 export async function startEnterpriseServer(options: EnterpriseServerOptions) {
   await options.store.initialize();
   const fetcher = options.fetcher ?? fetch;
+  let inferenceGateway: string | undefined;
+  if (options.inferenceGateway !== undefined) {
+    const configured = new URL(options.inferenceGateway);
+    if (configured.protocol !== 'https:' || configured.username || configured.password
+      || configured.pathname !== '/' || configured.search || configured.hash) {
+      throw new BridgeError('INVALID_OPTIONS', 'Inference gateway must be a fixed HTTPS origin.');
+    }
+    inferenceGateway = configured.origin;
+  }
+  if ((options.workers === undefined) !== (options.dispatchSigner === undefined)) {
+    throw new BridgeError('INVALID_OPTIONS', 'Legacy broker inference requires both a worker resolver and dispatch signer.');
+  }
   let adminBrowserOrigin: string | undefined;
   if (options.adminBrowserOrigin !== undefined) {
     const configured = new URL(options.adminBrowserOrigin);
@@ -126,7 +139,17 @@ export async function startEnterpriseServer(options: EnterpriseServerOptions) {
       return;
     }
     if (url.pathname === '/healthz' && request.method === 'GET') {
-      send(response, 200, { status: 'listening', inference: 'not-verified' });
+      send(response, 200, {
+        status: 'listening',
+        inference: inferenceGateway ? 'central-litellm' : options.workers ? 'legacy-worker' : 'not-configured',
+      });
+      return;
+    }
+    if (url.pathname === '/ccgc/enterprise/config' && request.method === 'GET') {
+      if (!inferenceGateway) {
+        throw new BridgeError('STARTUP_FAILED', 'Central LiteLLM inference is not configured.', 503);
+      }
+      send(response, 200, { inferenceGateway });
       return;
     }
     if (url.pathname.startsWith('/ccgc/admin/')) {
@@ -176,6 +199,7 @@ export async function startEnterpriseServer(options: EnterpriseServerOptions) {
         models: binding.models,
         bindingRevision: binding.revision,
         authentication: principal.authentication ?? 'entra',
+        ...(inferenceGateway ? { inferenceGateway } : {}),
       });
       return;
     }
@@ -188,6 +212,13 @@ export async function startEnterpriseServer(options: EnterpriseServerOptions) {
       return;
     }
     if (url.pathname === '/v1/models' && request.method === 'GET') {
+      if (!options.workers) {
+        throw new BridgeError(
+          'ROUTE_UNSUPPORTED',
+          'Inference is served by the configured central LiteLLM gateway.',
+          404,
+        );
+      }
       const admissionToken = bearerToken(request.headers.authorization);
       if (!/^[a-f0-9]{64}$/.test(admissionToken)) throw new BridgeError('ADMISSION_REQUIRED', 'A valid admission token is required.', 401);
       const tokenHash = createHash('sha256').update(admissionToken).digest('hex');
@@ -203,6 +234,13 @@ export async function startEnterpriseServer(options: EnterpriseServerOptions) {
     }
     if (url.pathname !== '/v1/messages' || request.method !== 'POST') {
       throw new BridgeError('ROUTE_UNSUPPORTED', 'Only enterprise metadata, admission, health, and native Messages routes are exposed.', 404);
+    }
+    if (!options.workers || !options.dispatchSigner) {
+      throw new BridgeError(
+        'ROUTE_UNSUPPORTED',
+        'Inference is served by the configured central LiteLLM gateway.',
+        404,
+      );
     }
     const admissionToken = bearerToken(request.headers.authorization);
     if (!/^[a-f0-9]{64}$/.test(admissionToken)) throw new BridgeError('ADMISSION_REQUIRED', 'A valid admission token is required.', 401);

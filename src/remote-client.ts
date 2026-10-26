@@ -8,7 +8,7 @@ import { fileURLToPath } from 'node:url';
 import { randomUUID } from 'node:crypto';
 import { BridgeError, object, parseJson, positive, text } from './protocol.ts';
 import type { ObjectValue } from './protocol.ts';
-import { childEnvironment, clientVersion, runClaude } from './claude.ts';
+import { childEnvironment, clientVersion, runClaude, supportedClaudeVersion } from './claude.ts';
 import { clientModelId, credential, gatewayUrl, LEGACY_REMOTE_PROFILE, profileKey, PROBE_PROMPT, REMOTE_CLAUDE_VERSION, remoteInfo, remoteRequest, resolveModel } from './remote.ts';
 import type { RemoteInfo } from './remote.ts';
 import { readState, writePrivate } from './private-state.ts';
@@ -85,6 +85,14 @@ export function requiredClientVersion(info: RemoteInfo) {
   return info.profile === LEGACY_REMOTE_PROFILE ? '2.1.220' : REMOTE_CLAUDE_VERSION;
 }
 
+async function requireSupportedClient(info: RemoteInfo) {
+  const minimum = requiredClientVersion(info);
+  const installed = await clientVersion();
+  if (!supportedClaudeVersion(installed, minimum)) {
+    throw new BridgeError('VERSION_UNSUPPORTED', `Remote client profile requires Claude Code ${minimum} or newer; installed ${installed}.`);
+  }
+}
+
 export class RemoteClient {
   readonly statePath: string;
   readonly home: string;
@@ -147,7 +155,7 @@ export class RemoteClient {
   async token() {
     const profile = await this.load();
     if (!profile.grant || profile.grant.expires <= Date.now()) throw new BridgeError('ADMISSION_REQUIRED', 'Run ccgc doctor --live --accept-unofficial before starting Claude.', 409);
-    if (await clientVersion() !== requiredClientVersion(profile.info)) throw new BridgeError('VERSION_UNSUPPORTED', `Remote client profile requires Claude Code ${requiredClientVersion(profile.info)}.`);
+    await requireSupportedClient(profile.info);
     await inspectRemoteSettings(process.cwd(), profile, this.home);
     return credential((await this.request(profile, 'token', { id: profile.grant.id })).token);
   }
@@ -176,7 +184,7 @@ export class RemoteClient {
   }
   async probe(project: string, environment?: NodeJS.ProcessEnv, managed?: string) {
     const profile = await this.load();
-    if (await clientVersion() !== requiredClientVersion(profile.info)) throw new BridgeError('VERSION_UNSUPPORTED', `Remote client profile requires Claude Code ${requiredClientVersion(profile.info)}.`);
+    await requireSupportedClient(profile.info);
     await inspectRemoteSettings(project, profile, this.home, managed, environment);
     await this.info();
     const isolated = await mkdtemp(join(tmpdir(), 'ccgc-probe-'));

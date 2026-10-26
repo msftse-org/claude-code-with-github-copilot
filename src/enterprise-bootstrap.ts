@@ -15,24 +15,30 @@ async function bootstrapDatabase(models: string[]): Promise<{
   changedBindings: number;
   changedEnrollments: number;
 }> {
-  const principal = required('CCGC_BROKER_DATABASE_PRINCIPAL');
-  if (!/^[A-Za-z0-9-]{1,128}$/.test(principal)) {
-    throw new BridgeError('INVALID_OPTIONS', 'Broker database principal is invalid.');
+  const configuredPrincipals = process.env.CCGC_DATABASE_PRINCIPALS_JSON;
+  const principals = configuredPrincipals
+    ? JSON.parse(configuredPrincipals) as unknown
+    : [required('CCGC_BROKER_DATABASE_PRINCIPAL')];
+  if (!Array.isArray(principals) || !principals.length
+    || principals.some(principal => typeof principal !== 'string' || !/^[A-Za-z0-9-]{1,128}$/.test(principal))) {
+    throw new BridgeError('INVALID_OPTIONS', 'Runtime database principals are invalid.');
   }
   const store = new PostgresEnterpriseStore(required('CCGC_POSTGRES_URL'), new DefaultAzureCredential());
   try {
     await store.initialize();
-    const identifier = `"${principal.replaceAll('"', '""')}"`;
-    const existing = await store.pool.query('SELECT 1 FROM pg_roles WHERE rolname = $1', [principal]);
-    if (existing.rowCount === 0) {
-      await store.pool.query('SELECT * FROM pgaadauth_create_principal($1, false, false)', [principal]);
+    for (const principal of principals) {
+      const identifier = `"${principal.replaceAll('"', '""')}"`;
+      const existing = await store.pool.query('SELECT 1 FROM pg_roles WHERE rolname = $1', [principal]);
+      if (existing.rowCount === 0) {
+        await store.pool.query('SELECT * FROM pgaadauth_create_principal($1, false, false)', [principal]);
+      }
+      await store.pool.query(`GRANT CONNECT ON DATABASE postgres TO ${identifier}`);
+      await store.pool.query(`GRANT USAGE ON SCHEMA public TO ${identifier}`);
+      await store.pool.query(`GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO ${identifier}`);
+      await store.pool.query(`GRANT USAGE, SELECT, UPDATE ON ALL SEQUENCES IN SCHEMA public TO ${identifier}`);
+      await store.pool.query(`ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO ${identifier}`);
+      await store.pool.query(`ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT USAGE, SELECT, UPDATE ON SEQUENCES TO ${identifier}`);
     }
-    await store.pool.query(`GRANT CONNECT ON DATABASE postgres TO ${identifier}`);
-    await store.pool.query(`GRANT USAGE ON SCHEMA public TO ${identifier}`);
-    await store.pool.query(`GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO ${identifier}`);
-    await store.pool.query(`GRANT USAGE, SELECT, UPDATE ON ALL SEQUENCES IN SCHEMA public TO ${identifier}`);
-    await store.pool.query(`ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO ${identifier}`);
-    await store.pool.query(`ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT USAGE, SELECT, UPDATE ON SEQUENCES TO ${identifier}`);
     return await store.reconcileModelCatalog(required('CCGC_ENTRA_TENANT_ID'), models);
   } finally {
     await store.close();
