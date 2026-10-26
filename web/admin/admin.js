@@ -426,6 +426,7 @@
       'claude',
       '',
       'Complete GitHub authorization with the GitHub account named by your administrator.',
+      'After enrollment, do not run enroll again for routine updates; run the installed helper doctor first.',
     ].join('\n');
   }
 

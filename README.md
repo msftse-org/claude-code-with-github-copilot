@@ -344,6 +344,15 @@ to Enterprise IT:
 /bin/bash "$HOME/.local/share/ccgc/enterprise/ccgc-enterprise-macos.sh" doctor
 ```
 
+Existing employees do **not** repeat `enroll` for routine control-plane,
+LiteLLM, model-catalog, image, or Claude Code updates. Those updates preserve
+the immutable employee binding and local credential by default. Use `doctor`
+to verify the installation, `models` to inspect the reconciled catalog, and
+`configure` only to repair or reapply local Claude settings. Repeat enrollment
+only for a new workstation/user profile, an expired or revoked employee
+credential, a deliberately revoked/rebound identity, or an Enterprise IT
+migration notice that includes a new one-time code.
+
 The Go implementation under [`cmd/ccgc-enterprise/`](cmd/ccgc-enterprise)
 remains the optional cross-platform binary path. The current validated employee
 runbook uses the managed macOS script. Distribute it through an approved

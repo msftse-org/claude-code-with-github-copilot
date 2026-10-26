@@ -17,6 +17,8 @@ test('macOS enrollment script documents the managed-device-safe flow', async () 
   const { stdout } = await exec('/bin/bash', [script.pathname, 'help']);
   assert.match(stdout, /stores the\s+30-day employee key in macOS Keychain/);
   assert.match(stdout, /does not\s+disable Gatekeeper/);
+  assert.match(stdout, /do not repeat enrollment for routine service/i);
+  assert.match(stdout, /Enroll again only with a new Enterprise IT code/);
   assert.match(stdout, /doctor/);
   assert.match(stdout, /real bounded inference request/);
 });

@@ -66,3 +66,9 @@ and allowed models are resolved by the backend enrollment workflow. The
 returned CCGC enrollment code is held only in current page memory and is
 cleared on refresh or sign-out. Employee handoff instructions use the tracked
 `scripts/ccgc-enterprise-macos.sh` workflow.
+
+Enrollment is not repeated for routine control-plane, LiteLLM, model-catalog,
+helper, or Claude Code updates. Administrators create a replacement enrollment
+only for a new workstation/profile, expired or revoked credentials,
+intentional identity rebinding, unrecoverable local credential loss, or an
+approved migration that explicitly requires replacement credentials.

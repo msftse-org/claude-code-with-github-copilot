@@ -32,6 +32,14 @@ admission issuance, and idempotent model/user reconciliation. It is not in the
 inference data path. The legacy broker-to-worker path is disabled by default and
 retained only for an explicit migration rollback.
 
+Employee enrollment is durable lifecycle state, not a per-release installation
+step. Routine control-plane, LiteLLM, model-catalog, helper, and Claude Code
+updates must preserve the active employee binding, GitHub connection, employee
+credential, and workstation profile. Re-enrollment is permitted only for a new
+workstation/profile, credential expiry or revocation, intentional identity
+rebind, unrecoverable local credential loss, or an approved migration whose
+rollout explicitly revokes and replaces existing credentials.
+
 The deployment supports two modes:
 
 1. `managed` deploys the complete CCGC-enabled LiteLLM, its PostgreSQL database,

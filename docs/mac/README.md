@@ -80,6 +80,13 @@ Enrollment also checks broker health, model discovery, the human-readable model
 name, the approved output limit, and one real bounded inference response before
 it saves local credentials or acknowledges the one-time code.
 
+> [!IMPORTANT]
+> `enroll` is an initial or recovery action, not an update command. Once
+> enrollment succeeds, do not run the downloaded script's `enroll` command
+> again for routine service, LiteLLM, model, script, or Claude Code updates.
+> Keep using the installed helper and run `doctor`; use `models` or `configure`
+> when their specific checks or repairs are needed.
+
 ## 3. Alternative Entra or manual API-key login
 
 Enterprise IT provides:
@@ -151,7 +158,28 @@ It does not contain:
 The profile is private operational state. Do not commit it, synchronize it,
 hand-edit it, or copy an old admission to another Mac.
 
-## 5. Reapply Claude settings
+## 5. Update and re-enrollment policy
+
+An existing enrollment remains valid across normal control-plane, LiteLLM,
+model-catalog, helper-script, and Claude Code updates. Updating the tracked
+script does not consume a new enrollment code and does not require GitHub
+device authorization again. Enterprise IT should preserve the existing
+binding and employee credential during those rollouts.
+
+Run enrollment again only when:
+
+- setting up a different Mac or macOS user profile;
+- Enterprise IT revoked or intentionally rebound the employee identity;
+- the 30-day employee key expired or was revoked;
+- the local profile or Keychain credential was lost and cannot be recovered;
+- Enterprise IT explicitly announces a migration that requires
+  re-enrollment and provides a new one-time code.
+
+If Claude stops working after an ordinary update, run `doctor` first. Do not
+request a new enrollment code or delete the profile/Keychain entry as a generic
+troubleshooting step.
+
+## 6. Reapply Claude settings
 
 Enrollment configures Claude automatically. To reapply the same conflict-checked
 configuration later, run:
@@ -185,7 +213,7 @@ Configuration fails without changing the file if it finds a conflicting shell
 environment variable, provider route, credential helper, or user setting.
 Resolve the conflict explicitly; do not overwrite organizational policy.
 
-## 6. Inspect the approved models
+## 7. Inspect the approved models
 
 ```bash
 /bin/bash "$HOME/.local/share/ccgc/enterprise/ccgc-enterprise-macos.sh" models
@@ -200,7 +228,7 @@ The command shows:
 The catalog comes from the employee binding. It is not an unrestricted provider
 catalog.
 
-## 7. Run the end-to-end doctor
+## 8. Run the end-to-end doctor
 
 Run this after enrollment, after a client update, or before opening a support
 case:
@@ -211,7 +239,7 @@ case:
 
 The doctor fails closed and reports the first actionable problem. It verifies:
 
-- the exact supported Claude Code version
+- the minimum supported Claude Code version
 - private, user-owned, non-symlink helper/profile/settings files
 - absence of conflicting shell and Claude credentials
 - the enterprise base URL, model, helper, cache, permissions, and auto-mode settings
@@ -223,7 +251,7 @@ The doctor fails closed and reports the first actionable problem. It verifies:
 
 It never prints the employee key or admission token.
 
-## 8. Create an admission and start Claude
+## 9. Create an admission and start Claude
 
 Start Claude normally:
 
@@ -246,7 +274,7 @@ credential is never written to the profile or Claude settings.
 Use `/model` inside Claude Code to select another approved model. Do not add
 provider keys or override the broker URL.
 
-## 9. Supported and unsupported behavior
+## 10. Supported and unsupported behavior
 
 ### Validated features
 
@@ -281,7 +309,7 @@ Anthropic safeguard results.
 The detailed reasons and enforcement points are in the root
 [feature compatibility table](../../README.md#claude-code-feature-compatibility).
 
-## 9. Keychain behavior
+## 11. Keychain behavior
 
 Only the opaque admission token is stored in macOS Keychain. It is:
 
@@ -300,12 +328,14 @@ If Keychain access fails, confirm that:
 - the `security` command is permitted
 - the profile still points to the expected broker
 
-## 10. Binding changes and revocation
+## 12. Binding changes and revocation
 
 An administrator binding update increments the binding revision and revokes
 existing admissions and API keys. The employee must obtain the updated profile
-through a reviewed enterprise login before continuing. API keys also expire
-after 30 days and can be revoked independently.
+through a reviewed enterprise login or new enrollment issued by Enterprise IT
+before continuing. API keys also expire after 30 days and can be revoked
+independently. This exceptional recovery flow does not change the rule that
+routine updates preserve enrollment.
 
 Stop and contact enterprise IT if any of these change unexpectedly:
 
@@ -317,7 +347,7 @@ Stop and contact enterprise IT if any of these change unexpectedly:
 
 Do not delete or edit the profile to bypass an identity conflict.
 
-## 10. Troubleshooting
+## 13. Troubleshooting
 
 | Symptom | Action |
 |---|---|
@@ -327,6 +357,7 @@ Do not delete or edit the profile to bypass an identity conflict.
 | Keychain credential is unavailable | Unlock Keychain and confirm the current macOS user owns the enrollment. |
 | Routing conflict | Remove or resolve the reported environment or Claude setting; do not force an overwrite. |
 | No models are listed | Ask enterprise IT to verify the employee's approved catalog and account binding. |
+| Claude stopped working after an update | Run the installed helper's `doctor`; do not delete credentials or repeat enrollment unless Enterprise IT confirms a lifecycle condition above. |
 | A worker replica restarts | Retry only through normal Claude behavior. The next admitted turn can restore the encrypted branch checkpoint on another replica; an uncertain in-flight inference is never replayed automatically. |
 
 Useful checks:
@@ -337,7 +368,7 @@ npm run enterprise:client -- models
 npm run enterprise:client -- configure
 ```
 
-## 11. Security rules
+## 14. Security rules
 
 - Use only the employee's own Entra identity and Copilot seat.
 - Never pool, copy, or share admission or Copilot credentials.

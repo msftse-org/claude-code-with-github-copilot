@@ -56,6 +56,10 @@ Usage:
 The enrollment command verifies the assigned GitHub account, stores the
 30-day employee key in macOS Keychain, and configures Claude Code. It does not
 disable Gatekeeper, remove quarantine attributes, or change MDM policy.
+Existing employees do not repeat enrollment for routine service, model, script,
+or Claude Code updates. Run doctor first; use models or configure when needed.
+Enroll again only with a new Enterprise IT code for credential, identity,
+workstation, or explicitly announced migration recovery.
 The doctor command checks local configuration, gateway health, model discovery,
 and a real bounded inference request without printing credentials.
 EOF

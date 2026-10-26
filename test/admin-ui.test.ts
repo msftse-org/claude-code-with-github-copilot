@@ -60,6 +60,8 @@ test('employee enrollment submits only the minimal backend handoff', () => {
 test('employee instructions use the tracked macOS enrollment script', () => {
   assert.match(adminSource, /bash ccgc-enterprise-macos\.sh enroll --gateway/u);
   assert.match(adminSource, /bash ccgc-enterprise-macos\.sh models/u);
+  assert.match(adminSource, /do not run enroll again for routine updates/u);
+  assert.match(adminHtml, /keeps the existing enrollment/u);
   assert.doesNotMatch(adminSource, /\.\/ccgc-enterprise enroll/u);
 });
 

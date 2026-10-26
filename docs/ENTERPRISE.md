@@ -288,6 +288,27 @@ GOOS=darwin GOARCH=arm64 go build -trimpath -o dist/ccgc-enterprise-darwin-arm64
 GOOS=windows GOARCH=amd64 go build -trimpath -o dist/ccgc-enterprise-windows-amd64.exe ./cmd/ccgc-enterprise
 ```
 
+### Enrollment preservation during updates
+
+Routine deployments and reconciliation preserve active employee bindings,
+employee credentials, GitHub connections, and workstation profiles. Updating
+the control plane, LiteLLM image, approved model catalog, or Claude Code client
+does not by itself require an employee to run `enroll` again.
+
+For an existing employee:
+
+- use `doctor` or the platform health checks after a client or service update;
+- use `models` after catalog reconciliation;
+- use `configure` when the helper path or Claude settings need to be reapplied;
+- create a new enrollment only for a new workstation/user profile, an expired
+  or revoked employee credential, an intentional identity rebind, unrecoverable
+  local credential loss, or an explicitly announced migration.
+
+Enterprise IT must not create or send a new one-time code merely because a
+runtime revision was deployed. If a migration truly requires re-enrollment,
+the rollout plan must state why existing credentials cannot be preserved,
+revoke them deliberately, and provide a new code through the approved channel.
+
 The manual administrator-driven device flow remains available for Entra
 employees and recovery:
 
@@ -531,6 +552,12 @@ employee runs:
 ./ccgc-enterprise models
 claude
 ```
+
+An already enrolled employee must not repeat this flow for routine service,
+catalog, or client updates. They should run `models`, `configure`, or the
+platform doctor/health command as appropriate. Re-enrollment requires a new
+one-time code and one of the lifecycle conditions in
+[Enrollment preservation during updates](#enrollment-preservation-during-updates).
 
 The login result must show that employee's own object ID, authentication
 method, GitHub login, GitHub account ID, model list, and binding revision. Stop

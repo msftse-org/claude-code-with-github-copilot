@@ -35,6 +35,19 @@ The DPAPI ciphertext is stored under
 `%LOCALAPPDATA%\CCGC\credentials`. It cannot be decrypted as another Windows
 user. Do not copy that directory to another machine or profile.
 
+## Update and re-enrollment policy
+
+Do not repeat `enroll` for routine control-plane, LiteLLM, model-catalog,
+executable, or Claude Code updates. Those updates preserve the active employee
+binding and DPAPI-protected credential by default.
+
+Use `models` to verify the reconciled catalog and `configure` only when the
+executable moved or Claude settings need to be reapplied. Enroll again only on
+a new Windows machine/profile, after credential expiry or revocation, after an
+intentional identity rebind, after unrecoverable local credential loss, or when
+Enterprise IT explicitly announces a migration and supplies a new one-time
+code. Do not delete the profile or DPAPI ciphertext as a generic update fix.
+
 ## Operate
 
 ```powershell

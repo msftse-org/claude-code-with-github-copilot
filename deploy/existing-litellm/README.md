@@ -27,3 +27,11 @@ extension.
 to continue through normal LiteLLM authentication while CCGC Entra tokens,
 employee API keys, and bounded admission tokens are resolved through the
 single-tenant Entra-to-GitHub binding.
+
+Applying or upgrading this overlay must preserve the CCGC PostgreSQL schema,
+Key Vault employee secrets, LiteLLM users/virtual keys, encrypted GitHub
+connections, and control-plane bindings. Run bootstrap reconciliation after
+the rollout, but do not issue new employee enrollment codes merely because the
+overlay or underlying LiteLLM image changed. Existing employees verify with
+their installed helper; re-enrollment is reserved for explicit credential,
+identity, workstation, or migration recovery.

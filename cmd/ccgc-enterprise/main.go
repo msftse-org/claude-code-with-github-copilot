@@ -124,7 +124,12 @@ Usage:
 The enroll command opens GitHub device authorization, verifies the assigned
 GitHub identity, stores the 30-day employee key in the operating-system
 credential store, and configures Claude Code. The token command is Claude's
-apiKeyHelper and prints only a short-lived bounded admission token.`)
+apiKeyHelper and prints only a short-lived bounded admission token.
+
+Do not repeat enroll for routine service, model, executable, or Claude Code
+updates. Use models or configure as needed. Enroll again only with a new
+Enterprise IT code for credential, identity, workstation, or explicitly
+announced migration recovery.`)
 }
 
 func enroll(args []string) error {
