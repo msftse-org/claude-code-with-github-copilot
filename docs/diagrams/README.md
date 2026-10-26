@@ -10,7 +10,7 @@ additive overlay on an existing customer LiteLLM.
 
 | Enterprise diagram | Presentation PNG | Interactive HTML | Technical source |
 |---|---|---|---|
-| Runtime architecture | Pending regenerated PNG | Pending regenerated HTML | [Central-LiteLLM architecture JSON](ccgc-enterprise-runtime-poster.architecture.json) |
+| Runtime architecture | [Central-LiteLLM poster](ccgc-enterprise-runtime-poster.png) | [Interactive viewer](ccgc-enterprise-runtime-poster.html) | [Central-LiteLLM architecture JSON](ccgc-enterprise-runtime-poster.architecture.json) |
 | Provisioning and rollout | [Provisioning poster](ccgc-enterprise-provisioning.png) | [Workflow viewer](ccgc-enterprise-provisioning.html) | [Workflow JSON](ccgc-enterprise-provisioning.workflow.json) |
 
 The [PRD enterprise target contract](../PRD.md#enterprise-implementation-revision-022)
@@ -18,6 +18,8 @@ records the design rationale, implementation gaps, official Azure references
 and production gates. These diagrams do not certify enterprise readiness.
 
 ## Enterprise runtime
+
+![Single-tenant central-LiteLLM runtime](ccgc-enterprise-runtime-poster.png)
 
 The primary request path is **Claude Code -> public single-tenant CCGC-enabled
 LiteLLM -> the employee's GitHub Copilot seat -> entitled Claude models**.
