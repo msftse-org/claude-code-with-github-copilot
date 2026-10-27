@@ -1,0 +1,20 @@
+Make exactly one focused correction to this architecture poster.
+
+On the upper-left "Enterprise administrator" card, remove the duplicated blue
+Microsoft Entra ID service icon. Replace only that icon with a simple neutral
+dark-navy administrator/person silhouette inside a subtle pale circle. The
+neutral symbol must not resemble any Azure, Microsoft Entra, GitHub, Claude,
+LiteLLM, or other product logo.
+
+Keep the official Microsoft Entra ID icon unchanged on the adjacent
+"Microsoft Entra ID" card.
+
+Freeze everything else pixel-for-pixel as closely as possible:
+- no text changes;
+- no spelling changes;
+- no component, badge, boundary, panel, or status changes;
+- no connector, endpoint, arrowhead, route, color, or label changes;
+- no layout, spacing, size, typography, background, or crop changes;
+- no changes to any other official service icon.
+
+Do not add any new content.

@@ -1,0 +1,146 @@
+Create a polished 2560 x 1600 executive architecture poster.
+
+REFERENCE PRIORITY:
+1. The first supplied image is the authoritative current topology and layout.
+   Preserve its component membership, relationship direction, and separation
+   between inference and control paths.
+2. The remaining supplied images are official Microsoft Azure service icons.
+   Place each icon only beside its matching named service. Do not redraw,
+   reinterpret, recolor, crop, rotate, or distort these icons.
+3. This prompt supplies the exact wording and presentation treatment.
+
+REMOVE VIEWER CHROME:
+- Remove browser-like controls, grids, theme controls, zoom controls, and UI
+  chrome from the first reference.
+- Keep only the architecture and three conclusion panels.
+
+TITLE:
+"Claude Code with GitHub Copilot"
+
+SUBTITLE:
+"SINGLE-TENANT CENTRAL LITELLM RUNTIME"
+
+STATUS:
+"TARGET IMPLEMENTED AND VALIDATED — AZURE PILOT MIGRATION NOT YET DEPLOYED"
+
+VISUAL DIRECTION:
+- Warm ivory background, dark navy typography, restrained Azure blue, emerald
+  inference path, coral identity/security accents, violet database accents,
+  and amber monitoring accents.
+- Flat vector architecture style with crisp orthogonal connectors.
+- White and pale blue-gray component cards with subtle borders.
+- Large readable typography at 1280 x 800 presentation size.
+- Compact official icons that support labels rather than replacing them.
+- Generous whitespace and clear left-to-right reading order.
+- No gradients, photorealism, shadows heavier than a subtle card lift,
+  decorative illustrations, tiny text, or ornamental connector fragments.
+
+CORE ARCHITECTURE:
+
+The primary inference path must be a clear left-to-right horizontal rail:
+
+1. "Claude Code"
+   Supporting text: "Employee client and local tools"
+2. "CCGC-enabled LiteLLM"
+   Supporting text: "Entra + GitHub binding custom auth"
+   Badge: "managed or existing"
+3. "GitHub Copilot seat"
+   Supporting text: "Employee-specific entitlement"
+4. "Claude models"
+   Supporting text: "Approved entitled catalog"
+
+Primary relationship labels:
+- Claude Code -> CCGC-enabled LiteLLM:
+  "Anthropic Messages + bounded admission"
+- CCGC-enabled LiteLLM -> GitHub Copilot seat:
+  "per-user GitHub OAuth / TLS / SSE"
+- GitHub Copilot seat -> Claude models:
+  "entitled model"
+
+The CCGC control plane is not in this inference rail.
+
+CONTROL AND IDENTITY PATH:
+- "Enterprise administrator"
+  Supporting text: "Enroll and revoke employees"
+- "Microsoft Entra ID"
+  Supporting text: "One fixed customer tenant"
+- "CCGC control plane"
+  Supporting text: "Enrollment / admission"
+  Badge: "2-10 replicas"
+- "Azure Key Vault"
+  Supporting text: "Per-user virtual-key references"
+
+Control relationship labels:
+- Enterprise administrator -> Microsoft Entra ID:
+  "administrator sign-in"
+- Microsoft Entra ID -> CCGC control plane:
+  "CCGC.Admin JWT"
+- Microsoft Entra ID -> CCGC-enabled LiteLLM:
+  "CCGC.Access JWT"
+- CCGC control plane -> CCGC-enabled LiteLLM:
+  "users / models / OAuth enrollment"
+- CCGC-enabled LiteLLM -> Azure Key Vault:
+  "resolve employee virtual key"
+
+STATE AND MONITORING:
+- "CCGC PostgreSQL"
+  Supporting text: "Bindings / admissions / audit"
+- "LiteLLM PostgreSQL"
+  Supporting text: "Existing or managed gateway state"
+  Badge: "customer owned"
+- "Azure Monitor"
+  Supporting text: "Metadata only / no prompt bodies"
+
+State relationship labels:
+- CCGC-enabled LiteLLM -> CCGC PostgreSQL:
+  "validate tenant + immutable GitHub binding"
+- CCGC-enabled LiteLLM -> LiteLLM PostgreSQL:
+  "existing or managed gateway state"
+
+BOUNDARY:
+- Draw one restrained Azure/customer boundary labeled:
+  "One customer deployment / one Microsoft Entra tenant"
+- It encloses Enterprise administrator, Microsoft Entra ID, CCGC control plane,
+  CCGC-enabled LiteLLM, Azure Key Vault, CCGC PostgreSQL, LiteLLM PostgreSQL,
+  and Azure Monitor.
+- Claude Code, GitHub Copilot seat, and Claude models remain outside this
+  customer deployment boundary.
+- No boundary line may cross a card, connector label, or service icon.
+
+OFFICIAL ICON MAPPING:
+- Microsoft Entra ID reference icon -> Microsoft Entra ID only.
+- Azure Container Apps reference icon -> CCGC control plane and managed
+  CCGC-enabled LiteLLM runtime cards.
+- Azure Key Vault reference icon -> Azure Key Vault only.
+- Azure Database for PostgreSQL reference icon -> both PostgreSQL cards.
+- Azure Monitor reference icon -> Azure Monitor only.
+- Preserve the Claude mark beside Claude Code and Claude models, and the GitHub
+  mark beside GitHub Copilot seat, as shown in the topology reference.
+- Do not invent Azure icons or use an Azure service icon for another service.
+
+BOTTOM PANELS:
+
+1. "Two installation modes"
+   - "Managed: deploy the complete CCGC-enabled LiteLLM and its PostgreSQL."
+   - "Existing: add the CCGC extension without replacing customer models,
+      keys, teams, budgets, callbacks, or policies."
+
+2. "Single-tenant identity"
+   - "The deployment accepts exactly one Microsoft Entra tenant."
+   - "Every employee maps to one immutable GitHub account and one Copilot seat."
+
+3. "Reduced runtime"
+   - "LiteLLM is the only inference gateway."
+   - "The control plane manages lifecycle operations but never proxies
+      inference."
+
+NON-NEGOTIABLE EXCLUSIONS:
+- Do not add API Management, a broker/worker inference hop, per-user workers,
+  Front Door, WAF, Kubernetes, an Anthropic API key, another model provider,
+  a local proxy, shared Copilot credentials, provider fallback, inference
+  retries, response caching, prompt-body logging, provisioning workflow, CI/CD,
+  IaC, or deployment steps.
+- Do not claim production readiness, deployed migration, vendor endorsement,
+  zero downtime, exactly-once inference, or pooled Copilot seats.
+- Do not add, remove, merge, or rename architecture components.
+- Do not duplicate connectors or draw unlabeled decorative arrows.

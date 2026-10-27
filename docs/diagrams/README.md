@@ -10,7 +10,7 @@ additive overlay on an existing customer LiteLLM.
 
 | Enterprise diagram | Presentation PNG | Interactive HTML | Technical source |
 |---|---|---|---|
-| Runtime architecture | [Central-LiteLLM poster](ccgc-enterprise-runtime-poster.png) | [Interactive viewer](ccgc-enterprise-runtime-poster.html) | [Central-LiteLLM architecture JSON](ccgc-enterprise-runtime-poster.architecture.json) |
+| Runtime architecture | [GPT-image central-LiteLLM poster](ccgc-enterprise-runtime-poster-gpt-image.png) | [Interactive viewer](ccgc-enterprise-runtime-poster.html) | [Central-LiteLLM architecture JSON](ccgc-enterprise-runtime-poster.architecture.json) |
 | Provisioning and rollout | [Provisioning poster](ccgc-enterprise-provisioning.png) | [Workflow viewer](ccgc-enterprise-provisioning.html) | [Workflow JSON](ccgc-enterprise-provisioning.workflow.json) |
 
 The [PRD enterprise target contract](../PRD.md#enterprise-implementation-revision-022)
@@ -19,7 +19,15 @@ and production gates. These diagrams do not certify enterprise readiness.
 
 ## Enterprise runtime
 
-![Single-tenant central-LiteLLM runtime](ccgc-enterprise-runtime-poster.png)
+![Single-tenant central-LiteLLM runtime](ccgc-enterprise-runtime-poster-gpt-image.png)
+
+The presentation poster was generated with the existing Azure OpenAI
+`gpt-image-2.5-flare` deployment from the validated
+[Archify desktop capture](ccgc-enterprise-runtime-poster.png) and official
+Microsoft Azure service-icon references. The reviewed
+[architecture JSON](ccgc-enterprise-runtime-poster.architecture.json) and
+[interactive HTML](ccgc-enterprise-runtime-poster.html) remain the technical
+authority; the GPT-image PNG is a presentation companion.
 
 The primary request path is **Claude Code -> public single-tenant CCGC-enabled
 LiteLLM -> the employee's GitHub Copilot seat -> entitled Claude models**.
@@ -84,7 +92,7 @@ PaaS modules, per-user services or acceptance gates.
 | Frozen specification/HTML hashes and byte counts | [Delivery receipt](ccgc-enterprise-runtime.delivery.json) | [Delivery receipt](ccgc-enterprise-provisioning.delivery.json) |
 | Desktop light/dark evidence | [Contact sheet](ccgc-enterprise-runtime.visual-check.html) | [Contact sheet](ccgc-enterprise-provisioning.visual-check.html) |
 | Initial image brief | [Current Archify-first prompt](ccgc-enterprise-runtime-multiuser-litellm-presentation-v16.prompt.txt), [focused dependency correction](ccgc-enterprise-runtime-multiuser-litellm-presentation-v16-correction.prompt.txt), [Archify runtime prompt](ccgc-enterprise-runtime.prompt.txt), and historical prompts | [Provisioning prompt](ccgc-enterprise-provisioning.prompt.txt) |
-| Image generation provenance | [Current dual-provenance presentation receipt](ccgc-enterprise-runtime-multiuser-litellm-presentation-v16.receipt.json) and retained historical receipts | [Selected-image receipt](ccgc-enterprise-provisioning.receipt.json) |
+| Image generation provenance | [Current central-LiteLLM GPT-image receipt](ccgc-enterprise-runtime-poster-gpt-image.receipt.json), [generation prompt](ccgc-enterprise-runtime-poster-gpt-image.prompt.txt), [focused icon correction](ccgc-enterprise-runtime-poster-gpt-image-correction.prompt.txt), and retained historical receipts | [Selected-image receipt](ccgc-enterprise-provisioning.receipt.json) |
 
 The existing runtime PNG, HTML, delivery receipts, and visual captures document
 the superseded revision 0.21 broker/worker architecture. They remain historical
@@ -99,12 +107,13 @@ and earlier
 [native-connector Flare poster](ccgc-enterprise-runtime-multiuser-flare-v3.png)
 are retained only as historical presentation artwork.
 
-Inputs were sanitized Archify screenshots and architecture terminology, not
-repository source, credentials, account IDs or actual private endpoints.
-Authentication used the existing Azure CLI Entra identity. The current poster
-used the existing `gpt-image-2.5-flare` deployment in the Foundry resource; no
-enterprise gateway/client resource was deployed and no Copilot inference was
-performed. Image token counts are not a cost quote or Copilot usage.
+Inputs were sanitized Archify screenshots, official Azure service icons, and
+architecture terminology, not credentials, account IDs, or actual private
+endpoints. Authentication used the existing Azure CLI Entra identity. The
+current poster used the existing `gpt-image-2.5-flare` deployment in the
+Foundry resource; no enterprise gateway/client resource was deployed and no
+Copilot inference was performed. Image token counts are not a cost quote or
+Copilot usage.
 
 Both enterprise HTML artifacts passed **9/9 showcase checks with 0 errors and 0 warnings**,
 with desktop containment at 1440 x 900, 1600 x 1000, 1920 x 1080 and 2048 x 1320.
