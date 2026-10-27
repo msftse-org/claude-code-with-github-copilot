@@ -12,9 +12,9 @@ param existingLiteLLMUrl string
 param existingLiteLLMPrincipalId string
 param existingLiteLLMDatabasePrincipalName string
 param buildAgentPoolCount int
-param litellmPostgresAdminLogin string
+param managedPostgresAdminLogin string
 @secure()
-param litellmPostgresAdminPassword string
+param managedPostgresAdminPassword string
 @secure()
 param litellmMasterKey string
 @secure()
@@ -36,7 +36,6 @@ var bootstrapIdentityName = 'id-${prefix}-bootstrap'
 var workerIdentityName = 'id-${prefix}-worker'
 var litellmIdentityName = 'id-${prefix}-litellm'
 var postgresName = take('psql-${compact}-${unique}', 63)
-var litellmPostgresName = take('psql-${compact}-litellm-${unique}', 63)
 var vaultName = take('kv-${compact}-${unique}', 24)
 var registryName = take('cr${compact}${unique}', 50)
 var buildAgentPoolName = take('build-${compact}', 20)
@@ -238,26 +237,9 @@ resource vnet 'Microsoft.Network/virtualNetworks@2024-07-01' = {
         }
       }
       {
-        name: 'snet-litellm-postgres'
-        properties: {
-          addressPrefix: '10.80.2.64/27'
-          delegations: [
-            {
-              name: 'postgres'
-              properties: {
-                serviceName: 'Microsoft.DBforPostgreSQL/flexibleServers'
-              }
-            }
-          ]
-          networkSecurityGroup: {
-            id: workloadNsg.id
-          }
-        }
-      }
-      {
         name: 'snet-acr-agent-pool'
         properties: {
-          addressPrefix: '10.80.2.96/27'
+          addressPrefix: '10.80.2.64/27'
           natGateway: {
             id: natGateway.id
           }
@@ -284,11 +266,6 @@ resource postgresSubnet 'Microsoft.Network/virtualNetworks/subnets@2024-07-01' e
 resource privateEndpointSubnet 'Microsoft.Network/virtualNetworks/subnets@2024-07-01' existing = {
   parent: vnet
   name: 'snet-private-endpoints'
-}
-
-resource litellmPostgresSubnet 'Microsoft.Network/virtualNetworks/subnets@2024-07-01' existing = {
-  parent: vnet
-  name: 'snet-litellm-postgres'
 }
 
 resource buildAgentPoolSubnet 'Microsoft.Network/virtualNetworks/subnets@2024-07-01' existing = {
@@ -324,10 +301,11 @@ resource postgres 'Microsoft.DBforPostgreSQL/flexibleServers@2024-08-01' = {
   }
   properties: {
     version: '16'
-    administratorLogin: 'ccgcbootstrap'
+    administratorLogin: managedLiteLLM ? managedPostgresAdminLogin : 'ccgcbootstrap'
+    administratorLoginPassword: managedLiteLLM ? managedPostgresAdminPassword : null
     authConfig: {
       activeDirectoryAuth: 'Enabled'
-      passwordAuth: 'Disabled'
+      passwordAuth: managedLiteLLM ? 'Enabled' : 'Disabled'
       tenantId: tenantId
     }
     backup: {
@@ -364,49 +342,6 @@ module postgresAdmin 'postgres-admin.bicep' = {
     principalObjectId: bootstrapIdentity.properties.principalId
     principalName: bootstrapIdentity.name
   }
-}
-
-resource litellmPostgres 'Microsoft.DBforPostgreSQL/flexibleServers@2024-08-01' = if (managedLiteLLM) {
-  name: litellmPostgresName
-  location: location
-  tags: tags
-  sku: {
-    name: 'Standard_D2ds_v5'
-    tier: 'GeneralPurpose'
-  }
-  properties: {
-    version: '16'
-    administratorLogin: litellmPostgresAdminLogin
-    administratorLoginPassword: litellmPostgresAdminPassword
-    authConfig: {
-      activeDirectoryAuth: 'Disabled'
-      passwordAuth: 'Enabled'
-      tenantId: tenantId
-    }
-    backup: {
-      backupRetentionDays: 14
-      geoRedundantBackup: 'Disabled'
-    }
-    dataEncryption: {
-      type: 'SystemManaged'
-    }
-    highAvailability: {
-      mode: 'ZoneRedundant'
-    }
-    network: {
-      delegatedSubnetResourceId: litellmPostgresSubnet.id
-      privateDnsZoneArmResourceId: postgresDns.id
-      publicNetworkAccess: 'Disabled'
-    }
-    storage: {
-      storageSizeGB: 128
-      autoGrow: 'Enabled'
-      tier: 'P10'
-    }
-  }
-  dependsOn: [
-    postgresDnsLink
-  ]
 }
 
 resource vault 'Microsoft.KeyVault/vaults@2024-11-01' = {
@@ -460,7 +395,7 @@ resource litellmDatabaseSecret 'Microsoft.KeyVault/vaults/secrets@2024-11-01' = 
   parent: vault
   name: 'litellm-database-url'
   properties: {
-    value: 'postgresql://${litellmPostgresAdminLogin}:${uriComponent(litellmPostgresAdminPassword)}@${litellmPostgres!.properties.fullyQualifiedDomainName}:5432/postgres?sslmode=require'
+    value: 'postgresql://${managedPostgresAdminLogin}:${uriComponent(managedPostgresAdminPassword)}@${postgres.properties.fullyQualifiedDomainName}:5432/postgres?schema=litellm&sslmode=require'
     contentType: 'application/vnd.ccgc.litellm-database-url'
     attributes: {
       enabled: true
@@ -783,7 +718,7 @@ resource broker 'Microsoft.App/containerApps@2025-01-01' = if (deployRuntime) {
             }
             {
               name: 'CCGC_POSTGRES_URL'
-              value: 'postgresql://${brokerIdentity.name}@${postgres.properties.fullyQualifiedDomainName}:5432/postgres?sslmode=require'
+              value: 'postgresql://${brokerIdentity.name}@${postgres.properties.fullyQualifiedDomainName}:5432/postgres?schema=ccgc&sslmode=require'
             }
             {
               name: 'CCGC_POSTGRES_ENTRA'
@@ -920,7 +855,7 @@ resource bootstrapJob 'Microsoft.App/jobs@2025-01-01' = if (deployRuntime) {
             }
             {
               name: 'CCGC_POSTGRES_URL'
-              value: 'postgresql://${bootstrapIdentity.name}@${postgres.properties.fullyQualifiedDomainName}:5432/postgres?sslmode=require'
+              value: 'postgresql://${bootstrapIdentity.name}@${postgres.properties.fullyQualifiedDomainName}:5432/postgres?schema=ccgc&sslmode=require'
             }
             {
               name: 'CCGC_DATABASE_PRINCIPALS_JSON'
@@ -1197,7 +1132,7 @@ resource litellm 'Microsoft.App/containerApps@2025-01-01' = if (deployRuntime &&
             }
             {
               name: 'CCGC_POSTGRES_URL'
-              value: 'postgresql://${litellmIdentity!.name}@${postgres.properties.fullyQualifiedDomainName}:5432/postgres?sslmode=require'
+              value: 'postgresql://${litellmIdentity!.name}@${postgres.properties.fullyQualifiedDomainName}:5432/postgres?schema=ccgc&sslmode=require'
             }
             {
               name: 'CCGC_POSTGRES_ENTRA'
@@ -1363,7 +1298,6 @@ output litellmPublicFqdn string = deployRuntime && managedLiteLLM ? litellm!.pro
 output litellmGatewayUrl string = litellmGatewayUrl
 output keyVaultName string = vault.name
 output postgresHost string = postgres.properties.fullyQualifiedDomainName
-output litellmPostgresHost string = managedLiteLLM ? litellmPostgres!.properties.fullyQualifiedDomainName : ''
 output registryName string = registry.name
 output registryLoginServer string = registry.properties.loginServer
 output buildAgentPoolName string = buildAgentPoolCount > 0 ? buildAgentPool!.name : ''

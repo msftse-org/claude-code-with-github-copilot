@@ -9,22 +9,22 @@
   "operation": "images/edits",
   "apiVersion": "2025-04-01-preview",
   "authentication": "Microsoft Entra ID bearer token",
-  "createdAt": "2026-10-27T12:36:49Z",
+  "createdAt": "2026-10-27T21:39:53Z",
   "architectureAuthority": {
     "specification": {
       "path": "docs/diagrams/ccgc-enterprise-runtime-poster.architecture.json",
-      "sha256": "23917c3ec59021cc50623b381ea418931ceb7dedb9cf88823a1c20d5bd3c383f",
-      "bytes": 6226
+      "sha256": "5d108cf761867f7fe3b00d07cc76228c57318d30d5d927a70df03218fd0b8462",
+      "bytes": 5760
     },
     "html": {
       "path": "docs/diagrams/ccgc-enterprise-runtime-poster.html",
-      "sha256": "05927bb27f5c3c952a01893a71d20df839ab1c5ee03f1996a9833df5d553fe79",
-      "bytes": 738324
+      "sha256": "2dfafb999fb8a0f2ed6cfa714cca75dc335c65f2d1b3e26277229b5fa905775b",
+      "bytes": 730458
     },
     "reference": {
       "path": "docs/diagrams/ccgc-enterprise-runtime-poster.visual-check.2048x1320.light.png",
-      "sha256": "7d102ca4034ca1a592037c36226add8a1daa03fcb5766a52a30aa5e4f0f4f4c1",
-      "bytes": 181270,
+      "sha256": "1639528302e786990d7ef83e9f8b54b5ee17d83dc354f044f2aceff269a53917",
+      "bytes": 174224,
       "width": 2048,
       "height": 1320
     }
@@ -53,53 +53,53 @@
   ],
   "requests": [
     {
-      "role": "central-LiteLLM poster generation",
+      "role": "single-server two-schema poster generation",
       "prompt": {
         "path": "docs/diagrams/ccgc-enterprise-runtime-poster-gpt-image.prompt.txt",
-        "sha256": "2a282ddd70af70e57e46f17b41319539ec7781baee87019bd010a547353ad3af",
-        "bytes": 5867
+        "sha256": "a552cd690aeaa3390653c4dfa570447ad52351e4fe2bfb33aad570906db335e9",
+        "bytes": 5768
       },
-      "startedAt": "2026-10-27T12:34:25Z",
-      "completedAt": "2026-10-27T12:35:11Z",
+      "startedAt": "2026-10-27T21:37:39Z",
+      "completedAt": "2026-10-27T21:38:19Z",
       "statusCode": 200,
-      "requestId": "1f06a555-a481-41fa-895f-b2f3f1a65cfd",
+      "requestId": "179471e2-2ce7-4ead-b111-f1256613b2ec",
       "usage": {
-        "input_tokens": 7996,
+        "input_tokens": 7966,
         "input_tokens_details": {
           "image_tokens": 6608,
-          "text_tokens": 1388
+          "text_tokens": 1358
         },
         "output_tokens": 2195,
         "output_tokens_details": {
           "image_tokens": 2195,
           "text_tokens": 0
         },
-        "total_tokens": 10191
+        "total_tokens": 10161
       }
     },
     {
-      "role": "remove duplicated Entra icon from administrator card",
+      "role": "remove incorrect administrator icon and decorative control-plane arrow",
       "prompt": {
         "path": "docs/diagrams/ccgc-enterprise-runtime-poster-gpt-image-correction.prompt.txt",
-        "sha256": "a9f126630e60a9a588b60646e5804e631be1d8518a7adf0cfae8e8604c661905",
-        "bytes": 883
+        "sha256": "b5b52b16268673db540b1e9650f43ed701e116820722683bbc99d7d1eb357fbf",
+        "bytes": 1116
       },
-      "startedAt": "2026-10-27T12:35:43Z",
-      "completedAt": "2026-10-27T12:36:17Z",
+      "startedAt": "2026-10-27T21:38:45Z",
+      "completedAt": "2026-10-27T21:39:19Z",
       "statusCode": 200,
-      "requestId": "76ce88a3-1094-48a4-9609-cfc84a1c09b7",
+      "requestId": "632320d5-f42b-4db1-bc13-67c2e6b7e8c2",
       "usage": {
-        "input_tokens": 1644,
+        "input_tokens": 1700,
         "input_tokens_details": {
           "image_tokens": 1440,
-          "text_tokens": 204
+          "text_tokens": 260
         },
         "output_tokens": 2195,
         "output_tokens_details": {
           "image_tokens": 2195,
           "text_tokens": 0
         },
-        "total_tokens": 3839
+        "total_tokens": 3895
       }
     }
   ],
@@ -108,18 +108,19 @@
     "desktopCopy": "/Users/shironbabi/Desktop/CCGC-Enterprise-Central-LiteLLM-GPT-Image.png",
     "width": 2560,
     "height": 1600,
-    "bytes": 2842575,
-    "sha256": "9e1d422965eb460e78de4870f291c9b95ff03cb3e653fd28d3c91133404c8e05"
+    "bytes": 2580844,
+    "sha256": "d01442f9afd3ccb9881303d983d127ae6323d725f264782556518941ac588e60"
   },
   "visualReview": {
     "status": "approved",
-    "inspectedAt": "2026-10-27T12:36:49Z",
+    "inspectedAt": "2026-10-27T21:39:53Z",
     "inspectionSizes": [
       "native 2560x1600"
     ],
-    "topology": "matched current central-LiteLLM architecture",
+    "topology": "matched managed single-server two-schema architecture and existing-LiteLLM distinction",
     "inferencePath": "Claude Code -> CCGC-enabled LiteLLM -> GitHub Copilot seat -> Claude models",
     "controlPlaneOutsideInference": true,
+    "managedDatabase": "one PostgreSQL Flexible Server with ccgc and litellm schemas",
     "officialAzureIcons": "matched after focused correction",
     "retiredBrokerWorkerPathAbsent": true,
     "apiManagementAbsent": true,

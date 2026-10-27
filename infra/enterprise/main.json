@@ -5,7 +5,7 @@
     "_generator": {
       "name": "bicep",
       "version": "0.48.1.52935",
-      "templateHash": "3687628412577236523"
+      "templateHash": "272623167262029191"
     }
   },
   "parameters": {
@@ -112,18 +112,18 @@
         "description": "Number of private ACR task agents. Use zero at rest and scale to one while publishing images."
       }
     },
-    "litellmPostgresAdminLogin": {
+    "managedPostgresAdminLogin": {
       "type": "string",
-      "defaultValue": "litellmadmin",
+      "defaultValue": "ccgcadmin",
       "metadata": {
-        "description": "Administrator login for the private LiteLLM PostgreSQL server."
+        "description": "Password administrator login for the shared managed PostgreSQL server. Required only when litellmMode is managed."
       }
     },
-    "litellmPostgresAdminPassword": {
+    "managedPostgresAdminPassword": {
       "type": "securestring",
       "defaultValue": "",
       "metadata": {
-        "description": "Administrator password for the private LiteLLM PostgreSQL server."
+        "description": "Password administrator credential used by managed LiteLLM on the shared PostgreSQL server. Required only when litellmMode is managed."
       }
     },
     "litellmMasterKey": {
@@ -235,11 +235,11 @@
           "buildAgentPoolCount": {
             "value": "[parameters('buildAgentPoolCount')]"
           },
-          "litellmPostgresAdminLogin": {
-            "value": "[parameters('litellmPostgresAdminLogin')]"
+          "managedPostgresAdminLogin": {
+            "value": "[parameters('managedPostgresAdminLogin')]"
           },
-          "litellmPostgresAdminPassword": {
-            "value": "[parameters('litellmPostgresAdminPassword')]"
+          "managedPostgresAdminPassword": {
+            "value": "[parameters('managedPostgresAdminPassword')]"
           },
           "litellmMasterKey": {
             "value": "[parameters('litellmMasterKey')]"
@@ -267,7 +267,7 @@
             "_generator": {
               "name": "bicep",
               "version": "0.48.1.52935",
-              "templateHash": "13300860660593983540"
+              "templateHash": "16381465596874893447"
             }
           },
           "parameters": {
@@ -313,10 +313,10 @@
             "buildAgentPoolCount": {
               "type": "int"
             },
-            "litellmPostgresAdminLogin": {
+            "managedPostgresAdminLogin": {
               "type": "string"
             },
-            "litellmPostgresAdminPassword": {
+            "managedPostgresAdminPassword": {
               "type": "securestring"
             },
             "litellmMasterKey": {
@@ -349,7 +349,6 @@
             "workerIdentityName": "[format('id-{0}-worker', parameters('prefix'))]",
             "litellmIdentityName": "[format('id-{0}-litellm', parameters('prefix'))]",
             "postgresName": "[take(format('psql-{0}-{1}', variables('compact'), variables('unique')), 63)]",
-            "litellmPostgresName": "[take(format('psql-{0}-litellm-{1}', variables('compact'), variables('unique')), 63)]",
             "vaultName": "[take(format('kv-{0}-{1}', variables('compact'), variables('unique')), 24)]",
             "registryName": "[take(format('cr{0}{1}', variables('compact'), variables('unique')), 50)]",
             "buildAgentPoolName": "[take(format('build-{0}', variables('compact')), 20)]",
@@ -590,26 +589,9 @@
                     }
                   },
                   {
-                    "name": "snet-litellm-postgres",
-                    "properties": {
-                      "addressPrefix": "10.80.2.64/27",
-                      "delegations": [
-                        {
-                          "name": "postgres",
-                          "properties": {
-                            "serviceName": "Microsoft.DBforPostgreSQL/flexibleServers"
-                          }
-                        }
-                      ],
-                      "networkSecurityGroup": {
-                        "id": "[resourceId('Microsoft.Network/networkSecurityGroups', format('nsg-{0}-workload', parameters('prefix')))]"
-                      }
-                    }
-                  },
-                  {
                     "name": "snet-acr-agent-pool",
                     "properties": {
-                      "addressPrefix": "10.80.2.96/27",
+                      "addressPrefix": "10.80.2.64/27",
                       "natGateway": {
                         "id": "[resourceId('Microsoft.Network/natGateways', format('ng-{0}-enterprise', parameters('prefix')))]"
                       },
@@ -661,10 +643,11 @@
               },
               "properties": {
                 "version": "16",
-                "administratorLogin": "ccgcbootstrap",
+                "administratorLogin": "[if(variables('managedLiteLLM'), parameters('managedPostgresAdminLogin'), 'ccgcbootstrap')]",
+                "administratorLoginPassword": "[if(variables('managedLiteLLM'), parameters('managedPostgresAdminPassword'), null())]",
                 "authConfig": {
                   "activeDirectoryAuth": "Enabled",
-                  "passwordAuth": "Disabled",
+                  "passwordAuth": "[if(variables('managedLiteLLM'), 'Enabled', 'Disabled')]",
                   "tenantId": "[parameters('tenantId')]"
                 },
                 "backup": {
@@ -679,53 +662,6 @@
                 },
                 "network": {
                   "delegatedSubnetResourceId": "[resourceId('Microsoft.Network/virtualNetworks/subnets', variables('vnetName'), 'snet-postgres')]",
-                  "privateDnsZoneArmResourceId": "[resourceId('Microsoft.Network/privateDnsZones', variables('postgresDnsZoneName'))]",
-                  "publicNetworkAccess": "Disabled"
-                },
-                "storage": {
-                  "storageSizeGB": 128,
-                  "autoGrow": "Enabled",
-                  "tier": "P10"
-                }
-              },
-              "dependsOn": [
-                "[resourceId('Microsoft.Network/privateDnsZones', variables('postgresDnsZoneName'))]",
-                "[resourceId('Microsoft.Network/privateDnsZones/virtualNetworkLinks', variables('postgresDnsZoneName'), format('link-{0}', variables('vnetName')))]",
-                "[resourceId('Microsoft.Network/virtualNetworks', variables('vnetName'))]"
-              ]
-            },
-            {
-              "condition": "[variables('managedLiteLLM')]",
-              "type": "Microsoft.DBforPostgreSQL/flexibleServers",
-              "apiVersion": "2024-08-01",
-              "name": "[variables('litellmPostgresName')]",
-              "location": "[parameters('location')]",
-              "tags": "[variables('tags')]",
-              "sku": {
-                "name": "Standard_D2ds_v5",
-                "tier": "GeneralPurpose"
-              },
-              "properties": {
-                "version": "16",
-                "administratorLogin": "[parameters('litellmPostgresAdminLogin')]",
-                "administratorLoginPassword": "[parameters('litellmPostgresAdminPassword')]",
-                "authConfig": {
-                  "activeDirectoryAuth": "Disabled",
-                  "passwordAuth": "Enabled",
-                  "tenantId": "[parameters('tenantId')]"
-                },
-                "backup": {
-                  "backupRetentionDays": 14,
-                  "geoRedundantBackup": "Disabled"
-                },
-                "dataEncryption": {
-                  "type": "SystemManaged"
-                },
-                "highAvailability": {
-                  "mode": "ZoneRedundant"
-                },
-                "network": {
-                  "delegatedSubnetResourceId": "[resourceId('Microsoft.Network/virtualNetworks/subnets', variables('vnetName'), 'snet-litellm-postgres')]",
                   "privateDnsZoneArmResourceId": "[resourceId('Microsoft.Network/privateDnsZones', variables('postgresDnsZoneName'))]",
                   "publicNetworkAccess": "Disabled"
                 },
@@ -801,7 +737,7 @@
               "apiVersion": "2024-11-01",
               "name": "[format('{0}/{1}', variables('vaultName'), 'litellm-database-url')]",
               "properties": {
-                "value": "[format('postgresql://{0}:{1}@{2}:5432/postgres?sslmode=require', parameters('litellmPostgresAdminLogin'), uriComponent(parameters('litellmPostgresAdminPassword')), reference(resourceId('Microsoft.DBforPostgreSQL/flexibleServers', variables('litellmPostgresName')), '2024-08-01').fullyQualifiedDomainName)]",
+                "value": "[format('postgresql://{0}:{1}@{2}:5432/postgres?schema=litellm&sslmode=require', parameters('managedPostgresAdminLogin'), uriComponent(parameters('managedPostgresAdminPassword')), reference(resourceId('Microsoft.DBforPostgreSQL/flexibleServers', variables('postgresName')), '2024-08-01').fullyQualifiedDomainName)]",
                 "contentType": "application/vnd.ccgc.litellm-database-url",
                 "attributes": {
                   "enabled": true,
@@ -809,7 +745,7 @@
                 }
               },
               "dependsOn": [
-                "[resourceId('Microsoft.DBforPostgreSQL/flexibleServers', variables('litellmPostgresName'))]",
+                "[resourceId('Microsoft.DBforPostgreSQL/flexibleServers', variables('postgresName'))]",
                 "[resourceId('Microsoft.KeyVault/vaults', variables('vaultName'))]"
               ]
             },
@@ -1173,7 +1109,7 @@
                         },
                         {
                           "name": "CCGC_POSTGRES_URL",
-                          "value": "[format('postgresql://{0}@{1}:5432/postgres?sslmode=require', variables('brokerIdentityName'), reference(resourceId('Microsoft.DBforPostgreSQL/flexibleServers', variables('postgresName')), '2024-08-01').fullyQualifiedDomainName)]"
+                          "value": "[format('postgresql://{0}@{1}:5432/postgres?schema=ccgc&sslmode=require', variables('brokerIdentityName'), reference(resourceId('Microsoft.DBforPostgreSQL/flexibleServers', variables('postgresName')), '2024-08-01').fullyQualifiedDomainName)]"
                         },
                         {
                           "name": "CCGC_POSTGRES_ENTRA",
@@ -1319,7 +1255,7 @@
                         },
                         {
                           "name": "CCGC_POSTGRES_URL",
-                          "value": "[format('postgresql://{0}@{1}:5432/postgres?sslmode=require', variables('bootstrapIdentityName'), reference(resourceId('Microsoft.DBforPostgreSQL/flexibleServers', variables('postgresName')), '2024-08-01').fullyQualifiedDomainName)]"
+                          "value": "[format('postgresql://{0}@{1}:5432/postgres?schema=ccgc&sslmode=require', variables('bootstrapIdentityName'), reference(resourceId('Microsoft.DBforPostgreSQL/flexibleServers', variables('postgresName')), '2024-08-01').fullyQualifiedDomainName)]"
                         },
                         {
                           "name": "CCGC_DATABASE_PRINCIPALS_JSON",
@@ -1613,7 +1549,7 @@
                         },
                         {
                           "name": "CCGC_POSTGRES_URL",
-                          "value": "[format('postgresql://{0}@{1}:5432/postgres?sslmode=require', variables('litellmIdentityName'), reference(resourceId('Microsoft.DBforPostgreSQL/flexibleServers', variables('postgresName')), '2024-08-01').fullyQualifiedDomainName)]"
+                          "value": "[format('postgresql://{0}@{1}:5432/postgres?schema=ccgc&sslmode=require', variables('litellmIdentityName'), reference(resourceId('Microsoft.DBforPostgreSQL/flexibleServers', variables('postgresName')), '2024-08-01').fullyQualifiedDomainName)]"
                         },
                         {
                           "name": "CCGC_POSTGRES_ENTRA",
@@ -1933,10 +1869,6 @@
               "type": "string",
               "value": "[reference(resourceId('Microsoft.DBforPostgreSQL/flexibleServers', variables('postgresName')), '2024-08-01').fullyQualifiedDomainName]"
             },
-            "litellmPostgresHost": {
-              "type": "string",
-              "value": "[if(variables('managedLiteLLM'), reference(resourceId('Microsoft.DBforPostgreSQL/flexibleServers', variables('litellmPostgresName')), '2024-08-01').fullyQualifiedDomainName, '')]"
-            },
             "registryName": {
               "type": "string",
               "value": "[variables('registryName')]"
@@ -1997,10 +1929,6 @@
     "postgresHost": {
       "type": "string",
       "value": "[reference(extensionResourceId(format('/subscriptions/{0}/resourceGroups/{1}', subscription().subscriptionId, variables('resourceGroupName')), 'Microsoft.Resources/deployments', format('{0}-enterprise-platform', parameters('prefix'))), '2025-04-01').outputs.postgresHost.value]"
-    },
-    "litellmPostgresHost": {
-      "type": "string",
-      "value": "[reference(extensionResourceId(format('/subscriptions/{0}/resourceGroups/{1}', subscription().subscriptionId, variables('resourceGroupName')), 'Microsoft.Resources/deployments', format('{0}-enterprise-platform', parameters('prefix'))), '2025-04-01').outputs.litellmPostgresHost.value]"
     },
     "registryName": {
       "type": "string",

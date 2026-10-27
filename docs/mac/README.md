@@ -14,8 +14,8 @@ architecture.
 | Enterprise profile | Stores non-secret Entra/GitHub binding, catalog, revision, and admission metadata. | Let the helper create it; do not hand-edit or restore stale grants. |
 
 GitHub OAuth and Copilot tokens do not belong on the Mac. LiteLLM encrypts the
-GitHub connection in its private PostgreSQL database; Key Vault stores only the
-matching LiteLLM user key used by workers.
+GitHub connection in its private PostgreSQL schema; Key Vault stores only the
+matching LiteLLM user key.
 
 ## 1. Install prerequisites
 

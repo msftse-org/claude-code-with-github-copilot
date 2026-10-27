@@ -1,19 +1,22 @@
-Make exactly one focused correction to this architecture poster.
+Make exactly two focused corrections to this architecture poster.
 
-On the upper-left "Enterprise administrator" card, remove the duplicated blue
-Microsoft Entra ID service icon. Replace only that icon with a simple neutral
+1. On the upper-left "Enterprise administrator" card, remove the purple Azure
+Container Apps-style service icon. Replace only that icon with a simple neutral
 dark-navy administrator/person silhouette inside a subtle pale circle. The
 neutral symbol must not resemble any Azure, Microsoft Entra, GitHub, Claude,
 LiteLLM, or other product logo.
 
-Keep the official Microsoft Entra ID icon unchanged on the adjacent
-"Microsoft Entra ID" card.
+2. Remove only the unlabeled coral dashed horizontal arrow that starts at the
+right edge of the "CCGC control plane" card and ends at the left edge of the
+"Azure Key Vault" card. Keep the separately routed and labeled
+"resolve employee virtual key" connector from "CCGC-enabled LiteLLM" to
+"Azure Key Vault" unchanged.
 
 Freeze everything else pixel-for-pixel as closely as possible:
 - no text changes;
 - no spelling changes;
 - no component, badge, boundary, panel, or status changes;
-- no connector, endpoint, arrowhead, route, color, or label changes;
+- no other connector, endpoint, arrowhead, route, color, or label changes;
 - no layout, spacing, size, typography, background, or crop changes;
 - no changes to any other official service icon.
 

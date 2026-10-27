@@ -8,7 +8,8 @@ but it does not proxy inference.
 Two deployment modes share the same identity and enrollment contract:
 
 - **Managed LiteLLM:** deploy the full solution, including CCGC-enabled LiteLLM
-  and its PostgreSQL database.
+  and one PostgreSQL Flexible Server with separate `ccgc` and `litellm`
+  schemas.
 - **Existing LiteLLM:** install the CCGC authentication overlay on the
   customer's approved LiteLLM image and point the control plane and bootstrap
   job at that existing gateway.
@@ -24,8 +25,7 @@ approved zero-delete what-if and controlled runtime rollout are completed.
 | CCGC-enabled LiteLLM | Public Anthropic Messages gateway. Its custom-auth extension accepts normal customer LiteLLM keys unchanged and resolves CCGC Entra, API-key, or bounded admission credentials to the enrolled employee's LiteLLM virtual key. |
 | CCGC control plane | Public administration and enrollment service. `CCGC.Access` or employee API keys create bounded admissions; `CCGC.Admin` manages employees, GitHub device authorization, bindings, model reconciliation, status, and revocation. |
 | Bootstrap job | Initializes the enterprise schema, grants both control-plane and LiteLLM database principals, and idempotently creates the per-user OAuth credential, approved model groups, and user catalogs. |
-| CCGC PostgreSQL | Stores immutable Entra-to-GitHub bindings, employee API keys, enrollment state, admission budgets, revisions, and audit intent. |
-| LiteLLM PostgreSQL | Stores virtual keys, encrypted per-user GitHub connections, policies, and gateway state. It is deployed only in managed mode. |
+| PostgreSQL | Managed mode uses one server: the `ccgc` schema stores immutable bindings, employee API keys, enrollment state, admission budgets, revisions, and audit intent; the `litellm` schema stores virtual keys, encrypted per-user GitHub connections, policies, and gateway state. Existing mode keeps the dedicated CCGC server and the customer's existing LiteLLM database. |
 | Azure Key Vault | Stores employee LiteLLM virtual-key references and the administration secrets required by the selected deployment mode. |
 
 API Management remains omitted. LiteLLM is already the policy and inference
@@ -96,9 +96,11 @@ not reference, modify, or adopt `rg-ccgc-dev-87b7`. The topology includes:
   identity that is PostgreSQL Entra administrator only for initialization.
 - Public CCGC-enabled LiteLLM Container App with 2-10 replicas in managed mode,
   or a fixed existing customer LiteLLM HTTPS origin in existing mode.
-- Entra-only PostgreSQL for enterprise control state.
-- Dedicated private password-authenticated PostgreSQL for LiteLLM's Prisma state
-  only in managed mode.
+- One private PostgreSQL Flexible Server in managed mode, with Entra
+  authentication for the `ccgc` schema and password authentication for
+  LiteLLM's Prisma-managed `litellm` schema.
+- A separate Entra-only CCGC PostgreSQL server in existing-LiteLLM mode; the
+  customer's existing LiteLLM database remains unchanged.
 - Private Key Vault with RBAC, soft delete, and purge protection.
 - Private Premium ACR with admin and anonymous access disabled, plus a
   scale-to-zero VNet-attached ACR task agent pool for image publication.
@@ -110,10 +112,18 @@ not reference, modify, or adopt `rg-ccgc-dev-87b7`. The topology includes:
 - Log Analytics and workspace-based Application Insights. Application payload
   logging remains prohibited.
 
-The Bicep accepts `litellmMode: managed|existing`. Existing mode additionally
+The Bicep accepts `litellmMode: managed|existing`. Managed mode creates only one
+PostgreSQL Flexible Server and routes each workload through an explicit schema
+in its connection string. Existing mode additionally
 requires the customer LiteLLM URL, workload identity object ID, database
 principal name, and a scoped administration key. Employee GitHub tokens are
 never IaC parameters; LiteLLM obtains them through each user's device flow.
+
+Managed LiteLLM currently uses the shared server administrator credential from
+Key Vault because its Prisma startup owns `litellm` schema creation and
+migrations. The schemas separate object namespaces and CCGC runtime grants, but
+they are not a security boundary against that database administrator. CCGC
+runtime identities remain restricted to the `ccgc` schema.
 
 ## Build and validate
 
@@ -344,8 +354,8 @@ npm run enterprise:manage -- link \
 approved model IDs, `credentialSecretName`, `litellmCredentialName`,
 `litellmApiKey`, and concise administrator evidence. The admin command verifies that
 the LiteLLM key's user connection is currently connected to the confirmed
-GitHub login before storing only the LiteLLM key in Key Vault. The GitHub token
-remains encrypted in LiteLLM PostgreSQL. Evidence is stored only as SHA-256.
+GitHub login before storing only the LiteLLM key in Key Vault. The GitHub token remains encrypted in LiteLLM's PostgreSQL schema. Evidence is
+stored only as SHA-256.
 
 The employee then runs:
 

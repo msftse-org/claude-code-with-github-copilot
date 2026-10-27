@@ -9,7 +9,7 @@ import json
 import os
 import re
 from typing import Any, Protocol
-from urllib.parse import unquote, urlparse
+from urllib.parse import parse_qs, unquote, urlparse
 
 
 ADMISSION = re.compile(r"^[a-f0-9]{64}$")
@@ -193,8 +193,13 @@ class PostgresIdentityStore:
         self.user = unquote(parsed.username or "")
         self.password = unquote(parsed.password or "")
         self.database = unquote(parsed.path.strip("/"))
+        self.schema = parse_qs(parsed.query).get("schema", ["public"])[0]
         self.entra = entra
-        if not self.user or (entra and self.password):
+        if (
+            not self.user
+            or (entra and self.password)
+            or not re.fullmatch(r"[a-z][a-z0-9_]{0,62}", self.schema)
+        ):
             raise ValueError("CCGC PostgreSQL identity settings are invalid")
 
     async def _connection(self):
@@ -217,6 +222,7 @@ class PostgresIdentityStore:
             password=password,
             database=self.database,
             ssl="require",
+            server_settings={"search_path": self.schema},
             timeout=10,
         )
 

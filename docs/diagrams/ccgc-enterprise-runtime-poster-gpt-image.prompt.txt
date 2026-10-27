@@ -83,26 +83,22 @@ Control relationship labels:
   "resolve employee virtual key"
 
 STATE AND MONITORING:
-- "CCGC PostgreSQL"
-  Supporting text: "Bindings / admissions / audit"
-- "LiteLLM PostgreSQL"
-  Supporting text: "Existing or managed gateway state"
-  Badge: "customer owned"
+- "PostgreSQL Flexible Server"
+  Supporting text: "ccgc schema + litellm schema"
+  Badge: "one server in managed mode"
 - "Azure Monitor"
   Supporting text: "Metadata only / no prompt bodies"
 
 State relationship labels:
-- CCGC-enabled LiteLLM -> CCGC PostgreSQL:
-  "validate tenant + immutable GitHub binding"
-- CCGC-enabled LiteLLM -> LiteLLM PostgreSQL:
-  "existing or managed gateway state"
+- CCGC-enabled LiteLLM -> PostgreSQL Flexible Server:
+  "ccgc: bindings / admissions · litellm: keys / OAuth state"
 
 BOUNDARY:
 - Draw one restrained Azure/customer boundary labeled:
   "One customer deployment / one Microsoft Entra tenant"
 - It encloses Enterprise administrator, Microsoft Entra ID, CCGC control plane,
-  CCGC-enabled LiteLLM, Azure Key Vault, CCGC PostgreSQL, LiteLLM PostgreSQL,
-  and Azure Monitor.
+  CCGC-enabled LiteLLM, Azure Key Vault, PostgreSQL Flexible Server, and Azure
+  Monitor.
 - Claude Code, GitHub Copilot seat, and Claude models remain outside this
   customer deployment boundary.
 - No boundary line may cross a card, connector label, or service icon.
@@ -112,7 +108,8 @@ OFFICIAL ICON MAPPING:
 - Azure Container Apps reference icon -> CCGC control plane and managed
   CCGC-enabled LiteLLM runtime cards.
 - Azure Key Vault reference icon -> Azure Key Vault only.
-- Azure Database for PostgreSQL reference icon -> both PostgreSQL cards.
+- Azure Database for PostgreSQL reference icon -> PostgreSQL Flexible Server
+  only.
 - Azure Monitor reference icon -> Azure Monitor only.
 - Preserve the Claude mark beside Claude Code and Claude models, and the GitHub
   mark beside GitHub Copilot seat, as shown in the topology reference.
@@ -121,9 +118,9 @@ OFFICIAL ICON MAPPING:
 BOTTOM PANELS:
 
 1. "Two installation modes"
-   - "Managed: deploy the complete CCGC-enabled LiteLLM and its PostgreSQL."
+   - "Managed: one PostgreSQL server with separate ccgc and litellm schemas."
    - "Existing: add the CCGC extension without replacing customer models,
-      keys, teams, budgets, callbacks, or policies."
+      keys, teams, budgets, callbacks, policies, or database."
 
 2. "Single-tenant identity"
    - "The deployment accepts exactly one Microsoft Entra tenant."

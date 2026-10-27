@@ -81,7 +81,8 @@ The enterprise path has two runtime roles:
 
 Current LiteLLM Gateway supports **Per-user GitHub OAuth**: each request is
 authenticated as the same LiteLLM user who connected GitHub, and each user's
-encrypted GitHub connection is stored separately in LiteLLM PostgreSQL. This
+encrypted GitHub connection is stored separately in LiteLLM's PostgreSQL
+schema. This
 solution adds the missing single-tenant Entra-to-GitHub binding through
 [`server/ccgc_litellm_auth.py`](server/ccgc_litellm_auth.py). Existing customer
 LiteLLM virtual keys continue through normal authentication because custom auth
@@ -91,7 +92,7 @@ Two installation modes implement the same contract:
 
 | Mode | Result |
 |---|---|
-| `managed` | Deploys the complete control plane, CCGC-enabled LiteLLM, LiteLLM PostgreSQL, CCGC PostgreSQL, Key Vault, monitoring, and bootstrap job. |
+| `managed` | Deploys the complete control plane, CCGC-enabled LiteLLM, one PostgreSQL Flexible Server with separate `ccgc` and `litellm` schemas, Key Vault, monitoring, and bootstrap job. |
 | `existing` | Deploys CCGC control resources and attaches to the customer's existing LiteLLM URL, workload identity, PostgreSQL, policies, and model estate. The overlay does not replace existing keys, teams, budgets, callbacks, or unrelated models. |
 
 The existing-LiteLLM overlay is in
@@ -103,7 +104,7 @@ The existing-LiteLLM overlay is in
 |---|---|
 | Azure Container Apps | Scales the public CCGC control plane and, in managed mode, the public CCGC-enabled LiteLLM gateway; it also runs the one-shot bootstrap job. |
 | Microsoft Entra ID | Authenticates the one customer tenant's employees and administrators; employee API keys remain an optional control-plane-managed alternative. |
-| Azure Database for PostgreSQL | Stores CCGC identity/admission/audit state. Managed mode also provisions LiteLLM PostgreSQL; existing mode keeps the customer's database. |
+| Azure Database for PostgreSQL | Managed mode uses one server with a `ccgc` schema for identity/admission/audit state and a `litellm` schema for gateway state. Existing mode keeps a separate CCGC server while preserving the customer's existing LiteLLM database. |
 | Azure Key Vault | Stores account-scoped LiteLLM user-key references and managed LiteLLM administration secrets. |
 | Azure Container Registry | Stores approved immutable control-plane and managed LiteLLM images. |
 | Azure Monitor and Application Insights | Records operational metadata without prompt or response bodies. |
@@ -128,7 +129,7 @@ Each employee needs:
 The Mac uses Microsoft Entra or a Keychain-held employee API key to request an
 admission from the control plane. The admission is presented directly to
 LiteLLM, whose CCGC extension resolves only the matching employee virtual key.
-GitHub OAuth tokens remain encrypted in LiteLLM PostgreSQL.
+GitHub OAuth tokens remain encrypted in the LiteLLM PostgreSQL schema.
 
 See [Mac enterprise setup and operation](docs/mac/README.md) for installation,
 Entra sign-in, configuration, Keychain behavior, verification, and daily use.

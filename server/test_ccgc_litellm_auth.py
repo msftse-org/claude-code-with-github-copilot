@@ -1,10 +1,14 @@
 import json
+import sys
 import unittest
+from types import SimpleNamespace
+from unittest.mock import AsyncMock, patch
 
 from ccgc_litellm_auth import (
     AuthenticationRejected,
     Binding,
     CCGCAuthenticator,
+    PostgresIdentityStore,
     Principal,
 )
 
@@ -99,6 +103,39 @@ class CCGCLiteLLMAuthTests(unittest.IsolatedAsyncioTestCase):
         )
         with self.assertRaisesRegex(AuthenticationRejected, "another tenant"):
             await self.auth.authenticate("a" * 64, "/v1/messages")
+
+    def test_postgres_identity_store_routes_queries_to_ccgc_schema(self):
+        store = PostgresIdentityStore(
+            "postgresql://identity@postgres.example/postgres?schema=ccgc&sslmode=require",
+            True,
+        )
+        self.assertEqual(store.schema, "ccgc")
+
+    def test_postgres_identity_store_rejects_unsafe_schema(self):
+        with self.assertRaisesRegex(ValueError, "identity settings"):
+            PostgresIdentityStore(
+                "postgresql://identity@postgres.example/postgres?schema=ccgc%3Bdrop",
+                True,
+            )
+
+    async def test_postgres_identity_store_sets_connection_search_path(self):
+        connect = AsyncMock(return_value=object())
+        store = PostgresIdentityStore(
+            "postgresql://identity:password@postgres.example/postgres?schema=ccgc&sslmode=require",
+            False,
+        )
+        with patch.dict(sys.modules, {"asyncpg": SimpleNamespace(connect=connect)}):
+            await store._connection()
+        connect.assert_awaited_once_with(
+            host="postgres.example",
+            port=5432,
+            user="identity",
+            password="password",
+            database="postgres",
+            ssl="require",
+            server_settings={"search_path": "ccgc"},
+            timeout=10,
+        )
 
 
 if __name__ == "__main__":

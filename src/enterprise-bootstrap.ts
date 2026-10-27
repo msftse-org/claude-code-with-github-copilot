@@ -26,6 +26,7 @@ async function bootstrapDatabase(models: string[]): Promise<{
   const store = new PostgresEnterpriseStore(required('CCGC_POSTGRES_URL'), new DefaultAzureCredential());
   try {
     await store.initialize();
+    const schema = `"${store.schemaName}"`;
     for (const principal of principals) {
       const identifier = `"${principal.replaceAll('"', '""')}"`;
       const existing = await store.pool.query('SELECT 1 FROM pg_roles WHERE rolname = $1', [principal]);
@@ -33,11 +34,11 @@ async function bootstrapDatabase(models: string[]): Promise<{
         await store.pool.query('SELECT * FROM pgaadauth_create_principal($1, false, false)', [principal]);
       }
       await store.pool.query(`GRANT CONNECT ON DATABASE postgres TO ${identifier}`);
-      await store.pool.query(`GRANT USAGE ON SCHEMA public TO ${identifier}`);
-      await store.pool.query(`GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO ${identifier}`);
-      await store.pool.query(`GRANT USAGE, SELECT, UPDATE ON ALL SEQUENCES IN SCHEMA public TO ${identifier}`);
-      await store.pool.query(`ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO ${identifier}`);
-      await store.pool.query(`ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT USAGE, SELECT, UPDATE ON SEQUENCES TO ${identifier}`);
+      await store.pool.query(`GRANT USAGE ON SCHEMA ${schema} TO ${identifier}`);
+      await store.pool.query(`GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA ${schema} TO ${identifier}`);
+      await store.pool.query(`GRANT USAGE, SELECT, UPDATE ON ALL SEQUENCES IN SCHEMA ${schema} TO ${identifier}`);
+      await store.pool.query(`ALTER DEFAULT PRIVILEGES IN SCHEMA ${schema} GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO ${identifier}`);
+      await store.pool.query(`ALTER DEFAULT PRIVILEGES IN SCHEMA ${schema} GRANT USAGE, SELECT, UPDATE ON SEQUENCES TO ${identifier}`);
     }
     return await store.reconcileModelCatalog(required('CCGC_ENTRA_TENANT_ID'), models);
   } finally {

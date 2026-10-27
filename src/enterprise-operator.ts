@@ -195,6 +195,7 @@ export class EnterpriseOperator {
     const store = new PostgresEnterpriseStore(this.postgresUrl, this.credential);
     try {
       await store.initialize();
+      const schema = `"${store.schemaName}"`;
       const principal = this.brokerDatabasePrincipal;
       const identifier = `"${principal.replaceAll('"', '""')}"`;
       const existing = await store.pool.query('SELECT 1 FROM pg_roles WHERE rolname = $1', [principal]);
@@ -202,11 +203,11 @@ export class EnterpriseOperator {
         await store.pool.query('SELECT * FROM pgaadauth_create_principal($1, false, false)', [principal]);
       }
       await store.pool.query(`GRANT CONNECT ON DATABASE postgres TO ${identifier}`);
-      await store.pool.query(`GRANT USAGE ON SCHEMA public TO ${identifier}`);
-      await store.pool.query(`GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO ${identifier}`);
-      await store.pool.query(`GRANT USAGE, SELECT, UPDATE ON ALL SEQUENCES IN SCHEMA public TO ${identifier}`);
-      await store.pool.query(`ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO ${identifier}`);
-      await store.pool.query(`ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT USAGE, SELECT, UPDATE ON SEQUENCES TO ${identifier}`);
+      await store.pool.query(`GRANT USAGE ON SCHEMA ${schema} TO ${identifier}`);
+      await store.pool.query(`GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA ${schema} TO ${identifier}`);
+      await store.pool.query(`GRANT USAGE, SELECT, UPDATE ON ALL SEQUENCES IN SCHEMA ${schema} TO ${identifier}`);
+      await store.pool.query(`ALTER DEFAULT PRIVILEGES IN SCHEMA ${schema} GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO ${identifier}`);
+      await store.pool.query(`ALTER DEFAULT PRIVILEGES IN SCHEMA ${schema} GRANT USAGE, SELECT, UPDATE ON SEQUENCES TO ${identifier}`);
       return { status: 'bootstrapped', brokerDatabasePrincipal: principal };
     } finally {
       await store.close();

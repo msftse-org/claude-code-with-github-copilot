@@ -83,6 +83,13 @@ test('enterprise deployment stages private image publication before runtime', as
   assert.match(platform, /resource bootstrapJob 'Microsoft\.App\/jobs@2025-01-01' = if \(deployRuntime\)/);
   assert.match(platform, /resource worker .* = if \(deployRuntime && deployLegacyWorker\)/);
   assert.match(platform, /resource litellm .* = if \(deployRuntime && managedLiteLLM\)/);
+  assert.equal((platform.match(/Microsoft\.DBforPostgreSQL\/flexibleServers@2024-08-01/g) ?? []).length, 1);
+  assert.doesNotMatch(platform, /snet-litellm-postgres|litellmPostgresName/);
+  assert.match(platform, /passwordAuth: managedLiteLLM \? 'Enabled' : 'Disabled'/);
+  assert.match(platform, /postgres\?schema=ccgc&sslmode=require/);
+  assert.match(platform, /postgres\?schema=litellm&sslmode=require/);
+  assert.match(main, /param managedPostgresAdminLogin string = 'ccgcadmin'/);
+  assert.doesNotMatch(main, /litellmPostgresHost|litellmPostgresAdmin/);
   assert.match(main, /param litellmMode string = 'managed'/);
   assert.match(main, /param existingLiteLLMUrl string = ''/);
   assert.match(automation, /deployRuntime: false/);
@@ -146,7 +153,7 @@ test('the runtime design contract matches deployed service boundaries and depend
   for (const id of [
     'employee', 'administrator', 'entra-id', 'control-plane',
     'litellm-gateway', 'key-vault', 'github-copilot', 'claude-models',
-    'azure-monitor', 'enterprise-postgres', 'litellm-postgres',
+    'azure-monitor', 'shared-postgres',
   ]) assert.equal(ids.has(id), true, `missing design component ${id}`);
 
   assert.equal(ids.has('multiuser-worker'), false);
@@ -165,7 +172,7 @@ test('the runtime design contract matches deployed service boundaries and depend
     'entra-id->litellm-gateway',
     'control-plane->litellm-gateway',
     'key-vault->litellm-gateway',
-    'litellm-gateway->litellm-postgres',
+    'litellm-gateway->shared-postgres',
   ]) {
     const [from, to] = relationship.split('->');
     assert.equal(

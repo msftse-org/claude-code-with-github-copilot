@@ -79,23 +79,14 @@
       "size": [170, 92]
     },
     {
-      "id": "enterprise-postgres",
+      "id": "shared-postgres",
       "type": "database",
-      "label": "CCGC PostgreSQL",
-      "sublabel": "Bindings / admissions / audit",
+      "label": "PostgreSQL Flexible Server",
+      "sublabel": "ccgc schema + litellm schema",
+      "tag": "one server in managed mode",
       "brand": "postgresql",
-      "pos": [350, 620],
-      "size": [210, 88]
-    },
-    {
-      "id": "litellm-postgres",
-      "type": "database",
-      "label": "LiteLLM PostgreSQL",
-      "sublabel": "Existing or managed gateway state",
-      "tag": "customer owned",
-      "brand": "postgresql",
-      "pos": [660, 620],
-      "size": [210, 88]
+      "pos": [470, 620],
+      "size": [330, 88]
     },
     {
       "id": "azure-monitor",
@@ -116,8 +107,7 @@
         "control-plane",
         "litellm-gateway",
         "key-vault",
-        "enterprise-postgres",
-        "litellm-postgres",
+        "shared-postgres",
         "azure-monitor"
       ],
       "pad": 28
@@ -187,12 +177,12 @@
     {
       "id": "litellm-to-postgres",
       "from": "litellm-gateway",
-      "to": "enterprise-postgres",
-      "label": "validate tenant + immutable GitHub binding",
+      "to": "shared-postgres",
+      "label": "ccgc: bindings / admissions · litellm: keys / OAuth state",
       "variant": "security",
       "fromSide": "bottom",
       "toSide": "top",
-      "labelAt": [320, 535]
+      "labelAt": [480, 535]
     },
     {
       "id": "litellm-to-vault",
@@ -203,15 +193,6 @@
       "fromSide": "top",
       "toSide": "bottom",
       "labelAt": [790, 280]
-    },
-    {
-      "id": "litellm-state",
-      "from": "litellm-gateway",
-      "to": "litellm-postgres",
-      "label": "existing or managed gateway state",
-      "fromSide": "bottom",
-      "toSide": "top",
-      "labelAt": [650, 565]
     }
   ],
   "cards": [
@@ -219,8 +200,8 @@
       "dot": "cyan",
       "title": "Two installation modes",
       "items": [
-        "Managed: deploy the complete CCGC-enabled LiteLLM and its PostgreSQL.",
-        "Existing: add the CCGC extension without replacing customer models, keys, teams, or policies."
+        "Managed: one PostgreSQL server with separate ccgc and litellm schemas.",
+        "Existing: add the CCGC extension without replacing the customer database, models, keys, teams, or policies."
       ]
     },
     {

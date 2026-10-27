@@ -50,12 +50,12 @@ param existingLiteLLMDatabasePrincipalName string = ''
 @description('Number of private ACR task agents. Use zero at rest and scale to one while publishing images.')
 param buildAgentPoolCount int = 0
 
-@description('Administrator login for the private LiteLLM PostgreSQL server.')
-param litellmPostgresAdminLogin string = 'litellmadmin'
+@description('Password administrator login for the shared managed PostgreSQL server. Required only when litellmMode is managed.')
+param managedPostgresAdminLogin string = 'ccgcadmin'
 
 @secure()
-@description('Administrator password for the private LiteLLM PostgreSQL server.')
-param litellmPostgresAdminPassword string = ''
+@description('Password administrator credential used by managed LiteLLM on the shared PostgreSQL server. Required only when litellmMode is managed.')
+param managedPostgresAdminPassword string = ''
 
 @secure()
 @minLength(32)
@@ -111,8 +111,8 @@ module platform 'modules/platform.bicep' = {
     existingLiteLLMPrincipalId: existingLiteLLMPrincipalId
     existingLiteLLMDatabasePrincipalName: existingLiteLLMDatabasePrincipalName
     buildAgentPoolCount: buildAgentPoolCount
-    litellmPostgresAdminLogin: litellmPostgresAdminLogin
-    litellmPostgresAdminPassword: litellmPostgresAdminPassword
+    managedPostgresAdminLogin: managedPostgresAdminLogin
+    managedPostgresAdminPassword: managedPostgresAdminPassword
     litellmMasterKey: litellmMasterKey
     litellmSaltKey: litellmSaltKey
     dispatchSigningSecret: dispatchSigningSecret
@@ -131,7 +131,6 @@ output workerInternalFqdn string = platform.outputs.workerInternalFqdn
 output litellmInternalFqdn string = platform.outputs.litellmInternalFqdn
 output keyVaultName string = platform.outputs.keyVaultName
 output postgresHost string = platform.outputs.postgresHost
-output litellmPostgresHost string = platform.outputs.litellmPostgresHost
 output registryName string = platform.outputs.registryName
 output registryLoginServer string = platform.outputs.registryLoginServer
 output buildAgentPoolName string = platform.outputs.buildAgentPoolName

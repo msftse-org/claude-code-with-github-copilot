@@ -49,11 +49,13 @@ Claude Code `2.1.296` does not expose an Advisor tool through this route.
 
 Entra authenticates CCGC access, not Copilot entitlement. Each immutable
 enterprise principal must be linked to that same employee's authorized GitHub
-account. The control plane and LiteLLM use managed identities for narrowly
-scoped Key Vault and CCGC PostgreSQL access. CCGC PostgreSQL stores bindings,
-enrollment state, admission budgets, and audit intent. LiteLLM's existing or
-managed database stores virtual keys, encrypted OAuth connections, and gateway
-state. Azure Monitor collects restricted metadata, never prompt/response bodies.
+account. The control plane and LiteLLM use managed identities for narrowly scoped Key
+Vault and CCGC PostgreSQL access. In managed mode, one PostgreSQL Flexible
+Server uses a `ccgc` schema for bindings, enrollment state, admission budgets,
+and audit intent, plus a `litellm` schema for virtual keys, encrypted OAuth
+connections, and gateway state. Existing-LiteLLM mode retains the customer's
+database and provisions a separate CCGC server. Azure Monitor collects
+restricted metadata, never prompt/response bodies.
 
 The private-workload outline is a logical boundary, not a subnet-placement map.
 Key Vault is also an Azure managed service, reached privately. The JWT trust

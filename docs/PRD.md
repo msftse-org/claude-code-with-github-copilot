@@ -42,11 +42,17 @@ rollout explicitly revokes and replaces existing credentials.
 
 The deployment supports two modes:
 
-1. `managed` deploys the complete CCGC-enabled LiteLLM, its PostgreSQL database,
-   CCGC PostgreSQL, Key Vault, monitoring, control plane, and bootstrap job.
+1. `managed` deploys the complete CCGC-enabled LiteLLM, one PostgreSQL Flexible
+   Server with separate `ccgc` and `litellm` schemas, Key Vault, monitoring,
+   control plane, and bootstrap job.
 2. `existing` deploys CCGC control resources and attaches to one fixed customer
    LiteLLM origin and workload identity. The additive overlay preserves existing
    models, keys, teams, budgets, callbacks, scaling, and unrelated workloads.
+
+The managed schemas have separate responsibilities and connection paths:
+CCGC services use Entra-authenticated connections with `search_path=ccgc`;
+LiteLLM uses its Prisma connection with `schema=litellm`. Existing-LiteLLM mode
+does not move the customer's LiteLLM data and retains a separate CCGC server.
 
 API Management remains unnecessary because LiteLLM is already the customer's
 inference and policy gateway. Release remains blocked on controlled deployment,

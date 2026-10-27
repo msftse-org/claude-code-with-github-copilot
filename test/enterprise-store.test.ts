@@ -5,13 +5,15 @@ import { PostgresEnterpriseStore } from '../src/enterprise-store.ts';
 
 test('PostgreSQL Entra configuration preserves the asynchronous token password', async () => {
   const store = new PostgresEnterpriseStore(
-    'postgresql://managed-identity@example.postgres.database.azure.com:5432/postgres?sslmode=verify-full',
+    'postgresql://managed-identity@example.postgres.database.azure.com:5432/postgres?schema=ccgc&sslmode=verify-full',
     { getToken: async () => ({ token: 'managed-identity-token' }) },
   );
   try {
     assert.equal(store.pool.options.host, 'example.postgres.database.azure.com');
     assert.equal(store.pool.options.user, 'managed-identity');
     assert.equal(store.pool.options.database, 'postgres');
+    assert.equal(store.pool.options.options, '-c search_path=ccgc');
+    assert.equal(store.schemaName, 'ccgc');
     const configuredPassword = store.pool.options.password;
     assert.equal(typeof configuredPassword, 'function');
     if (typeof configuredPassword !== 'function') assert.fail('Expected an asynchronous PostgreSQL password provider.');
@@ -19,6 +21,16 @@ test('PostgreSQL Entra configuration preserves the asynchronous token password',
   } finally {
     await store.close();
   }
+});
+
+test('PostgreSQL schema routing rejects unsafe schema names', () => {
+  assert.throws(
+    () => new PostgresEnterpriseStore(
+      'postgresql://managed-identity@example.postgres.database.azure.com:5432/postgres?schema=ccgc%3Bdrop',
+      { getToken: async () => ({ token: 'managed-identity-token' }) },
+    ),
+    /schema name is invalid/,
+  );
 });
 
 test('runtime PostgreSQL configuration does not own schema migrations', async () => {

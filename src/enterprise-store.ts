@@ -237,6 +237,7 @@ async function rollback(client: PoolClient): Promise<void> {
 export class PostgresEnterpriseStore implements EnterpriseStore {
   readonly pool: Pool;
   readonly manageSchema: boolean;
+  readonly schemaName: string;
 
   constructor(
     connectionString: string,
@@ -255,14 +256,19 @@ export class PostgresEnterpriseStore implements EnterpriseStore {
     const username = decodeURIComponent(endpoint.username);
     const password = decodeURIComponent(endpoint.password);
     const database = decodeURIComponent(endpoint.pathname.replace(/^\//, ''));
+    const schemaName = endpoint.searchParams.get('schema') ?? 'public';
     if (!username || !database || (tokenProvider && password)) {
       throw new BridgeError('INVALID_OPTIONS', 'The PostgreSQL user and database are required, and Entra connections must not embed a password.');
+    }
+    if (!/^[a-z][a-z0-9_]{0,62}$/.test(schemaName)) {
+      throw new BridgeError('INVALID_OPTIONS', 'The PostgreSQL schema name is invalid.');
     }
     this.pool = new Pool({
       host: endpoint.hostname,
       port: endpoint.port ? Number(endpoint.port) : 5432,
       user: username,
       database,
+      options: `-c search_path=${schemaName}`,
       ...(tokenProvider ? {
         password: async () => {
           const access = await tokenProvider.getToken('https://ossrdbms-aad.database.windows.net/.default');
@@ -276,21 +282,24 @@ export class PostgresEnterpriseStore implements EnterpriseStore {
       ssl: localTest ? false : { rejectUnauthorized: true },
     });
     this.manageSchema = manageSchema;
+    this.schemaName = schemaName;
   }
 
   async initialize(): Promise<void> {
     if (this.manageSchema) {
+      await this.pool.query(`CREATE SCHEMA IF NOT EXISTS "${this.schemaName}"`);
       await this.pool.query(SCHEMA);
       return;
     }
+    const schema = this.schemaName;
     const result = await this.pool.query(`
       SELECT
-        to_regclass('public.enterprise_account_bindings') IS NOT NULL
-        AND to_regclass('public.enterprise_api_keys') IS NOT NULL
-        AND to_regclass('public.enterprise_enrollments') IS NOT NULL
-        AND to_regclass('public.enterprise_admissions') IS NOT NULL
-        AND to_regclass('public.enterprise_dispatches') IS NOT NULL
-        AND to_regclass('public.enterprise_audit_outbox') IS NOT NULL
+        to_regclass('${schema}.enterprise_account_bindings') IS NOT NULL
+        AND to_regclass('${schema}.enterprise_api_keys') IS NOT NULL
+        AND to_regclass('${schema}.enterprise_enrollments') IS NOT NULL
+        AND to_regclass('${schema}.enterprise_admissions') IS NOT NULL
+        AND to_regclass('${schema}.enterprise_dispatches') IS NOT NULL
+        AND to_regclass('${schema}.enterprise_audit_outbox') IS NOT NULL
         AS initialized
     `);
     if (result.rows[0]?.initialized !== true) {
