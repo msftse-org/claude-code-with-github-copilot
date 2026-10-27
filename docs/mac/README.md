@@ -10,7 +10,7 @@ architecture.
 | Official Claude Code `2.1.296` or newer | Provides the unchanged coding interface and runs local Read, Edit, Bash, and permission decisions. | Install and verify the minimum supported version. |
 | Enterprise CCGC helper | Shell-based self-enrollment client and Claude `apiKeyHelper`. | Keep the installed private script at its stable path. |
 | Admission credential in macOS Keychain | Authenticates Claude requests for one employee and one bounded admission. | Allow the helper to create and renew it; never copy it manually. |
-| `~/.claude/settings.json` | Routes Claude to the enterprise broker and installs the credential helper. | Enrollment applies a conflict-checked update. |
+| `~/.claude/settings.json` | Routes Claude to the central LiteLLM gateway and installs the control-plane credential helper. | Enrollment applies a conflict-checked update. |
 | Enterprise profile | Stores non-secret Entra/GitHub binding, catalog, revision, and admission metadata. | Let the helper create it; do not hand-edit or restore stale grants. |
 
 GitHub OAuth and Copilot tokens do not belong on the Mac. LiteLLM encrypts the
@@ -24,7 +24,7 @@ Required for self-service API-key enrollment:
 - macOS
 - Official Claude Code `2.1.296` or newer
 - The repository's `scripts/ccgc-enterprise-macos.sh` enrollment script
-- A broker URL and unexpired single-use enrollment code from Enterprise IT
+- A public CCGC control-plane URL and unexpired single-use enrollment code from Enterprise IT
 
 Download the tracked script from the private organization repository with an
 authenticated GitHub CLI session:
@@ -66,11 +66,11 @@ IT must distribute the script through the corporate software channel.
   --code CCGC-ONE-TIME-CODE
 ```
 
-The script defaults to the deployed pilot broker. A different deployment can
-be selected explicitly with `--gateway https://PUBLIC_BROKER_FQDN`.
+The script defaults to the deployed pilot control plane. A different deployment can
+be selected explicitly with `--gateway https://PUBLIC_CONTROL_PLANE_FQDN`.
 
 The script opens GitHub's device page, displays the expected GitHub login,
-and waits for authorization. The broker rejects a different GitHub identity or
+and waits for authorization. The control plane rejects a different GitHub identity or
 an account without an active Copilot entitlement. After verification, the
 script stores the employee API key directly in Keychain, writes the
 non-secret profile, and configures Claude Code. The administrator never sees
@@ -91,7 +91,7 @@ it saves local credentials or acknowledges the one-time code.
 
 Enterprise IT provides:
 
-- the public HTTPS enterprise broker URL
+- the public HTTPS CCGC control-plane URL
 - the Entra application audience, such as `api://APPLICATION-ID`
 - confirmation that the employee is assigned to the authorized Entra pilot group
 - confirmation that the employee's Entra principal is linked to the same
@@ -101,15 +101,16 @@ Run:
 
 ```bash
 npm run enterprise:client -- login \
-  --gateway https://PUBLIC_BROKER_FQDN \
+  --gateway https://PUBLIC_CONTROL_PLANE_FQDN \
   --audience api://ENTRA-APPLICATION-ID
 ```
 
 The helper uses `DefaultAzureCredential` to obtain an Entra token for the
-configured audience over the public internet. The enterprise broker verifies
+configured audience over the public internet. The CCGC control plane verifies
 the tenant, audience, `CCGC.Access` scope/app role, and immutable object ID,
-then returns the approved employee binding and model catalog. No VPN is
-required; worker, LiteLLM, and data endpoints remain private.
+then returns the approved employee binding, model catalog, and public
+CCGC-enabled LiteLLM gateway. No VPN is required; PostgreSQL and Key Vault
+remain private.
 
 The organization must define which `DefaultAzureCredential` source is allowed in
 production. Before login, remove unintended developer, CLI, IDE, or managed
@@ -121,7 +122,7 @@ file through an approved secret-delivery channel and ensure it has mode `0600`:
 ```bash
 chmod 600 "$HOME/.config/ccgc/api-key.json"
 npm run enterprise:client -- login-api-key \
-  --gateway https://PUBLIC_BROKER_FQDN \
+  --gateway https://PUBLIC_CONTROL_PLANE_FQDN \
   --api-key-file "$HOME/.config/ccgc/api-key.json"
 rm "$HOME/.config/ccgc/api-key.json"
 ```
@@ -140,7 +141,7 @@ Login writes a private profile to:
 
 It contains:
 
-- enterprise broker URL and Entra audience
+- CCGC control-plane URL, central LiteLLM gateway URL, and Entra audience
 - Entra tenant and immutable object ID
 - linked GitHub login and immutable account ID
 - approved Claude model IDs
@@ -152,7 +153,7 @@ It does not contain:
 - the Entra access token
 - GitHub OAuth credentials
 - Copilot tokens
-- GitHub or worker-service credentials
+- GitHub or gateway-service credentials
 - the opaque admission token
 
 The profile is private operational state. Do not commit it, synchronize it,
@@ -190,7 +191,7 @@ configuration later, run:
 
 This updates `~/.claude/settings.json` and:
 
-- sets the enterprise broker as `ANTHROPIC_BASE_URL`
+- sets the discovered central LiteLLM gateway as `ANTHROPIC_BASE_URL`
 - configures the default approved model
 - enables gateway model discovery
 - installs the enterprise `apiKeyHelper`
@@ -244,7 +245,7 @@ The doctor fails closed and reports the first actionable problem. It verifies:
 - absence of conflicting shell and Claude credentials
 - the enterprise base URL, model, helper, cache, permissions, and auto-mode settings
 - the employee key in macOS Keychain
-- broker health and the current account binding
+- control-plane health, LiteLLM discovery, and the current account binding
 - the approved model ID and human-readable discovery name
 - the Sonnet 5.5 128K output limit
 - one real bounded inference response
@@ -261,18 +262,18 @@ claude
 
 When Claude invokes the `apiKeyHelper`, the helper:
 
-1. obtains an Entra token for the broker audience or loads the employee API key
+1. obtains an Entra token for the control-plane audience or loads the employee API key
    from macOS Keychain
 2. requests an eight-hour, 50-attempt bounded admission
 3. stores the random opaque admission token in macOS Keychain
 4. stores only the admission ID and expiry in the non-secret profile
 5. returns the token to Claude on standard output
 
-The Keychain service name is derived from the enterprise broker URL. The
+The Keychain service name is derived from the CCGC control-plane URL. The
 credential is never written to the profile or Claude settings.
 
 Use `/model` inside Claude Code to select another approved model. Do not add
-provider keys or override the broker URL.
+provider keys or override the control-plane or LiteLLM gateway URLs.
 
 ## 10. Supported and unsupported behavior
 
@@ -287,7 +288,8 @@ provider keys or override the broker URL.
 - Low-effort between-tools thinking
 - Exact token counting
 - Completed-turn resume after admission renewal or gateway restart
-- Exact pending-tool resume after an enterprise worker restart
+- Exact pending-tool resume after an enterprise worker restart is legacy-pilot
+  evidence and remains a central-LiteLLM migration acceptance gate
 - Coordinated agents/subagents
 - Background Bash tasks
 - Hooks
@@ -313,7 +315,7 @@ The detailed reasons and enforcement points are in the root
 
 Only the opaque admission token is stored in macOS Keychain. It is:
 
-- specific to one enterprise broker
+- specific to one customer deployment
 - bound server-side to one Entra/GitHub employee binding
 - short-lived and attempt-limited
 - replaced when fewer than five minutes remain
@@ -343,7 +345,7 @@ Stop and contact enterprise IT if any of these change unexpectedly:
 - GitHub account ID or login
 - model catalog
 - binding revision
-- enterprise broker URL
+- CCGC control-plane or LiteLLM gateway URL
 
 Do not delete or edit the profile to bypass an identity conflict.
 
@@ -352,13 +354,14 @@ Do not delete or edit the profile to bypass an identity conflict.
 | Symptom | Action |
 |---|---|
 | Entra sign-in returns no token | Verify the approved credential source can obtain `<audience>/.default`. |
-| Broker returns HTTP 401 | Reauthenticate with the intended Entra principal and confirm audience configuration. |
-| Broker returns HTTP 403 | Ask enterprise IT to verify the employee binding and its revision. |
+| Control plane returns HTTP 401 | Reauthenticate with the intended Entra principal and confirm audience configuration. |
+| Control plane returns HTTP 403 | Ask enterprise IT to verify the employee binding and its revision. |
+| LiteLLM returns HTTP 401 or 403 | Run `doctor` to renew the bounded admission and verify the binding; do not add a provider key. |
 | Keychain credential is unavailable | Unlock Keychain and confirm the current macOS user owns the enrollment. |
 | Routing conflict | Remove or resolve the reported environment or Claude setting; do not force an overwrite. |
 | No models are listed | Ask enterprise IT to verify the employee's approved catalog and account binding. |
 | Claude stopped working after an update | Run the installed helper's `doctor`; do not delete credentials or repeat enrollment unless Enterprise IT confirms a lifecycle condition above. |
-| A worker replica restarts | Retry only through normal Claude behavior. The next admitted turn can restore the encrypted branch checkpoint on another replica; an uncertain in-flight inference is never replayed automatically. |
+| A LiteLLM replica or gateway restarts | Run `doctor`, renew the bounded admission, and resume only through normal Claude behavior. Never replay an uncertain in-flight inference automatically. |
 
 Useful checks:
 

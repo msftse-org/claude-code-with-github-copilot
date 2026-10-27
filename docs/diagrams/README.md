@@ -35,6 +35,11 @@ Claude's local tools, hooks, and background execution remain local. A separate
 CCGC control plane handles enrollment, administration, bounded admissions, and
 revocation, but is not in the inference path.
 
+In the managed branch, the current poster shows exactly one PostgreSQL Flexible
+Server with separate `ccgc` and `litellm` schemas. In the existing-LiteLLM
+branch, the customer database remains unchanged and CCGC retains its separate
+solution-owned PostgreSQL server.
+
 The LiteLLM custom-auth extension validates the fixed Entra tenant or hashes an
 opaque CCGC credential, resolves the active immutable Entra-to-GitHub binding,
 verifies the Key Vault secret's GitHub account ID, and returns that employee's

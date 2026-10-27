@@ -17,7 +17,8 @@ extension.
 3. Configure the variables in `environment.example` through the customer's
    secret and workload-identity mechanism.
 4. Grant the LiteLLM workload identity read access to CCGC employee secrets and
-   database access to the single customer's CCGC schema.
+   database access to the `ccgc` schema on the solution-owned CCGC PostgreSQL
+   server.
 5. Run the standard CCGC bootstrap reconciliation against the existing
    LiteLLM URL. The operation is idempotent and creates only the namespaced
    GitHub Copilot credential, Claude model groups, users, and virtual keys
@@ -28,9 +29,14 @@ to continue through normal LiteLLM authentication while CCGC Entra tokens,
 employee API keys, and bounded admission tokens are resolved through the
 single-tenant Entra-to-GitHub binding.
 
-Applying or upgrading this overlay must preserve the CCGC PostgreSQL schema,
-Key Vault employee secrets, LiteLLM users/virtual keys, encrypted GitHub
-connections, and control-plane bindings. Run bootstrap reconciliation after
+Existing-LiteLLM mode intentionally does not consolidate or migrate the
+customer's LiteLLM database. The one-server, two-schema topology applies only
+to managed mode.
+
+Applying or upgrading this overlay must preserve the solution-owned `ccgc`
+schema, the customer's existing LiteLLM database, Key Vault employee secrets,
+LiteLLM users/virtual keys, encrypted GitHub connections, and control-plane
+bindings. Run bootstrap reconciliation after
 the rollout, but do not issue new employee enrollment codes merely because the
 overlay or underlying LiteLLM image changed. Existing employees verify with
 their installed helper; re-enrollment is reserved for explicit credential,

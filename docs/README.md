@@ -4,11 +4,15 @@ For **new deployments**, use [end-to-end Bicep/Terraform automation](AUTOMATION.
 instead of repeating these steps manually. This document remains the detailed
 operator runbook for the existing proof host and troubleshooting.
 
-The enterprise target has separate [runtime](diagrams/ccgc-enterprise-runtime.html)
+The enterprise target has separate [runtime](diagrams/ccgc-enterprise-runtime-poster.html)
 and [provisioning](diagrams/ccgc-enterprise-provisioning.html) diagrams, with
 [presentation posters and source notes](diagrams/README.md). Those designs are
 not deployed. This runbook still operates the existing single-user proof host,
 shown in the [current-state diagram](diagrams/ccgc-automated-solution.html).
+
+The managed enterprise target uses one PostgreSQL Flexible Server with separate
+`ccgc` and `litellm` schemas. That consolidation does not apply to this
+historical VM runbook or to a customer's database in existing-LiteLLM mode.
 
 Follow these sections in order:
 

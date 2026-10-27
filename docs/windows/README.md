@@ -1,8 +1,12 @@
 # Enterprise Windows setup
 
 The Windows x64 client is a single native executable. It requires the official
-Claude Code `2.1.296` or newer, the public enterprise broker URL, and an unexpired
-single-use enrollment code from Enterprise IT.
+Claude Code `2.1.296` or newer, the public CCGC control-plane URL, and an
+unexpired single-use enrollment code from Enterprise IT.
+
+The `--gateway` flag names the public CCGC control-plane URL for compatibility.
+After enrollment, the client uses the inference gateway discovered from that
+control plane: the public CCGC-enabled LiteLLM endpoint.
 
 ## Install and enroll
 
@@ -18,7 +22,7 @@ Enroll:
 
 ```powershell
 & "$env:LOCALAPPDATA\CCGC\bin\ccgc-enterprise.exe" enroll `
-  --gateway "https://PUBLIC_BROKER_FQDN" `
+  --gateway "https://PUBLIC_CONTROL_PLANE_FQDN" `
   --code "CCGC-ONE-TIME-CODE"
 ```
 
@@ -27,7 +31,7 @@ identity approved by Enterprise IT. After verification it:
 
 1. Protects the 30-day employee key with Windows DPAPI for the current user.
 2. Writes only non-secret binding metadata to the enterprise profile.
-3. Configures Claude Code to use the enterprise broker.
+3. Configures Claude Code to use the discovered central LiteLLM gateway.
 4. Installs itself as Claude's `apiKeyHelper`.
 5. Acknowledges and consumes the one-time enrollment.
 
@@ -56,8 +60,9 @@ claude
 ```
 
 Claude invokes `ccgc-enterprise token` automatically to exchange the protected
-employee key for a short-lived, bounded admission. Do not move the executable
-after enrollment; if it must move, run `ccgc-enterprise configure` from its new
+employee key with the control plane for a short-lived, bounded admission, then
+presents that admission directly to LiteLLM. Do not move the executable after
+enrollment; if it must move, run `ccgc-enterprise configure` from its new
 location.
 
 The pilot executable is unsigned unless Enterprise IT provides an Authenticode

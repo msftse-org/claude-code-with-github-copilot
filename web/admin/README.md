@@ -1,7 +1,7 @@
 # CCGC administrator panel
 
-The broker serves this dependency-free panel at `/ccgc/admin`. Every
-administration API request uses an Entra bearer token and the broker continues
+The CCGC control plane serves this dependency-free panel at `/ccgc/admin`. Every
+administration API request uses an Entra bearer token and the control plane continues
 to require the `CCGC.Admin` app role.
 
 ## Browser authentication
@@ -33,7 +33,7 @@ The Entra application registration must include:
 - delegated scope `api://<client-id>/CCGC.Invoke`
 - tenant-restricted authority using `CCGC_ENTRA_TENANT_ID`
 
-The broker returns the required public values from `/ccgc/admin/config` and
+The control plane returns the required public values from `/ccgc/admin/config` and
 allows browser-originated administration calls only when `Origin` exactly
 matches `CCGC_BROKER_ORIGIN`.
 

@@ -39,6 +39,8 @@ employee's own GitHub Copilot seat**.
 
 [Open the current interactive runtime architecture](docs/diagrams/ccgc-enterprise-runtime-poster.html).
 
+![Single-tenant central-LiteLLM runtime](docs/diagrams/ccgc-enterprise-runtime-poster-gpt-image.png)
+
 Each installation serves exactly one customer and one Microsoft Entra tenant.
 LiteLLM is the central inference gateway. Its CCGC custom-auth extension
 validates Entra, employee API-key, or bounded admission credentials; resolves
@@ -52,7 +54,9 @@ not in the inference data path. The legacy broker-to-worker inference path is
 disabled by default and retained only as an explicit migration rollback.
 
 > [!IMPORTANT]
-> The Azure enterprise pilot is deployed and validated. Production rollout still
+> The currently deployed Azure pilot is the superseded broker/worker revision.
+> The central-LiteLLM and single-managed-PostgreSQL target is implemented and
+> validated locally but has not been migrated to Azure. Production rollout still
 > requires the release gates documented in
 > [docs/ENTERPRISE.md](docs/ENTERPRISE.md).
 
@@ -93,7 +97,7 @@ Two installation modes implement the same contract:
 | Mode | Result |
 |---|---|
 | `managed` | Deploys the complete control plane, CCGC-enabled LiteLLM, one PostgreSQL Flexible Server with separate `ccgc` and `litellm` schemas, Key Vault, monitoring, and bootstrap job. |
-| `existing` | Deploys CCGC control resources and attaches to the customer's existing LiteLLM URL, workload identity, PostgreSQL, policies, and model estate. The overlay does not replace existing keys, teams, budgets, callbacks, or unrelated models. |
+| `existing` | Deploys a separate CCGC control server and CCGC PostgreSQL server, then attaches to the customer's existing LiteLLM URL, workload identity, database, policies, and model estate. The overlay does not replace existing keys, teams, budgets, callbacks, database objects, or unrelated models. |
 
 The existing-LiteLLM overlay is in
 [`deploy/existing-litellm/`](deploy/existing-litellm/).
@@ -304,7 +308,7 @@ cp docs/examples/enterprise-create-enrollment.example.json \
 chmod 600 /private/path/create-enrollment.json
 
 npm run enterprise:manage -- create-enrollment \
-  --url https://PUBLIC_BROKER_FQDN \
+  --url https://PUBLIC_CONTROL_PLANE_FQDN \
   --audience api://ENTRA-APPLICATION-ID \
   --input /private/path/create-enrollment.json \
   --output /private/path/enrollment.json
@@ -325,7 +329,7 @@ gh api \
 chmod 600 "$HOME/Downloads/ccgc-enterprise-macos.sh"
 
 /bin/bash "$HOME/Downloads/ccgc-enterprise-macos.sh" enroll \
-  --gateway https://PUBLIC_BROKER_FQDN \
+  --gateway https://PUBLIC_CONTROL_PLANE_FQDN \
   --code CCGC-ONE-TIME-CODE
 ```
 
@@ -381,12 +385,12 @@ the employee is present:
 
 ```bash
 npm run enterprise:manage -- create-user \
-  --url https://PUBLIC_BROKER_FQDN \
+  --url https://PUBLIC_CONTROL_PLANE_FQDN \
   --audience api://ENTRA-APPLICATION-ID \
   --input /private/path/create-user.json \
   --output /private/path/created-user.json
 npm run enterprise:manage -- connect \
-  --url https://PUBLIC_BROKER_FQDN \
+  --url https://PUBLIC_CONTROL_PLANE_FQDN \
   --audience api://ENTRA-APPLICATION-ID \
   --input /private/path/connect-user.json
 ```
@@ -404,7 +408,7 @@ same employee, then writes the approved private binding:
 
 ```bash
 npm run enterprise:manage -- link \
-  --url https://PUBLIC_BROKER_FQDN \
+  --url https://PUBLIC_CONTROL_PLANE_FQDN \
   --audience api://ENTRA-APPLICATION-ID \
   --input /private/path/link.json
 ```
@@ -419,7 +423,7 @@ binding increments its revision and revokes existing admissions.
 
 ```bash
 npm run enterprise:client -- login \
-  --gateway https://PUBLIC_BROKER_FQDN \
+  --gateway https://PUBLIC_CONTROL_PLANE_FQDN \
   --audience api://ENTRA-APPLICATION-ID
 
 npm run enterprise:client -- configure
@@ -485,11 +489,12 @@ The foundation must not be described as production-ready until these gates pass.
 
 ## Diagram provenance
 
-The current Archify JSON shows Claude Code calling one public single-tenant
-CCGC-enabled LiteLLM, with a separate control plane for enrollment and
-administration. Historical PNG and HTML artifacts still show the superseded
-broker/worker revision and are labeled accordingly. Diagram sources,
-provenance, and validation receipts are in
+The current Archify JSON and GPT-image poster show Claude Code calling one public
+single-tenant CCGC-enabled LiteLLM, with a separate control plane and one
+managed PostgreSQL Flexible Server containing `ccgc` and `litellm` schemas.
+Historical artifacts for revision 0.21 still show the superseded broker/worker
+topology and are labeled accordingly. Diagram sources, provenance, and
+validation receipts are in
 [docs/diagrams](docs/diagrams/README.md).
 
 ## Resources
