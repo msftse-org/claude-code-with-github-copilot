@@ -251,7 +251,7 @@ the complete deployment-approved catalog. Binding changes increment the
 revision, revoke active admissions, and emit audit events. Deployment fails if
 the job does not reach `Succeeded` within 15 minutes.
 
-API-key employees use a single-use, 30-minute self-service enrollment. The
+API-key employees use a single-use, one-hour self-service enrollment. The
 administrator provides only the employee email and GitHub username, then
 creates an enrollment code. The broker supplies the deployment tenant and
 approved model catalog and resolves the canonical GitHub login and immutable

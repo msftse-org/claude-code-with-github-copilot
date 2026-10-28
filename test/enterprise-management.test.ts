@@ -499,7 +499,9 @@ test('self-service enrollment is retry-safe and consumes temporary secrets after
       credentialSecretName: string;
       pendingSecretName: string;
       models: string[];
+      ttlSeconds: number;
     }) => {
+      assert.equal(input.ttlSeconds, 60 * 60);
       codeHash = input.codeHash;
       enrollment = {
         id: '33333333-3333-3333-3333-333333333333',

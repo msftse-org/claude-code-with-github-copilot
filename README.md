@@ -315,7 +315,7 @@ npm run enterprise:manage -- create-enrollment \
 ```
 
 The administrator gives the employee only the control-plane URL and the `CCGC-...`
-code from the private output. The code expires after 30 minutes and is consumed
+code from the private output. The code expires after one hour and is consumed
 after one successful setup.
 
 For the validated macOS pilot path, the employee downloads the repository's

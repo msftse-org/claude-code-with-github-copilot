@@ -8,7 +8,7 @@ import { PostgresEnterpriseStore } from './enterprise-store.ts';
 
 const exec = promisify(execFile);
 const API_KEY_TTL_SECONDS = 30 * 24 * 60 * 60;
-const ENROLLMENT_TTL_SECONDS = 30 * 60;
+const ENROLLMENT_TTL_SECONDS = 60 * 60;
 
 export interface EnrollmentSecrets {
   set(name: string, value: string, expiresAt: Date): Promise<void>;

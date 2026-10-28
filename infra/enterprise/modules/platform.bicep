@@ -70,7 +70,7 @@ resource bootstrapIdentity 'Microsoft.ManagedIdentity/userAssignedIdentities@202
   tags: tags
 }
 
-resource workerIdentity 'Microsoft.ManagedIdentity/userAssignedIdentities@2024-11-30' = {
+resource workerIdentity 'Microsoft.ManagedIdentity/userAssignedIdentities@2024-11-30' = if (deployLegacyWorker) {
   name: workerIdentityName
   location: location
   tags: tags
@@ -224,6 +224,11 @@ resource vnet 'Microsoft.Network/virtualNetworks@2024-07-01' = {
           networkSecurityGroup: {
             id: workloadNsg.id
           }
+          serviceEndpoints: [
+            {
+              service: 'Microsoft.Storage'
+            }
+          ]
         }
       }
       {
@@ -239,7 +244,7 @@ resource vnet 'Microsoft.Network/virtualNetworks@2024-07-01' = {
       {
         name: 'snet-acr-agent-pool'
         properties: {
-          addressPrefix: '10.80.2.64/27'
+          addressPrefix: '10.80.2.96/27'
           natGateway: {
             id: natGateway.id
           }
@@ -365,7 +370,7 @@ resource vault 'Microsoft.KeyVault/vaults@2024-11-01' = {
   }
 }
 
-resource dispatchSecret 'Microsoft.KeyVault/vaults/secrets@2024-11-01' = {
+resource dispatchSecret 'Microsoft.KeyVault/vaults/secrets@2024-11-01' = if (deployLegacyWorker) {
   parent: vault
   name: 'broker-worker-dispatch-signing'
   properties: {
@@ -378,7 +383,7 @@ resource dispatchSecret 'Microsoft.KeyVault/vaults/secrets@2024-11-01' = {
   }
 }
 
-resource checkpointKeySecret 'Microsoft.KeyVault/vaults/secrets@2024-11-01' = {
+resource checkpointKeySecret 'Microsoft.KeyVault/vaults/secrets@2024-11-01' = if (deployLegacyWorker) {
   parent: vault
   name: 'worker-checkpoint-encryption'
   properties: {
@@ -901,7 +906,7 @@ resource worker 'Microsoft.App/containerApps@2025-01-01' = if (deployRuntime && 
   identity: {
     type: 'UserAssigned'
     userAssignedIdentities: {
-      '${workerIdentity.id}': {}
+      '${workerIdentity!.id}': {}
     }
   }
   properties: {
@@ -917,7 +922,7 @@ resource worker 'Microsoft.App/containerApps@2025-01-01' = if (deployRuntime && 
       }
       registries: [
         {
-          identity: workerIdentity.id
+          identity: workerIdentity!.id
           server: registry.properties.loginServer
         }
       ]
@@ -931,7 +936,7 @@ resource worker 'Microsoft.App/containerApps@2025-01-01' = if (deployRuntime && 
           env: [
             {
               name: 'AZURE_CLIENT_ID'
-              value: workerIdentity.properties.clientId
+              value: workerIdentity!.properties.clientId
             }
             {
               name: 'CCGC_KEY_VAULT_URL'
@@ -1201,10 +1206,10 @@ resource brokerKeyVaultAccess 'Microsoft.Authorization/roleAssignments@2022-04-0
 }
 
 resource workerKeyVaultAccess 'Microsoft.Authorization/roleAssignments@2022-04-01' = if (deployLegacyWorker) {
-  name: guid(vault.id, workerIdentity.id, 'Key Vault Secrets User')
+  name: guid(vault.id, workerIdentity!.id, 'Key Vault Secrets User')
   scope: vault
   properties: {
-    principalId: workerIdentity.properties.principalId
+    principalId: workerIdentity!.properties.principalId
     principalType: 'ServicePrincipal'
     roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', '4633458b-17de-408a-b874-0445c86b69e6')
   }
@@ -1251,10 +1256,10 @@ resource registryPull 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
 }
 
 resource workerRegistryPull 'Microsoft.Authorization/roleAssignments@2022-04-01' = if (deployLegacyWorker) {
-  name: guid(registry.id, workerIdentity.id, 'AcrPull')
+  name: guid(registry.id, workerIdentity!.id, 'AcrPull')
   scope: registry
   properties: {
-    principalId: workerIdentity.properties.principalId
+    principalId: workerIdentity!.properties.principalId
     principalType: 'ServicePrincipal'
     roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', '7f951dda-4ed3-4680-a7ca-43fe172d538d')
   }
@@ -1281,10 +1286,10 @@ resource bootstrapRegistryPull 'Microsoft.Authorization/roleAssignments@2022-04-
 }
 
 resource workerStorageAccess 'Microsoft.Authorization/roleAssignments@2022-04-01' = if (deployLegacyWorker) {
-  name: guid(storage.id, workerIdentity.id, 'Storage Blob Data Contributor')
+  name: guid(storage.id, workerIdentity!.id, 'Storage Blob Data Contributor')
   scope: storage
   properties: {
-    principalId: workerIdentity.properties.principalId
+    principalId: workerIdentity!.properties.principalId
     principalType: 'ServicePrincipal'
     roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', 'ba92f5b4-2d11-453d-a403-e96b0029c9fe')
   }

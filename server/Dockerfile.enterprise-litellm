@@ -14,7 +14,7 @@ RUN mkdir /wheels \
       "asyncpg==0.30.0" \
       "azure-identity==1.25.1" \
       "azure-keyvault-secrets==4.10.0" \
-      "PyJWT[crypto]==2.10.1"
+      "PyJWT[crypto]==2.15.1"
 
 FROM ghcr.io/berriai/litellm:main-latest@sha256:de5b050c1e9bd7e6c0aebfa126c5df71de071962592ba3e9638b28e45bed3901
 
@@ -29,7 +29,7 @@ RUN /app/.venv/bin/python -m ensurepip \
       "asyncpg==0.30.0" \
       "azure-identity==1.25.1" \
       "azure-keyvault-secrets==4.10.0" \
-      "PyJWT[crypto]==2.10.1" \
+      "PyJWT[crypto]==2.15.1" \
     && rm -rf /tmp/ccgc-wheels
 
 RUN DATABASE_URL=postgresql://generate:generate@localhost:5432/generate \

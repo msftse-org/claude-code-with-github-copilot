@@ -3,12 +3,11 @@
 from __future__ import annotations
 
 import asyncio
-from dataclasses import dataclass
 from hashlib import sha256
 import json
 import os
 import re
-from typing import Any, Protocol
+from typing import Any, NamedTuple, Protocol
 from urllib.parse import parse_qs, unquote, urlparse
 
 
@@ -26,15 +25,13 @@ class AuthenticationRejected(Exception):
         self.status_code = status_code
 
 
-@dataclass(frozen=True)
-class Principal:
+class Principal(NamedTuple):
     tenant_id: str
     object_id: str
     subject: str
 
 
-@dataclass(frozen=True)
-class Binding:
+class Binding(NamedTuple):
     tenant_id: str
     object_id: str
     github_account_id: int

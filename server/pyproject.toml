@@ -9,7 +9,7 @@ dependencies = [
   "azure-keyvault-secrets==4.10.0",
   "litellm[proxy]==1.104.0",
   "prisma==0.15.0",
-  "PyJWT[crypto]==2.10.1",
+  "PyJWT[crypto]==2.15.1",
 ]
 
 [tool.uv]
