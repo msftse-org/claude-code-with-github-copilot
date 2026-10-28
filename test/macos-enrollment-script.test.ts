@@ -115,7 +115,9 @@ printf '%s\\n' "$DETECTED_CLAUDE_VERSION"
 
 test('macOS enrollment verifies health, discovery, output limits and inference before acknowledgment', async () => {
   const source = await readFile(script, 'utf8');
-  assert.match(source, /ccgc\/enterprise\/config[\s\S]*preflight_enrollment_settings "\$gateway"[\s\S]*ccgc\/enroll\/start/);
+  assert.match(source, /discover_inference_gateway "\$control_plane"[\s\S]*preflight_enrollment_settings "\$gateway"[\s\S]*ccgc\/enroll\/start/);
+  assert.match(source, /ROUTE_UNSUPPORTED[\s\S]*gateway="\$control_plane"/);
+  assert.match(source, /advertised_gateway[\s\S]*gateway" = "\$control_plane"/);
   assert.match(source, /verify_gateway_health "\$control_plane" "\$tmp_dir\/health\.json"[\s\S]*ccgc\/enroll\/start/);
   assert.match(source, /verify_gateway_access "\$control_plane" "\$gateway" "\$api_key" "\$default_model" "\$tmp_dir"[\s\S]*prepare_profile/);
   assert.match(source, /plutil -insert controlPlane/);

@@ -153,7 +153,7 @@ write_body() {
   printf '%s\n' "$2" >"$1"
 }
 
-request_json() {
+request_json_status() {
   local method="$1"
   local url="$2"
   local bearer="$3"
@@ -161,7 +161,6 @@ request_json() {
   local output_file="$5"
   local timeout="${6:-30}"
   local code
-  local message
   local curl_args=(
     --silent
     --show-error
@@ -183,6 +182,20 @@ request_json() {
   else
     code="$(/usr/bin/curl "${curl_args[@]}")"
   fi
+  printf '%s' "$code"
+}
+
+request_json() {
+  local method="$1"
+  local url="$2"
+  local bearer="$3"
+  local body_file="$4"
+  local output_file="$5"
+  local timeout="${6:-30}"
+  local code
+  local message
+
+  code="$(request_json_status "$method" "$url" "$bearer" "$body_file" "$output_file" "$timeout")"
   case "$code" in
     2??) ;;
     *)
@@ -195,6 +208,43 @@ request_json() {
   esac
   valid_json "$output_file" ||
     fail 'enterprise gateway returned invalid JSON'
+}
+
+discover_inference_gateway() {
+  local control_plane="$1"
+  local output_file="$2"
+  local code
+  local error_code
+  local error_message
+  local gateway
+
+  code="$(request_json_status GET "$control_plane/ccgc/enterprise/config" '' '' "$output_file")"
+  case "$code" in
+    2??)
+      valid_json "$output_file" || fail 'enterprise gateway returned invalid JSON'
+      gateway="$(json_value "$output_file" inferenceGateway)"
+      ;;
+    404)
+      valid_json "$output_file" || fail 'enterprise gateway returned invalid JSON'
+      error_code="$(json_raw "$output_file" error.code 2>/dev/null || true)"
+      error_message="$(json_raw "$output_file" error.message 2>/dev/null || true)"
+      if [ "$error_code" != 'ROUTE_UNSUPPORTED' ] &&
+        [[ "$error_message" != ROUTE_UNSUPPORTED:* ]]; then
+        fail 'enterprise gateway does not expose central LiteLLM discovery'
+      fi
+      gateway="$control_plane"
+      ;;
+    *)
+      if valid_json "$output_file"; then
+        error_code="$(json_raw "$output_file" error.message 2>/dev/null || true)"
+        [ -z "$error_code" ] ||
+          fail "enterprise gateway returned HTTP $code: $error_code"
+      fi
+      fail "enterprise gateway returned HTTP $code"
+      ;;
+  esac
+  validate_gateway "$gateway"
+  printf '%s' "$gateway"
 }
 
 validate_gateway() {
@@ -596,6 +646,7 @@ enroll() {
   local key_saved=0
   local default_model
   local model_count
+  local advertised_gateway
 
   while [ "$#" -gt 0 ]; do
     case "$1" in
@@ -625,9 +676,7 @@ enroll() {
   trap cleanup_temp EXIT
 
   verify_gateway_health "$control_plane" "$tmp_dir/health.json"
-  request_json GET "$control_plane/ccgc/enterprise/config" '' '' "$tmp_dir/config.json"
-  gateway="$(json_value "$tmp_dir/config.json" inferenceGateway)"
-  validate_gateway "$gateway"
+  gateway="$(discover_inference_gateway "$control_plane" "$tmp_dir/config.json")"
   preflight_enrollment_settings "$gateway"
   install_self
   write_body "$body" "{\"code\":\"$code\"}"
@@ -674,8 +723,14 @@ enroll() {
   validate_api_key "$api_key"
 
   request_json GET "$control_plane/ccgc/enterprise/info" "$api_key" '' "$tmp_dir/info.json"
-  [ "$(json_value "$tmp_dir/info.json" inferenceGateway)" = "$gateway" ] ||
-    fail 'control plane changed the central LiteLLM gateway during enrollment'
+  advertised_gateway="$(json_raw "$tmp_dir/info.json" inferenceGateway 2>/dev/null || true)"
+  if [ -n "$advertised_gateway" ]; then
+    [ "$advertised_gateway" = "$gateway" ] ||
+      fail 'control plane changed the central LiteLLM gateway during enrollment'
+  else
+    [ "$gateway" = "$control_plane" ] ||
+      fail 'control plane omitted the configured central LiteLLM gateway'
+  fi
   default_model="$(json_value "$tmp_dir/info.json" models.0)"
   [[ "$default_model" =~ ^claude-[a-z0-9.-]+$ ]] ||
     fail 'gateway returned an invalid default model'
