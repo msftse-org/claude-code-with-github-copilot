@@ -16,6 +16,7 @@ test('macOS enrollment script has valid Bash syntax', async () => {
 test('macOS enrollment script documents the managed-device-safe flow', async () => {
   const { stdout } = await exec('/bin/bash', [script.pathname, 'help']);
   assert.match(stdout, /stores the\s+30-day employee key in macOS Keychain/);
+  assert.match(stdout, /Claude Code CLI\s+and the Code tab in Claude Desktop/);
   assert.match(stdout, /does not\s+disable Gatekeeper/);
   assert.match(stdout, /do not repeat enrollment for routine service/i);
   assert.match(stdout, /Enroll again only with a new Enterprise IT code/);
@@ -113,6 +114,16 @@ printf '%s\\n' "$DETECTED_CLAUDE_VERSION"
   );
 });
 
+test('macOS enrollment preserves canonical gateway model IDs for both clients', async () => {
+  const harness = `
+eval "$(/usr/bin/sed '/^command=/,$d' "$1")"
+printf '%s\\n' "$(client_model 'claude-sonnet-5.5')"
+printf '%s\\n' "$(client_model 'claude-haiku-4.5')"
+`;
+  const result = await exec('/bin/bash', ['-c', harness, 'bash', script.pathname]);
+  assert.deepEqual(result.stdout.trim().split('\n'), ['claude-sonnet-5.5', 'claude-haiku-4.5']);
+});
+
 test('macOS enrollment verifies health, discovery, output limits and inference before acknowledgment', async () => {
   const source = await readFile(script, 'utf8');
   assert.match(source, /discover_inference_gateway "\$control_plane"[\s\S]*preflight_enrollment_settings "\$gateway"[\s\S]*ccgc\/enroll\/start/);
@@ -124,7 +135,42 @@ test('macOS enrollment verifies health, discovery, output limits and inference b
   assert.match(source, /output_limit=128000/);
   assert.match(source, /Reply exactly CCGC_CLIENT_READY/);
   assert.match(source, /gateway model display mismatch/);
+  assert.match(source, /\[ "\$model_id" = "\$client_id" \] \|\| \[ "\$model_id" = "\$default_model" \]/);
   assert.match(source, /ccgc\/enroll\/complete/);
+});
+
+test('macOS gateway verification accepts canonical model IDs without display labels', async () => {
+  const harness = `
+eval "$(/usr/bin/sed '/^command=/,$d' "$1")"
+request_json() {
+  local method="$1"
+  local url="$2"
+  local output="$5"
+  case "$method $url" in
+    "POST https://broker.example/ccgc/enterprise/admissions")
+      printf '{"token":"%s"}\\n' "$(printf 'a%.0s' {1..64})" >"$output"
+      ;;
+    "GET https://gateway.example/v1/models")
+      printf '{"data":[{"id":"claude-sonnet-5.5"}]}\\n' >"$output"
+      ;;
+    "POST https://gateway.example/v1/messages")
+      printf '{"model":"claude-sonnet-5.5","content":[{"type":"text","text":"CCGC_CLIENT_READY"}]}\\n' >"$output"
+      ;;
+    *) return 1 ;;
+  esac
+}
+tmp="$(mktemp -d)"
+trap 'rm -rf "$tmp"' EXIT
+verify_gateway_access \
+  'https://broker.example' \
+  'https://gateway.example' \
+  "ccgc_sk_$(printf 'k%.0s' {1..43})" \
+  'claude-sonnet-5.5' \
+  "$tmp"
+printf 'gateway-verification-ok\\n'
+`;
+  const result = await exec('/bin/bash', ['-c', harness, 'bash', script.pathname]);
+  assert.equal(result.stdout.trim(), 'gateway-verification-ok');
 });
 
 test('macOS doctor covers local security, conflicts, Keychain, binding and live inference', async () => {
@@ -136,8 +182,10 @@ test('macOS doctor covers local security, conflicts, Keychain, binding and live 
   assert.match(source, /ANTHROPIC_AUTH_TOKEN/);
   assert.match(source, /CLAUDE_CODE_OAUTH_TOKEN/);
   assert.match(source, /Claude settings do not route to the enrolled enterprise gateway/);
+  assert.match(source, /Claude settings retain a conflicting default model/);
   assert.match(source, /enterprise profile models no longer match the gateway binding/);
   assert.match(source, /verify_gateway_access "\$control_plane" "\$gateway" "\$api_key" "\$default_model" "\$tmp_dir"/);
+  assert.match(source, /Claude Desktop Code: %s \(shared enterprise settings verified\)/);
   assert.match(source, /CCGC doctor passed/);
 });
 

@@ -54,8 +54,9 @@ Usage:
   bash ccgc-enterprise-macos.sh doctor
 
 The enrollment command verifies the assigned GitHub account, stores the
-30-day employee key in macOS Keychain, and configures Claude Code. It does not
-disable Gatekeeper, remove quarantine attributes, or change MDM policy.
+30-day employee key in macOS Keychain, and configures both the Claude Code CLI
+and the Code tab in Claude Desktop through their shared settings profile. It
+does not disable Gatekeeper, remove quarantine attributes, or change MDM policy.
 Existing employees do not repeat enrollment for routine service, model, script,
 or Claude Code updates. Run doctor first; use models or configure when needed.
 Enroll again only with a new Enterprise IT code for credential, identity,
@@ -99,6 +100,25 @@ require_claude_version() {
     fail "Claude Code $MINIMUM_CLAUDE_VERSION or newer is required (found $version); run 'claude install $MINIMUM_CLAUDE_VERSION'"
   fi
   DETECTED_CLAUDE_VERSION="$version"
+}
+
+claude_desktop_version() {
+  local app='/Applications/Claude.app'
+  local info="$app/Contents/Info.plist"
+  local bundle_id
+  local version
+
+  [ -d "$app" ] || return 1
+  [ -f "$info" ] || fail 'Claude Desktop has an invalid application bundle'
+  bundle_id="$(/usr/bin/plutil -extract CFBundleIdentifier raw -o - "$info" 2>/dev/null)" ||
+    fail 'could not identify the installed Claude Desktop application'
+  [ "$bundle_id" = 'com.anthropic.claudefordesktop' ] ||
+    fail 'the installed Claude Desktop application is not the official Anthropic build'
+  version="$(/usr/bin/plutil -extract CFBundleShortVersionString raw -o - "$info" 2>/dev/null)" ||
+    fail 'could not determine the installed Claude Desktop version'
+  [[ "$version" =~ ^[0-9]+(\.[0-9]+)+$ ]] ||
+    fail 'could not parse the installed Claude Desktop version'
+  printf '%s' "$version"
 }
 
 json_raw() {
@@ -392,10 +412,11 @@ verify_gateway_access() {
   client_id="$(client_model "$default_model")"
   expected_display="$(model_display_name "$default_model")"
   while model_id="$(json_raw "$tmp_dir/models.json" "data.$index.id" 2>/dev/null)"; do
-    if [ "$model_id" = "$client_id" ]; then
-      display_name="$(json_value "$tmp_dir/models.json" "data.$index.display_name")"
-      [ "$display_name" = "$expected_display" ] ||
+    if [ "$model_id" = "$client_id" ] || [ "$model_id" = "$default_model" ]; then
+      display_name="$(json_raw "$tmp_dir/models.json" "data.$index.display_name" 2>/dev/null || true)"
+      if [ -n "$display_name" ] && [ "$display_name" != "$expected_display" ]; then
         fail "gateway model display mismatch: expected $expected_display, received $display_name"
+      fi
       found=1
       break
     fi
@@ -443,11 +464,7 @@ install_self() {
 }
 
 client_model() {
-  if [ "$1" = 'claude-haiku-4.5' ]; then
-    printf 'claude-haiku-4-5-20251001'
-  else
-    printf '%s' "$1" | /usr/bin/tr '.' '-'
-  fi
+  printf '%s' "$1"
 }
 
 plist_set_string() {
@@ -589,6 +606,7 @@ EOF
   if [ -z "$permission_mode" ]; then
     plist_set_string "$output" permissions.defaultMode manual
   fi
+  plist_set_string "$output" model "$(client_model "$default_model")"
   plist_set_string "$output" apiKeyHelper "$helper"
   /usr/bin/plutil -remove "$JSON_SETUP_MARKER" "$output"
   /usr/bin/plutil -convert json "$output"
@@ -873,6 +891,7 @@ doctor() {
   local existing
   local api_key
   local tmp_dir
+  local desktop_version
 
   require_macos_tools
   require_claude_version
@@ -909,6 +928,8 @@ doctor() {
     fail 'Claude settings do not route to the enrolled enterprise gateway'
   [ "$(json_value "$SETTINGS_PATH" env.ANTHROPIC_DEFAULT_MODEL)" = "$expected_model" ] ||
     fail 'Claude settings do not select the approved default model'
+  [ "$(json_value "$SETTINGS_PATH" model)" = "$expected_model" ] ||
+    fail 'Claude settings retain a conflicting default model'
   [ "$(json_value "$SETTINGS_PATH" env.CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY)" = '1' ] ||
     fail 'Claude gateway model discovery is not enabled'
   [ "$(json_value "$SETTINGS_PATH" env.CLAUDE_CODE_API_KEY_HELPER_TTL_MS)" = '60000' ] ||
@@ -946,6 +967,11 @@ doctor() {
   printf 'CCGC doctor passed.\n'
   printf 'Claude Code: %s (minimum supported: %s)\n' \
     "$DETECTED_CLAUDE_VERSION" "$MINIMUM_CLAUDE_VERSION"
+  if desktop_version="$(claude_desktop_version)"; then
+    printf 'Claude Desktop Code: %s (shared enterprise settings verified)\n' "$desktop_version"
+  else
+    printf 'Claude Desktop Code: not installed; CLI profile verified\n'
+  fi
   printf 'GitHub account: %s (%s)\n' \
     "$(json_value "$tmp_dir/info.json" githubLogin)" \
     "$(json_value "$tmp_dir/info.json" githubAccountId)"

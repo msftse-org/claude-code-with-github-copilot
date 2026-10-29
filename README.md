@@ -341,13 +341,21 @@ one-time enrollment. The administrator never transfers or sees the key.
 
 Enrollment installs a private copy at
 `~/.local/share/ccgc/enterprise/ccgc-enterprise-macos.sh` because Claude uses
-the script's `token` command as its `apiKeyHelper`. Run its `doctor` command
-after enrollment, a Claude Code update, or before sending sanitized diagnostics
-to Enterprise IT:
+the script's `token` command as its `apiKeyHelper`. The terminal CLI and the
+Claude Desktop Code tab read this same `~/.claude/settings.json` profile. Run
+the script's `doctor` command after enrollment, a Claude client update, or
+before sending sanitized diagnostics to Enterprise IT:
 
 ```bash
 /bin/bash "$HOME/.local/share/ccgc/enterprise/ccgc-enterprise-macos.sh" doctor
 ```
+
+Local macOS verification on 2026-10-28 passed with Claude Code CLI `2.1.308`
+and the Claude Desktop Code tab in app `3.6556.2`. Both used the shared
+enterprise settings and canonical `claude-sonnet-5.5` model ID for live
+inference. Claude Desktop's account shell remains signed in to the user's
+Claude plan; the Code session provider is selected independently by the shared
+Claude Code settings.
 
 Existing employees do **not** repeat `enroll` for routine control-plane,
 LiteLLM, model-catalog, image, or Claude Code updates. Those updates preserve

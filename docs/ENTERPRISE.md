@@ -289,9 +289,14 @@ the code. Completed output is held temporarily in Key Vault until
 acknowledgment so a lost HTTP response can be retried without losing the only
 copy of the key.
 
-The executable remains installed as Claude's `apiKeyHelper` and supports
-`token`, `models`, and `configure`. Build targets are macOS ARM64 and Windows
-x64:
+The executable remains installed as Claude's `apiKeyHelper` for both the
+terminal CLI and the Claude Desktop Code tab and supports `token`, `models`,
+and `configure`. Build targets are macOS ARM64 and Windows x64:
+
+The macOS path was verified locally on 2026-10-28 with Claude Code CLI
+`2.1.308` and Claude Desktop `3.6556.2`. The helper's live doctor, terminal CLI
+inference, and a Desktop Code-tab inference all passed through the same central
+LiteLLM profile using the canonical `claude-sonnet-5.5` identifier.
 
 ```bash
 GOOS=darwin GOARCH=arm64 go build -trimpath -o dist/ccgc-enterprise-darwin-arm64 ./cmd/ccgc-enterprise
