@@ -35,6 +35,10 @@ employee's own GitHub Copilot seat**.
 
 ## Architecture
 
+[Open the interactive layered architecture dashboard](docs/diagrams/ccgc-layered-architecture.html)
+to switch between the employee flow, the combined user/admin view, and the
+administration-only view.
+
 ### Employee request flow
 
 [Open the interactive employee runtime diagram](docs/diagrams/ccgc-employee-runtime.html).

@@ -7,6 +7,10 @@ inference topology. The central-LiteLLM runtime is deployed and validated in
 the Sweden Central enterprise pilot. Managed mode runs one PostgreSQL Flexible
 Server with separate `ccgc` and `litellm` schemas.
 
+[Open the layered architecture dashboard](ccgc-layered-architecture.html) to
+toggle between the employee flow, the administration overlay, and the
+administration-only view without replacing the authoritative split diagrams.
+
 | Enterprise diagram | Reviewed preview | Interactive HTML | Technical source |
 |---|---|---|---|
 | Employee request flow | [Light-theme capture](ccgc-employee-runtime.visual-check.2048x1320.light.png) | [Interactive viewer](ccgc-employee-runtime.html) | [Architecture JSON](ccgc-employee-runtime.architecture.json) |
