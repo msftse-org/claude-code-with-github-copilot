@@ -4,8 +4,8 @@
 |---|---|
 | Project | `claude-code-with-github-copilot` |
 | Revision | 0.22 - single-tenant central LiteLLM |
-| Created / revised | 2026-10-04 / 2026-10-26 |
-| Status | Central-LiteLLM migration implemented and locally validated; deployed pilot remains on the prior runtime pending approved rollout |
+| Created / revised | 2026-10-04 / 2026-11-01 |
+| Status | Central-LiteLLM migration deployed and validated in the Sweden Central enterprise pilot; production release gates remain open |
 | Working name / command | Copilot Gateway for Claude Code / ordinary Claude client, with optional `ccgc` setup and diagnostics |
 | Initial platform | macOS on Apple silicon |
 | Product decision owner | Project owner |

@@ -14,9 +14,12 @@ Two deployment modes share the same identity and enrollment contract:
   customer's approved LiteLLM image and point the control plane and bootstrap
   job at that existing gateway.
 
-The central-LiteLLM migration is implemented and locally validated. The
-previous deployed pilot remains on the legacy broker/worker revision until an
-approved zero-delete what-if and controlled runtime rollout are completed.
+The central-LiteLLM migration is deployed in the Sweden Central enterprise
+pilot. The control plane and LiteLLM each run two replicas, and managed mode
+uses one PostgreSQL Flexible Server with separate `ccgc` and `litellm` schemas.
+Bootstrap, discovery, bounded admission, administration, revocation, and live
+Claude inference have passed. The legacy broker/worker path remains disabled by
+default and is retained only for an explicitly approved rollback.
 
 ## Required runtime components
 

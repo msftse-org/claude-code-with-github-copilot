@@ -2,7 +2,7 @@
 
 ![Node.js 24](https://img.shields.io/badge/Node.js-24-339933?logo=node.js&logoColor=white)
 ![Azure Container Apps](https://img.shields.io/badge/Azure-Container%20Apps-0078D4?logo=microsoftazure&logoColor=white)
-![Claude Code](https://img.shields.io/badge/Claude%20Code-2.1.296-D97757)
+![Claude Code](https://img.shields.io/badge/Claude%20Code-2.1.308-D97757)
 ![Status](https://img.shields.io/badge/status-enterprise%20pilot-blue)
 
 # Enterprise Claude Code with GitHub Copilot
@@ -54,10 +54,11 @@ not in the inference data path. The legacy broker-to-worker inference path is
 disabled by default and retained only as an explicit migration rollback.
 
 > [!IMPORTANT]
-> The currently deployed Azure pilot is the superseded broker/worker revision.
-> The central-LiteLLM and single-managed-PostgreSQL target is implemented and
-> validated locally but has not been migrated to Azure. Production rollout still
-> requires the release gates documented in
+> The Azure pilot now runs the central-LiteLLM architecture with one managed
+> PostgreSQL Flexible Server containing separate `ccgc` and `litellm` schemas.
+> The control plane and LiteLLM each run two healthy replicas, and live Claude
+> Code CLI and Desktop Code-tab inference have passed. This remains an
+> enterprise pilot; production rollout still requires the release gates in
 > [docs/ENTERPRISE.md](docs/ENTERPRISE.md).
 
 > [!WARNING]
@@ -478,11 +479,12 @@ cache policy.
 
 ## Deployment status and remaining gates
 
-The Azure Sweden Central pilot is deployed and healthy on the superseded
-broker/worker revision. The central-LiteLLM revision is implemented and locally
-validated but has not yet been deployed. Enrollment, account isolation, model
-discovery, inference, stale-dispatch recovery, and revocation evidence from the
-legacy pilot remain useful but do not replace central-LiteLLM acceptance.
+The Azure Sweden Central pilot runs the consolidated central-LiteLLM revision.
+The public control plane and LiteLLM gateway are deployed with two replicas
+each, and one private PostgreSQL Flexible Server stores the `ccgc` and
+`litellm` schemas. Bootstrap, discovery, bounded admission, administration,
+revocation, and real Claude inference have passed. The managed macOS profile
+was also verified with Claude Code CLI `2.1.308` and Claude Desktop `3.6556.2`.
 
 Production rollout still requires:
 
@@ -497,9 +499,9 @@ The foundation must not be described as production-ready until these gates pass.
 
 ## Diagram provenance
 
-The current Archify JSON and GPT-image poster show Claude Code calling one public
-single-tenant CCGC-enabled LiteLLM, with a separate control plane and one
-managed PostgreSQL Flexible Server containing `ccgc` and `litellm` schemas.
+The current Archify JSON and updated GPT-image poster show Claude Code calling
+one public single-tenant CCGC-enabled LiteLLM, with a separate control plane and
+one managed PostgreSQL Flexible Server containing `ccgc` and `litellm` schemas.
 Historical artifacts for revision 0.21 still show the superseded broker/worker
 topology and are labeled accordingly. Diagram sources, provenance, and
 validation receipts are in

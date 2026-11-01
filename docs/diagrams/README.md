@@ -2,11 +2,11 @@
 
 The enterprise target is split into **two separate diagrams**. Runtime contains
 no CI/CD, IaC or setup flow; provisioning contains no inference topology.
-The central-LiteLLM runtime is **implemented and locally validated but not yet
-deployed**. The currently deployed pilot still runs the superseded
-broker/worker topology. The provisioning diagram documents the governed path
-from scope approval through either a full managed LiteLLM deployment or an
-additive overlay on an existing customer LiteLLM.
+The central-LiteLLM runtime is **deployed and validated in the Sweden Central
+enterprise pilot**. Managed mode runs one PostgreSQL Flexible Server with
+separate `ccgc` and `litellm` schemas. The provisioning diagram documents the
+governed path from scope approval through either a full managed LiteLLM
+deployment or an additive overlay on an existing customer LiteLLM.
 
 | Enterprise diagram | Presentation PNG | Interactive HTML | Technical source |
 |---|---|---|---|
@@ -27,7 +27,8 @@ The presentation poster was generated with the existing Azure OpenAI
 Microsoft Azure service-icon references. The reviewed
 [architecture JSON](ccgc-enterprise-runtime-poster.architecture.json) and
 [interactive HTML](ccgc-enterprise-runtime-poster.html) remain the technical
-authority; the GPT-image PNG is a presentation companion.
+authority; the GPT-image PNG is a presentation companion. Its deployment
+status banner was refreshed on 2026-11-01 after the central-LiteLLM rollout.
 
 The primary request path is **Claude Code -> public single-tenant CCGC-enabled
 LiteLLM -> the employee's GitHub Copilot seat -> entitled Claude models**.
@@ -50,7 +51,9 @@ The compatibility labels reflect the latest verified implementation: images,
 PDFs, adaptive thinking, exact token counts, coordinated agent branches,
 background tasks, completed-turn resume, exact pending-tool restart, automatic
 compaction, Cron lifecycle, and automatic-memory persistence are working.
-Claude Code `2.1.296` does not expose an Advisor tool through this route.
+Claude Code CLI `2.1.308` and Claude Desktop `3.6556.2` were verified through
+this route. The Advisor tool remains unavailable when the client uses a custom
+Anthropic gateway.
 
 Entra authenticates CCGC access, not Copilot entitlement. Each immutable
 enterprise principal must be linked to that same employee's authorized GitHub
@@ -99,7 +102,7 @@ PaaS modules, per-user services or acceptance gates.
 | Frozen specification/HTML hashes and byte counts | [Delivery receipt](ccgc-enterprise-runtime.delivery.json) | [Delivery receipt](ccgc-enterprise-provisioning.delivery.json) |
 | Desktop light/dark evidence | [Contact sheet](ccgc-enterprise-runtime.visual-check.html) | [Contact sheet](ccgc-enterprise-provisioning.visual-check.html) |
 | Initial image brief | [Current Archify-first prompt](ccgc-enterprise-runtime-multiuser-litellm-presentation-v16.prompt.txt), [focused dependency correction](ccgc-enterprise-runtime-multiuser-litellm-presentation-v16-correction.prompt.txt), [Archify runtime prompt](ccgc-enterprise-runtime.prompt.txt), and historical prompts | [Provisioning prompt](ccgc-enterprise-provisioning.prompt.txt) |
-| Image generation provenance | [Current central-LiteLLM GPT-image receipt](ccgc-enterprise-runtime-poster-gpt-image.receipt.json), [generation prompt](ccgc-enterprise-runtime-poster-gpt-image.prompt.txt), [focused icon correction](ccgc-enterprise-runtime-poster-gpt-image-correction.prompt.txt), and retained historical receipts | [Selected-image receipt](ccgc-enterprise-provisioning.receipt.json) |
+| Image generation provenance | [Original central-LiteLLM GPT-image receipt](ccgc-enterprise-runtime-poster-gpt-image.receipt.json), [generation prompt](ccgc-enterprise-runtime-poster-gpt-image.prompt.txt), [focused icon correction](ccgc-enterprise-runtime-poster-gpt-image-correction.prompt.txt), [deployment-status update prompt](ccgc-enterprise-runtime-poster-deployed-status.prompt.txt), [status-update receipt](ccgc-enterprise-runtime-poster-deployed-status.receipt.json), and retained historical receipts | [Selected-image receipt](ccgc-enterprise-provisioning.receipt.json) |
 
 The existing runtime PNG, HTML, delivery receipts, and visual captures document
 the superseded revision 0.21 broker/worker architecture. They remain historical
