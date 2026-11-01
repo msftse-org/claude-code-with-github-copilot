@@ -264,10 +264,10 @@
     .node-data .node-card { fill: var(--violet-soft); stroke: var(--violet); }
     .node-external .node-card { fill: var(--external-soft); stroke: var(--external); }
 
-    .node-icon {
+    .node-mark {
       fill: none;
       stroke: currentColor;
-      stroke-width: 2.2;
+      stroke-width: 1.8;
       stroke-linecap: round;
       stroke-linejoin: round;
     }
@@ -715,6 +715,23 @@
       <symbol id="icon-github" viewBox="0 0 24 24">
         <path d="M12 .297c-6.63 0-12 5.373-12 12 0 5.303 3.438 9.8 8.205 11.385.6.113.82-.258.82-.577 0-.285-.01-1.04-.015-2.04-3.338.724-4.042-1.61-4.042-1.61C4.422 18.07 3.633 17.7 3.633 17.7c-1.087-.744.084-.729.084-.729 1.205.084 1.838 1.236 1.838 1.236 1.07 1.835 2.809 1.305 3.495.998.108-.776.417-1.305.76-1.605-2.665-.3-5.466-1.332-5.466-5.93 0-1.31.465-2.38 1.235-3.22-.135-.303-.54-1.523.105-3.176 0 0 1.005-.322 3.3 1.23.96-.267 1.98-.399 3-.405 1.02.006 2.04.138 3 .405 2.28-1.552 3.285-1.23 3.285-1.23.645 1.653.24 2.873.12 3.176.765.84 1.23 1.91 1.23 3.22 0 4.61-2.805 5.625-5.475 5.92.42.36.81 1.096.81 2.22 0 1.606-.015 2.896-.015 3.286 0 .315.21.69.825.57C20.565 22.092 24 17.592 24 12.297c0-6.627-5.373-12-12-12"/>
       </symbol>
+      <symbol id="icon-administrator" viewBox="0 0 24 24">
+        <circle cx="12" cy="7" r="3.5"/>
+        <path d="M4.5 20v-2.5a7.5 7.5 0 0 1 15 0V20z"/>
+      </symbol>
+      <symbol id="icon-entra" viewBox="0 0 24 24">
+        <path d="M12 2 20 5v6c0 5-3.3 8.7-8 11-4.7-2.3-8-6-8-11V5z"/>
+        <circle cx="12" cy="9" r="2"/>
+        <path d="M8.5 16c.4-2 1.6-3 3.5-3s3.1 1 3.5 3"/>
+      </symbol>
+      <symbol id="icon-key-vault" viewBox="0 0 24 24">
+        <circle cx="8" cy="9" r="4"/>
+        <path d="M11 12l9 9m-4-4 2-2m0 4 2-2"/>
+      </symbol>
+      <symbol id="icon-postgresql" viewBox="0 0 24 24">
+        <ellipse cx="12" cy="5" rx="8" ry="3"/>
+        <path d="M4 5v14c0 1.7 3.6 3 8 3s8-1.3 8-3V5M4 12c0 1.7 3.6 3 8 3s8-1.3 8-3"/>
+      </symbol>
       <!-- Azure UX Patterns Container Apps service mark, embedded for offline architecture viewing. -->
       <linearGradient id="aca-front" x1="8.798" y1="8.703" x2="14.683" y2="8.703" gradientUnits="userSpaceOnUse">
         <stop offset=".001" stop-color="#773adc"/><stop offset="1" stop-color="#552f99"/>
@@ -790,44 +807,46 @@
             <text class="boundary-label" x="300" y="55">One customer deployment / one Microsoft Entra tenant</text>
 
             <g class="layer admin-layer">
-              <path class="edge edge-control" d="M 214 145 H 330"/>
-              <g class="edge-label label-control" transform="translate(272 84)">
+              <path class="edge edge-control" d="M 215 145 H 275"/>
+              <g class="edge-label label-control" transform="translate(245 84)">
                 <rect x="-66" y="-13" width="132" height="25"/>
                 <text y="5">administrator sign-in</text>
               </g>
-              <path class="edge edge-control" d="M 540 145 H 655"/>
-              <g class="edge-label label-control" transform="translate(598 84)">
+              <path class="edge edge-control" d="M 475 145 H 505"/>
+              <g class="edge-label label-control" transform="translate(490 84)">
                 <rect x="-50" y="-13" width="100" height="25"/>
                 <text y="5">CCGC.Admin JWT</text>
               </g>
-              <path class="edge edge-control" d="M 765 190 V 245 H 625 V 255"/>
-              <g class="edge-label label-control" transform="translate(703 230)">
+              <path class="edge edge-control" d="M 625 190 V 255"/>
+              <g class="edge-label label-control" transform="translate(715 222)">
                 <rect x="-83" y="-13" width="166" height="25"/>
                 <text y="5">users · models · OAuth</text>
               </g>
-              <path class="edge edge-control" d="M 875 145 H 1030"/>
-              <g class="edge-label label-control" transform="translate(953 84)">
+              <path class="edge edge-control" d="M 745 145 H 1030"/>
+              <g class="edge-label label-control" transform="translate(887 84)">
                 <rect x="-72" y="-13" width="144" height="25"/>
                 <text y="5">rotate key references</text>
               </g>
 
               <g class="node node-admin" transform="translate(55 100)">
                 <rect class="node-card" width="160" height="90" rx="15"/>
-                <text class="node-title" x="80" y="39">Administrator</text>
-                <text class="node-subtitle" x="80" y="63">Enroll and revoke</text>
+                <use class="node-mark" href="#icon-administrator" x="16" y="14" width="22" height="22" aria-hidden="true"/>
+                <text class="node-title" x="80" y="53">Administrator</text>
+                <text class="node-subtitle" x="80" y="74">Enroll and revoke</text>
               </g>
 
-              <g class="node node-security" transform="translate(330 100)">
-                <rect class="node-card" width="210" height="90" rx="15"/>
-                <text class="node-title" x="105" y="39">Microsoft Entra ID</text>
-                <text class="node-subtitle" x="105" y="63">Fixed customer tenant</text>
+              <g class="node node-security" transform="translate(275 100)">
+                <rect class="node-card" width="200" height="90" rx="15"/>
+                <use class="node-mark" href="#icon-entra" x="16" y="14" width="22" height="22" aria-hidden="true"/>
+                <text class="node-title" x="100" y="53">Microsoft Entra ID</text>
+                <text class="node-subtitle" x="100" y="74">Fixed customer tenant</text>
               </g>
 
               <g class="node node-security" transform="translate(1030 100)">
                 <rect class="node-card" width="250" height="90" rx="15"/>
-                <path class="node-icon" d="M25 23a8 8 0 0 1 8 8c0 5-4 8-8 8h-2v7h-5v-7h-3v-5h3v-3a8 8 0 0 1 7-8z"/>
-                <text class="node-title" x="145" y="39">Azure Key Vault</text>
-                <text class="node-subtitle" x="125" y="63">Per-user key references</text>
+                <use class="node-mark" href="#icon-key-vault" x="16" y="14" width="22" height="22" aria-hidden="true"/>
+                <text class="node-title" x="125" y="53">Azure Key Vault</text>
+                <text class="node-subtitle" x="125" y="74">Per-user key references</text>
               </g>
             </g>
 
@@ -838,7 +857,7 @@
                 <text y="5">Anthropic Messages + admission</text>
               </g>
               <path class="edge edge-runtime" d="M 745 300 H 895"/>
-              <g class="edge-label label-runtime" transform="translate(820 367)">
+              <g class="edge-label label-runtime" transform="translate(790 367)">
                 <rect x="-71" y="-13" width="142" height="25"/>
                 <text y="5">HTTPS /v1/messages</text>
               </g>
@@ -850,29 +869,29 @@
 
               <g class="node node-client" transform="translate(55 255)">
                 <rect class="node-card" width="185" height="90" rx="15"/>
-                <use class="brand-icon claude-icon" href="#icon-claude" x="18" y="27" width="24" height="24" aria-hidden="true"/>
-                <text class="node-title" x="108" y="39">Claude Code</text>
-                <text class="node-subtitle" x="92" y="63">CLI or Desktop Code</text>
+                <use class="brand-icon claude-icon" href="#icon-claude" x="16" y="14" width="22" height="22" aria-hidden="true"/>
+                <text class="node-title" x="92.5" y="53">Claude Code</text>
+                <text class="node-subtitle" x="92.5" y="74">CLI or Desktop Code</text>
               </g>
 
               <g class="node node-external" transform="translate(895 255)">
                 <rect class="node-card" width="210" height="90" rx="15"/>
-                <use class="brand-icon" href="#icon-github" x="16" y="27" width="23" height="23" aria-hidden="true"/>
-                <text class="node-title" x="118" y="39">GitHub Copilot</text>
-                <text class="node-subtitle" x="105" y="63">Employee entitlement</text>
+                <use class="brand-icon" href="#icon-github" x="16" y="14" width="22" height="22" aria-hidden="true"/>
+                <text class="node-title" x="105" y="53">GitHub Copilot</text>
+                <text class="node-subtitle" x="105" y="74">Employee entitlement</text>
               </g>
 
               <g class="node node-external" transform="translate(1210 255)">
                 <rect class="node-card" width="145" height="90" rx="15"/>
-                <use class="brand-icon claude-icon" href="#icon-claude" x="61" y="5" width="23" height="23" aria-hidden="true"/>
-                <text class="node-title" x="72.5" y="48">Claude model</text>
-                <text class="node-subtitle" x="73" y="69">Approved catalog</text>
+                <use class="brand-icon claude-icon" href="#icon-claude" x="16" y="14" width="22" height="22" aria-hidden="true"/>
+                <text class="node-title" x="72.5" y="53">Claude model</text>
+                <text class="node-subtitle" x="72.5" y="74">Approved catalog</text>
               </g>
             </g>
 
             <g class="layer shared-user-detail">
-              <path class="edge edge-control" d="M 680 190 V 210 H 565 V 222 H 148 V 255"/>
-              <g class="edge-label label-control" transform="translate(400 238)">
+              <path class="edge edge-control" d="M 555 190 V 220 H 148 V 255"/>
+              <g class="edge-label label-control" transform="translate(390 238)">
                 <rect x="-72" y="-13" width="144" height="25"/>
                 <text y="5">bounded admission</text>
               </g>
@@ -880,18 +899,18 @@
 
             <g class="node node-runtime" transform="translate(505 255)">
               <rect class="node-card" width="240" height="90" rx="15"/>
-              <text class="node-title" x="120" y="33">CCGC-enabled LiteLLM</text>
-              <text class="node-subtitle" x="120" y="55">Anthropic Messages gateway</text>
-              <use href="#icon-container-apps" x="34" y="64" width="18" height="18" aria-hidden="true"/>
-              <text class="node-hosting" x="135" y="79">Azure Container Apps</text>
+              <use href="#icon-container-apps" x="16" y="14" width="22" height="22" aria-hidden="true"/>
+              <text class="node-title" x="140" y="39">CCGC-enabled LiteLLM</text>
+              <text class="node-subtitle" x="140" y="59">Anthropic Messages gateway</text>
+              <text class="node-hosting" x="140" y="79">Azure Container Apps</text>
             </g>
 
-            <g class="node node-runtime" transform="translate(655 100)">
-              <rect class="node-card" width="220" height="90" rx="15"/>
-              <text class="node-title" x="110" y="33">CCGC control plane</text>
-              <text class="node-subtitle" x="110" y="55">Enrollment and admission</text>
-              <use href="#icon-container-apps" x="34" y="64" width="18" height="18" aria-hidden="true"/>
-              <text class="node-hosting" x="135" y="79">Azure Container Apps</text>
+            <g class="node node-runtime" transform="translate(505 100)">
+              <rect class="node-card" width="240" height="90" rx="15"/>
+              <use href="#icon-container-apps" x="16" y="14" width="22" height="22" aria-hidden="true"/>
+              <text class="node-title" x="140" y="39">CCGC control plane</text>
+              <text class="node-subtitle" x="140" y="59">Enrollment and admission</text>
+              <text class="node-hosting" x="140" y="79">Azure Container Apps</text>
             </g>
 
             <g class="layer shared-admin-detail">
@@ -900,16 +919,16 @@
                 <rect x="-104" y="-13" width="208" height="25"/>
                 <text y="5">bindings · policy · encrypted OAuth</text>
               </g>
-              <path class="edge edge-control" d="M 765 190 V 420"/>
-              <g class="edge-label label-control" transform="translate(866 387)">
+              <path class="edge edge-control" d="M 745 170 H 875 V 390 H 790 V 420"/>
+              <g class="edge-label label-control" transform="translate(1020 387)">
                 <rect x="-65" y="-13" width="130" height="25"/>
                 <text y="5">enrollment + audit</text>
               </g>
               <g class="node node-data" transform="translate(515 420)">
                 <rect class="node-card" width="300" height="90" rx="15"/>
-                <path class="node-icon" d="M17 25c0-5 18-5 18 0v18c0 5-18 5-18 0zM17 25c0 5 18 5 18 0M17 34c0 5 18 5 18 0"/>
-                <text class="node-title" x="170" y="39">PostgreSQL Flexible Server</text>
-                <text class="node-subtitle" x="150" y="63">ccgc schema + litellm schema</text>
+                <use class="node-mark" href="#icon-postgresql" x="16" y="14" width="22" height="22" aria-hidden="true"/>
+                <text class="node-title" x="150" y="53">PostgreSQL Flexible Server</text>
+                <text class="node-subtitle" x="150" y="74">ccgc schema + litellm schema</text>
               </g>
             </g>
           </svg>
@@ -931,8 +950,8 @@
             <rect class="deployment-boundary" x="275" y="20" width="1075" height="325" rx="16"/>
             <text class="boundary-label" x="300" y="52">One customer deployment / one Microsoft Entra tenant</text>
 
-            <path class="edge edge-control" d="M 655 115 H 355 V 165 H 148 V 190" marker-end="url(#user-arrow-control)"/>
-            <g class="edge-label label-control" transform="translate(418 180)">
+            <path class="edge edge-control" d="M 505 115 H 300 V 155 H 148 V 190" marker-end="url(#user-arrow-control)"/>
+            <g class="edge-label label-control" transform="translate(418 177)">
               <rect x="-72" y="-13" width="144" height="25"/>
               <text y="5">bounded admission</text>
             </g>
@@ -951,37 +970,37 @@
               <rect x="-50" y="-13" width="100" height="25"/>
               <text y="5">entitled model</text>
             </g>
-            <g class="node node-runtime" transform="translate(655 70)">
-              <rect class="node-card" width="220" height="90" rx="15"/>
-              <text class="node-title" x="110" y="33">CCGC control plane</text>
-              <text class="node-subtitle" x="110" y="55">Enrollment and admission</text>
-              <use href="#icon-container-apps" x="34" y="64" width="18" height="18" aria-hidden="true"/>
-              <text class="node-hosting" x="135" y="79">Azure Container Apps</text>
+            <g class="node node-runtime" transform="translate(505 70)">
+              <rect class="node-card" width="240" height="90" rx="15"/>
+              <use href="#icon-container-apps" x="16" y="14" width="22" height="22" aria-hidden="true"/>
+              <text class="node-title" x="140" y="39">CCGC control plane</text>
+              <text class="node-subtitle" x="140" y="59">Enrollment and admission</text>
+              <text class="node-hosting" x="140" y="79">Azure Container Apps</text>
             </g>
             <g class="node node-client" transform="translate(55 190)">
               <rect class="node-card" width="185" height="90" rx="15"/>
-              <use class="brand-icon claude-icon" href="#icon-claude" x="18" y="27" width="24" height="24" aria-hidden="true"/>
-              <text class="node-title" x="108" y="39">Claude Code</text>
-              <text class="node-subtitle" x="92" y="63">CLI or Desktop Code</text>
+              <use class="brand-icon claude-icon" href="#icon-claude" x="16" y="14" width="22" height="22" aria-hidden="true"/>
+              <text class="node-title" x="92.5" y="53">Claude Code</text>
+              <text class="node-subtitle" x="92.5" y="74">CLI or Desktop Code</text>
             </g>
             <g class="node node-runtime" transform="translate(505 190)">
               <rect class="node-card" width="240" height="90" rx="15"/>
-              <text class="node-title" x="120" y="33">CCGC-enabled LiteLLM</text>
-              <text class="node-subtitle" x="120" y="55">Anthropic Messages gateway</text>
-              <use href="#icon-container-apps" x="34" y="64" width="18" height="18" aria-hidden="true"/>
-              <text class="node-hosting" x="135" y="79">Azure Container Apps</text>
+              <use href="#icon-container-apps" x="16" y="14" width="22" height="22" aria-hidden="true"/>
+              <text class="node-title" x="140" y="39">CCGC-enabled LiteLLM</text>
+              <text class="node-subtitle" x="140" y="59">Anthropic Messages gateway</text>
+              <text class="node-hosting" x="140" y="79">Azure Container Apps</text>
             </g>
             <g class="node node-external" transform="translate(895 190)">
               <rect class="node-card" width="210" height="90" rx="15"/>
-              <use class="brand-icon" href="#icon-github" x="16" y="27" width="23" height="23" aria-hidden="true"/>
-              <text class="node-title" x="118" y="39">GitHub Copilot</text>
-              <text class="node-subtitle" x="105" y="63">Employee entitlement</text>
+              <use class="brand-icon" href="#icon-github" x="16" y="14" width="22" height="22" aria-hidden="true"/>
+              <text class="node-title" x="105" y="53">GitHub Copilot</text>
+              <text class="node-subtitle" x="105" y="74">Employee entitlement</text>
             </g>
             <g class="node node-external" transform="translate(1210 190)">
               <rect class="node-card" width="145" height="90" rx="15"/>
-              <use class="brand-icon claude-icon" href="#icon-claude" x="61" y="5" width="23" height="23" aria-hidden="true"/>
-              <text class="node-title" x="72.5" y="48">Claude model</text>
-              <text class="node-subtitle" x="73" y="69">Approved catalog</text>
+              <use class="brand-icon claude-icon" href="#icon-claude" x="16" y="14" width="22" height="22" aria-hidden="true"/>
+              <text class="node-title" x="72.5" y="53">Claude model</text>
+              <text class="node-subtitle" x="72.5" y="74">Approved catalog</text>
             </g>
           </svg>
           <svg class="admin-diagram" viewBox="0 0 1400 460" role="img" aria-labelledby="admin-svg-title admin-svg-description">
@@ -1012,12 +1031,12 @@
               <rect x="-50" y="-13" width="100" height="25"/>
               <text y="5">CCGC.Admin JWT</text>
             </g>
-            <path class="edge edge-control" d="M 910 160 H 1050" marker-end="url(#admin-arrow-control)"/>
+            <path class="edge edge-control" d="M 920 160 H 1050" marker-end="url(#admin-arrow-control)"/>
             <g class="edge-label label-control" transform="translate(980 100)">
               <rect x="-72" y="-13" width="144" height="25"/>
               <text y="5">rotate key references</text>
             </g>
-            <path class="edge edge-control" d="M 795 205 V 285" marker-end="url(#admin-arrow-control)"/>
+            <path class="edge edge-control" d="M 800 205 V 285" marker-end="url(#admin-arrow-control)"/>
             <g class="edge-label label-control" transform="translate(687 251)">
               <rect x="-83" y="-13" width="166" height="25"/>
               <text y="5">users · models · OAuth</text>
@@ -1035,39 +1054,41 @@
 
             <g class="node node-admin" transform="translate(60 115)">
               <rect class="node-card" width="170" height="90" rx="15"/>
-              <text class="node-title" x="85" y="39">Administrator</text>
-              <text class="node-subtitle" x="85" y="63">Enroll and revoke</text>
+              <use class="node-mark" href="#icon-administrator" x="16" y="14" width="22" height="22" aria-hidden="true"/>
+              <text class="node-title" x="85" y="53">Administrator</text>
+              <text class="node-subtitle" x="85" y="74">Enroll and revoke</text>
             </g>
             <g class="node node-security" transform="translate(350 115)">
               <rect class="node-card" width="210" height="90" rx="15"/>
-              <text class="node-title" x="105" y="39">Microsoft Entra ID</text>
-              <text class="node-subtitle" x="105" y="63">Fixed customer tenant</text>
+              <use class="node-mark" href="#icon-entra" x="16" y="14" width="22" height="22" aria-hidden="true"/>
+              <text class="node-title" x="105" y="53">Microsoft Entra ID</text>
+              <text class="node-subtitle" x="105" y="74">Fixed customer tenant</text>
             </g>
             <g class="node node-runtime" transform="translate(680 115)">
-              <rect class="node-card" width="230" height="90" rx="15"/>
-              <text class="node-title" x="115" y="33">CCGC control plane</text>
-              <text class="node-subtitle" x="115" y="55">Enrollment and admission</text>
-              <use href="#icon-container-apps" x="34" y="64" width="18" height="18" aria-hidden="true"/>
-              <text class="node-hosting" x="135" y="79">Azure Container Apps</text>
+              <rect class="node-card" width="240" height="90" rx="15"/>
+              <use href="#icon-container-apps" x="16" y="14" width="22" height="22" aria-hidden="true"/>
+              <text class="node-title" x="140" y="39">CCGC control plane</text>
+              <text class="node-subtitle" x="140" y="59">Enrollment and admission</text>
+              <text class="node-hosting" x="140" y="79">Azure Container Apps</text>
             </g>
             <g class="node node-security" transform="translate(1050 115)">
               <rect class="node-card" width="250" height="90" rx="15"/>
-              <path class="node-icon" d="M25 23a8 8 0 0 1 8 8c0 5-4 8-8 8h-2v7h-5v-7h-3v-5h3v-3a8 8 0 0 1 7-8z"/>
-              <text class="node-title" x="145" y="39">Azure Key Vault</text>
-              <text class="node-subtitle" x="125" y="63">Per-user key references</text>
+              <use class="node-mark" href="#icon-key-vault" x="16" y="14" width="22" height="22" aria-hidden="true"/>
+              <text class="node-title" x="125" y="53">Azure Key Vault</text>
+              <text class="node-subtitle" x="125" y="74">Per-user key references</text>
             </g>
             <g class="node node-runtime" transform="translate(680 285)">
               <rect class="node-card" width="240" height="90" rx="15"/>
-              <text class="node-title" x="120" y="33">CCGC-enabled LiteLLM</text>
-              <text class="node-subtitle" x="120" y="55">Anthropic Messages gateway</text>
-              <use href="#icon-container-apps" x="34" y="64" width="18" height="18" aria-hidden="true"/>
-              <text class="node-hosting" x="135" y="79">Azure Container Apps</text>
+              <use href="#icon-container-apps" x="16" y="14" width="22" height="22" aria-hidden="true"/>
+              <text class="node-title" x="140" y="39">CCGC-enabled LiteLLM</text>
+              <text class="node-subtitle" x="140" y="59">Anthropic Messages gateway</text>
+              <text class="node-hosting" x="140" y="79">Azure Container Apps</text>
             </g>
             <g class="node node-data" transform="translate(990 285)">
               <rect class="node-card" width="310" height="90" rx="15"/>
-              <path class="node-icon" d="M17 25c0-5 18-5 18 0v18c0 5-18 5-18 0zM17 25c0 5 18 5 18 0M17 34c0 5 18 5 18 0"/>
-              <text class="node-title" x="175" y="39">PostgreSQL Flexible Server</text>
-              <text class="node-subtitle" x="155" y="63">ccgc schema + litellm schema</text>
+              <use class="node-mark" href="#icon-postgresql" x="16" y="14" width="22" height="22" aria-hidden="true"/>
+              <text class="node-title" x="155" y="53">PostgreSQL Flexible Server</text>
+              <text class="node-subtitle" x="155" y="74">ccgc schema + litellm schema</text>
             </g>
           </svg>
         </div>
@@ -1091,7 +1112,7 @@
           </p>
         </article>
         <article class="explanation admin-copy">
-          <h2>Administration layer</h2>
+          <h2>Control Plane role</h2>
           <p>
             The control plane handles Entra-authorized enrollment, immutable Entra-to-GitHub binding,
             revocation, admissions, Key Vault references, and LiteLLM user/model reconciliation. It supports
