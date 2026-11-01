@@ -1,40 +1,48 @@
 # Enterprise target and current-state diagrams
 
-The enterprise target is split into **two separate diagrams**. Runtime contains
-no CI/CD, IaC or setup flow; provisioning contains no inference topology.
-The central-LiteLLM runtime is **deployed and validated in the Sweden Central
-enterprise pilot**. Managed mode runs one PostgreSQL Flexible Server with
-separate `ccgc` and `litellm` schemas. The provisioning diagram documents the
-governed path from scope approval through either a full managed LiteLLM
-deployment or an additive overlay on an existing customer LiteLLM.
+The deployed enterprise runtime is split into **two separate architecture
+views**: the employee inference request and the administrator lifecycle path.
+The provisioning diagram remains a separate rollout workflow and contains no
+inference topology. The central-LiteLLM runtime is deployed and validated in
+the Sweden Central enterprise pilot. Managed mode runs one PostgreSQL Flexible
+Server with separate `ccgc` and `litellm` schemas.
 
-| Enterprise diagram | Presentation PNG | Interactive HTML | Technical source |
+| Enterprise diagram | Reviewed preview | Interactive HTML | Technical source |
 |---|---|---|---|
-| Runtime architecture | [GPT-image central-LiteLLM poster](ccgc-enterprise-runtime-poster-gpt-image.png) | [Interactive viewer](ccgc-enterprise-runtime-poster.html) | [Central-LiteLLM architecture JSON](ccgc-enterprise-runtime-poster.architecture.json) |
+| Employee request flow | [Light-theme capture](ccgc-employee-runtime.visual-check.2048x1320.light.png) | [Interactive viewer](ccgc-employee-runtime.html) | [Architecture JSON](ccgc-employee-runtime.architecture.json) |
+| Administration and enrollment | [Light-theme capture](ccgc-admin-control-plane.visual-check.2048x1320.light.png) | [Interactive viewer](ccgc-admin-control-plane.html) | [Architecture JSON](ccgc-admin-control-plane.architecture.json) |
 | Provisioning and rollout | [Provisioning poster](ccgc-enterprise-provisioning.png) | [Workflow viewer](ccgc-enterprise-provisioning.html) | [Workflow JSON](ccgc-enterprise-provisioning.workflow.json) |
 
 The [PRD enterprise target contract](../PRD.md#enterprise-implementation-revision-022)
 records the design rationale, implementation gaps, official Azure references
 and production gates. These diagrams do not certify enterprise readiness.
 
-## Enterprise runtime
+## Employee request flow
 
-![Single-tenant central-LiteLLM runtime](ccgc-enterprise-runtime-poster-gpt-image.png)
-
-The presentation poster was generated with the existing Azure OpenAI
-`gpt-image-2.5-flare` deployment from the validated
-[Archify desktop capture](ccgc-enterprise-runtime-poster.png) and official
-Microsoft Azure service-icon references. The reviewed
-[architecture JSON](ccgc-enterprise-runtime-poster.architecture.json) and
-[interactive HTML](ccgc-enterprise-runtime-poster.html) remain the technical
-authority; the GPT-image PNG is a presentation companion. Its deployment
-status banner was refreshed on 2026-11-01 after the central-LiteLLM rollout.
+![Claude Code employee request flow](ccgc-employee-runtime.visual-check.2048x1320.light.png)
 
 The primary request path is **Claude Code -> public single-tenant CCGC-enabled
 LiteLLM -> the employee's GitHub Copilot seat -> entitled Claude models**.
 Claude's local tools, hooks, and background execution remain local. A separate
 CCGC control plane handles enrollment, administration, bounded admissions, and
 revocation, but is not in the inference path.
+
+LiteLLM receives Claude Code's native Anthropic Messages request. The CCGC
+custom-auth extension maps the bounded employee credential to that employee's
+LiteLLM virtual key and encrypted GitHub OAuth connection. LiteLLM's built-in
+GitHub Copilot provider calls the Copilot HTTPS `/v1/messages` API and streams
+the Anthropic-compatible response to Claude Code. This is an HTTPS API
+integration, not a GitHub SDK or direct Anthropic API access.
+
+## Administration and enrollment
+
+![CCGC administration and employee enrollment](ccgc-admin-control-plane.visual-check.2048x1320.light.png)
+
+The administrator authenticates through the fixed Microsoft Entra tenant and
+the `CCGC.Admin` application role. The control plane creates and revokes
+enrollments, binds immutable Entra and GitHub identities, rotates Key Vault
+references, and reconciles approved users and Claude model routes in LiteLLM.
+The diagram deliberately excludes the employee inference path.
 
 In the managed branch, the current poster shows exactly one PostgreSQL Flexible
 Server with separate `ccgc` and `litellm` schemas. In the existing-LiteLLM
@@ -97,39 +105,34 @@ PaaS modules, per-user services or acceptance gates.
 
 ## Enterprise provenance and acceptance
 
-| Evidence | Runtime | Provisioning |
-|---|---|---|
-| Frozen specification/HTML hashes and byte counts | [Delivery receipt](ccgc-enterprise-runtime.delivery.json) | [Delivery receipt](ccgc-enterprise-provisioning.delivery.json) |
-| Desktop light/dark evidence | [Contact sheet](ccgc-enterprise-runtime.visual-check.html) | [Contact sheet](ccgc-enterprise-provisioning.visual-check.html) |
-| Initial image brief | [Current Archify-first prompt](ccgc-enterprise-runtime-multiuser-litellm-presentation-v16.prompt.txt), [focused dependency correction](ccgc-enterprise-runtime-multiuser-litellm-presentation-v16-correction.prompt.txt), [Archify runtime prompt](ccgc-enterprise-runtime.prompt.txt), and historical prompts | [Provisioning prompt](ccgc-enterprise-provisioning.prompt.txt) |
-| Image generation provenance | [Original central-LiteLLM GPT-image receipt](ccgc-enterprise-runtime-poster-gpt-image.receipt.json), [generation prompt](ccgc-enterprise-runtime-poster-gpt-image.prompt.txt), [focused icon correction](ccgc-enterprise-runtime-poster-gpt-image-correction.prompt.txt), [deployment-status update prompt](ccgc-enterprise-runtime-poster-deployed-status.prompt.txt), [status-update receipt](ccgc-enterprise-runtime-poster-deployed-status.receipt.json), and retained historical receipts | [Selected-image receipt](ccgc-enterprise-provisioning.receipt.json) |
+| Evidence | Employee runtime | Administration | Provisioning |
+|---|---|---|---|
+| Frozen specification/HTML hashes and byte counts | [Delivery receipt](ccgc-employee-runtime.delivery.json) | [Delivery receipt](ccgc-admin-control-plane.delivery.json) | [Delivery receipt](ccgc-enterprise-provisioning.delivery.json) |
+| Desktop light/dark evidence | [Contact sheet](ccgc-employee-runtime.visual-check.html) | [Contact sheet](ccgc-admin-control-plane.visual-check.html) | [Contact sheet](ccgc-enterprise-provisioning.visual-check.html) |
+| Technical source | [Architecture JSON](ccgc-employee-runtime.architecture.json) | [Architecture JSON](ccgc-admin-control-plane.architecture.json) | [Workflow JSON](ccgc-enterprise-provisioning.workflow.json) |
+| Historical presentation provenance | [Combined poster receipt](ccgc-enterprise-runtime-poster-gpt-image.receipt.json) | [Combined poster status-update receipt](ccgc-enterprise-runtime-poster-deployed-status.receipt.json) | [Selected-image receipt](ccgc-enterprise-provisioning.receipt.json) |
 
-The existing runtime PNG, HTML, delivery receipts, and visual captures document
-the superseded revision 0.21 broker/worker architecture. They remain historical
-engineering and presentation evidence and are not authoritative for revision
-0.22. The reviewed
-[central-LiteLLM architecture JSON](ccgc-enterprise-runtime-poster.architecture.json)
-is the current technical source until replacement HTML and PNG artifacts are
-generated. The previous
+The split employee and administration JSON/HTML artifacts are the current
+technical architecture sources. The combined central-LiteLLM poster and the
+older revision 0.21 broker/worker artifacts remain historical engineering and
+presentation evidence. The previous
 [v8 operator presentation](ccgc-enterprise-runtime-multiuser-litellm-presentation-v8.png),
 [v7 light presentation](ccgc-enterprise-runtime-multiuser-litellm-presentation-v7.png),
 and earlier
 [native-connector Flare poster](ccgc-enterprise-runtime-multiuser-flare-v3.png)
 are retained only as historical presentation artwork.
 
-Inputs were sanitized Archify screenshots, official Azure service icons, and
-architecture terminology, not credentials, account IDs, or actual private
-endpoints. Authentication used the existing Azure CLI Entra identity. The
-current poster used the existing `gpt-image-2.5-flare` deployment in the
-Foundry resource; no enterprise gateway/client resource was deployed and no
-Copilot inference was performed. Image token counts are not a cost quote or
-Copilot usage.
+The historical combined poster used sanitized Archify screenshots, official
+Azure service icons, and architecture terminology, not credentials, account
+IDs, or actual private endpoints. Its GPT-image generation changed no runtime
+resource and performed no Copilot inference. Image token counts are not a cost
+quote or Copilot usage.
 
-Both enterprise HTML artifacts passed **9/9 showcase checks with 0 errors and 0 warnings**,
-with desktop containment at 1440 x 900, 1600 x 1000, 1920 x 1080 and 2048 x 1320.
-Both themes at the smallest and largest sizes were inspected. The current
-runtime poster was inspected at native resolution and 1280 x 800 presentation
-size.
+Both runtime architecture HTML artifacts passed **9/9 showcase checks with 0
+errors and 0 warnings**, with desktop containment at 1440 x 900, 1600 x 1000,
+1920 x 1080 and 2048 x 1320. Light and dark captures were generated at the
+smallest and largest sizes; their automated receipts retain
+`visualReview: "pending"` until independent visual approval is recorded.
 The [enterprise visual review](ccgc-enterprise.review.json) records the result
 and rubric scores separately; machine receipts retain their original
 `visualReview: "pending"` fields.

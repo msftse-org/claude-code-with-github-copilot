@@ -5,6 +5,15 @@ LiteLLM is the central inference gateway. The CCGC control plane manages
 enrollment, revocation, bounded admissions, administration, and reconciliation,
 but it does not proxy inference.
 
+The architecture is documented as two separate views:
+
+- [Employee request flow](diagrams/ccgc-employee-runtime.html): Claude Code,
+  bounded admission, LiteLLM, the employee's GitHub Copilot seat, and the
+  entitled Claude model.
+- [Administration and enrollment](diagrams/ccgc-admin-control-plane.html):
+  administrator sign-in, identity binding, enrollment, revocation, Key Vault,
+  LiteLLM reconciliation, and PostgreSQL state.
+
 Two deployment modes share the same identity and enrollment contract:
 
 - **Managed LiteLLM:** deploy the full solution, including CCGC-enabled LiteLLM

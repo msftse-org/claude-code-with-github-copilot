@@ -1,0 +1,22 @@
+{
+  "schemaVersion": 1,
+  "type": "architecture",
+  "specification": {
+    "path": "ccgc-employee-runtime.architecture.json",
+    "sha256": "92b0e8479becad0db54c1e4e040c0ba66e3c0d5d28070db906f88389dcd9990e",
+    "bytes": 4035
+  },
+  "artifact": {
+    "path": "ccgc-employee-runtime.html",
+    "sha256": "304137e245a0a611c02d6a999ac8bde4f1bcad7607ed5e0526a6c3ce7e75dcf5",
+    "bytes": 723563
+  },
+  "validation": {
+    "checksPassed": 9,
+    "checkCount": 9,
+    "compositionProfile": "showcase",
+    "compositionStatus": "pass",
+    "errors": 0,
+    "warnings": 0
+  }
+}

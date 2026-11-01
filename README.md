@@ -35,23 +35,36 @@ employee's own GitHub Copilot seat**.
 
 ## Architecture
 
-### Runtime architecture
+### Employee request flow
 
-[Open the current interactive runtime architecture](docs/diagrams/ccgc-enterprise-runtime-poster.html).
+[Open the interactive employee runtime diagram](docs/diagrams/ccgc-employee-runtime.html).
 
-![Single-tenant central-LiteLLM runtime](docs/diagrams/ccgc-enterprise-runtime-poster-gpt-image.png)
+![Claude Code employee request flow](docs/diagrams/ccgc-employee-runtime.visual-check.2048x1320.light.png)
 
 Each installation serves exactly one customer and one Microsoft Entra tenant.
-LiteLLM is the central inference gateway. Its CCGC custom-auth extension
-validates Entra, employee API-key, or bounded admission credentials; resolves
-the immutable Entra-to-GitHub binding; and returns only that employee's existing
-LiteLLM virtual key. LiteLLM then uses the same employee's encrypted GitHub
-connection and Copilot seat.
+Claude Code sends the native Anthropic Messages API to CCGC-enabled LiteLLM.
+The CCGC authentication extension resolves the employee's bounded credential
+to that employee's LiteLLM virtual key and encrypted GitHub OAuth connection.
+LiteLLM's built-in GitHub Copilot provider then calls GitHub Copilot's HTTPS
+`/v1/messages` API using the employee's Copilot authorization and streams the
+Anthropic-compatible response back to Claude Code.
 
-The small CCGC control plane remains responsible for enrollment, revocation,
-admission issuance, administration, and idempotent LiteLLM reconciliation. It is
-not in the inference data path. The legacy broker-to-worker inference path is
-disabled by default and retained only as an explicit migration rollback.
+This is an HTTPS API integration, not a GitHub SDK and not direct access to the
+Anthropic API. GitHub Copilot supplies the employee-specific model entitlement;
+the solution uses neither a shared Copilot seat nor a separate Anthropic API
+key.
+
+### Administration and enrollment
+
+[Open the interactive administration diagram](docs/diagrams/ccgc-admin-control-plane.html).
+
+![CCGC administration and employee enrollment](docs/diagrams/ccgc-admin-control-plane.visual-check.2048x1320.light.png)
+
+The separate CCGC control plane handles administrator sign-in, one-time
+enrollment, immutable Entra-to-GitHub binding, revocation, bounded admission
+issuance, and LiteLLM user/model reconciliation. It does not proxy inference.
+The legacy broker-to-worker inference path is disabled by default and retained
+only as an explicit migration rollback.
 
 > [!IMPORTANT]
 > The Azure pilot now runs the central-LiteLLM architecture with one managed
