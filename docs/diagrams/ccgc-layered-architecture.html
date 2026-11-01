@@ -292,16 +292,23 @@
       text-anchor: middle;
     }
 
-    .node-tag {
-      fill: var(--panel-strong);
-      stroke: currentColor;
-      stroke-width: 1.2;
+    .icon-sprite {
+      position: absolute;
+      width: 0;
+      height: 0;
+      min-width: 0;
+      min-height: 0;
+      overflow: hidden;
     }
 
-    .tag-text {
-      fill: currentColor;
+    .brand-icon { fill: currentColor; }
+    .claude-icon { color: #b55130; }
+    [data-theme="dark"] .claude-icon { color: #e7a084; }
+
+    .node-hosting {
+      fill: var(--muted);
       font-size: 11px;
-      font-weight: 800;
+      font-weight: 650;
       text-anchor: middle;
     }
 
@@ -609,8 +616,6 @@
     }
     .node-title { font-size: 17px; font-weight: 700; }
     .node-subtitle { font-size: 12.5px; font-weight: 500; }
-    .node-tag { stroke-width: 1.3; }
-    .tag-text { font-size: 11px; font-weight: 700; }
     .edge { stroke-width: 2.6; }
     .edge-control { stroke-dasharray: 9 8; }
     .edge-state { stroke-dasharray: 7 7; }
@@ -701,6 +706,35 @@
   </style>
 </head>
 <body data-mode="user">
+  <!-- Embedded brand and Azure service vectors; icons are decorative, and node text remains the accessible label. -->
+  <svg class="icon-sprite" aria-hidden="true" focusable="false" xmlns="http://www.w3.org/2000/svg">
+    <defs>
+      <symbol id="icon-claude" viewBox="0 0 24 24">
+        <path d="m4.7144 15.9555 4.7174-2.6471.079-.2307-.079-.1275h-.2307l-.7893-.0486-2.6956-.0729-2.3375-.0971-2.2646-.1214-.5707-.1215-.5343-.7042.0546-.3522.4797-.3218.686.0608 1.5179.1032 2.2767.1578 1.6514.0972 2.4468.255h.3886l.0546-.1579-.1336-.0971-.1032-.0972L6.973 9.8356l-2.55-1.6879-1.3356-.9714-.7225-.4918-.3643-.4614-.1578-1.0078.6557-.7225.8803.0607.2246.0607.8925.686 1.9064 1.4754 2.4893 1.8336.3643.3035.1457-.1032.0182-.0728-.164-.2733-1.3539-2.4467-1.445-2.4893-.6435-1.032-.17-.6194c-.0607-.255-.1032-.4674-.1032-.7285L6.287.1335 6.6997 0l.9957.1336.419.3642.6192 1.4147 1.0018 2.2282 1.5543 3.0296.4553.8985.2429.8318.091.255h.1579v-.1457l.1275-1.706.2368-2.0947.2307-2.6957.0789-.7589.3764-.9107.7468-.4918.5828.2793.4797.686-.0668.4433-.2853 1.8517-.5586 2.9021-.3643 1.9429h.2125l.2429-.2429.9835-1.3053 1.6514-2.0643.7286-.8196.85-.9046.5464-.4311h1.0321l.759 1.1293-.34 1.1657-1.0625 1.3478-.8804 1.1414-1.2628 1.7-.7893 1.36.0729.1093.1882-.0183 2.8535-.607 1.5421-.2794 1.8396-.3157.8318.3886.091.3946-.3278.8075-1.967.4857-2.3072.4614-3.4364.8136-.0425.0304.0486.0607 1.5482.1457.6618.0364h1.621l3.0175.2247.7892.522.4736.6376-.079.4857-1.2142.6193-1.6393-.3886-3.825-.9107-1.3113-.3279h-.1822v.1093l1.0929 1.0686 2.0035 1.8092 2.5075 2.3314.1275.5768-.3218.4554-.34-.0486-2.2039-1.6575-.85-.7468-1.9246-1.621h-.1275v.17l.4432.6496 2.3436 3.5214.1214 1.0807-.17.3521-.6071.2125-.6679-.1214-1.3721-1.9246L14.38 17.959l-1.1414-1.9428-.1397.079-.674 7.2552-.3156.3703-.7286.2793-.6071-.4614-.3218-.7468.3218-1.4753.3886-1.9246.3157-1.53.2853-1.9004.17-.6314-.0121-.0425-.1397.0182-1.4328 1.9672-2.1796 2.9446-1.7243 1.8456-.4128.164-.7164-.3704.0667-.6618.4008-.5889 2.386-3.0357 1.4389-1.882.929-1.0868-.0062-.1579h-.0546l-6.3385 4.1164-1.1293.1457-.4857-.4554.0608-.7467.2307-.2429 1.9064-1.3114Z"/>
+      </symbol>
+      <symbol id="icon-github" viewBox="0 0 24 24">
+        <path d="M12 .297c-6.63 0-12 5.373-12 12 0 5.303 3.438 9.8 8.205 11.385.6.113.82-.258.82-.577 0-.285-.01-1.04-.015-2.04-3.338.724-4.042-1.61-4.042-1.61C4.422 18.07 3.633 17.7 3.633 17.7c-1.087-.744.084-.729.084-.729 1.205.084 1.838 1.236 1.838 1.236 1.07 1.835 2.809 1.305 3.495.998.108-.776.417-1.305.76-1.605-2.665-.3-5.466-1.332-5.466-5.93 0-1.31.465-2.38 1.235-3.22-.135-.303-.54-1.523.105-3.176 0 0 1.005-.322 3.3 1.23.96-.267 1.98-.399 3-.405 1.02.006 2.04.138 3 .405 2.28-1.552 3.285-1.23 3.285-1.23.645 1.653.24 2.873.12 3.176.765.84 1.23 1.91 1.23 3.22 0 4.61-2.805 5.625-5.475 5.92.42.36.81 1.096.81 2.22 0 1.606-.015 2.896-.015 3.286 0 .315.21.69.825.57C20.565 22.092 24 17.592 24 12.297c0-6.627-5.373-12-12-12"/>
+      </symbol>
+      <!-- Azure UX Patterns Container Apps service mark, embedded for offline architecture viewing. -->
+      <linearGradient id="aca-front" x1="8.798" y1="8.703" x2="14.683" y2="8.703" gradientUnits="userSpaceOnUse">
+        <stop offset=".001" stop-color="#773adc"/><stop offset="1" stop-color="#552f99"/>
+      </linearGradient>
+      <linearGradient id="aca-side" x1="5.764" y1="3.777" x2="5.764" y2="13.78" gradientUnits="userSpaceOnUse">
+        <stop offset="0" stop-color="#a67af4"/><stop offset=".999" stop-color="#773adc"/>
+      </linearGradient>
+      <symbol id="icon-container-apps" viewBox="0 0 18 18">
+        <path d="M16.932 11.578a8.448 8.448 0 01-7.95 5.59 8.15 8.15 0 01-2.33-.33 2.133 2.133 0 00.18-.83c.01 0 .03.01.04.01a7.422 7.422 0 002.11.3 7.646 7.646 0 006.85-4.28l.01-.01zM3.582 14.068a2.025 2.025 0 00-.64.56 8.6 8.6 0 01-1.67-2.44l1.04.23v.26a.6.6 0 00.47.59l.14.03a6.136 6.136 0 00.62.73zM12.352.958a2.28 2.28 0 00-.27.81c-.02-.01-.05-.02-.07-.03a7.479 7.479 0 00-3.03-.63 7.643 7.643 0 00-5.9 2.8l-.29.06a.6.6 0 00-.48.58v.46l-1.02.19a8.454 8.454 0 017.69-4.93 8.6 8.6 0 013.37.69zM16.872 5.7l-1.09-.38a6.6 6.6 0 00-.72-1.16c-.02-.03-.04-.05-.05-.07a2.083 2.083 0 00.72-.45 7.81 7.81 0 011.14 2.06z" fill="#32bedd"/>
+        <path d="M1.1 5.668l1.21-.23v6.55l-1.23-.27-.99-.22a.111.111 0 01-.09-.12v-5.4a.12.12 0 01.09-.12z" fill="#a67af4"/>
+        <path d="M10.072 11.908l2.54.56-3.94 1.632c-.02 0-.03.01-.05.01a.154.154 0 01-.15-.15V3.448a.154.154 0 01.15-.15.09.09 0 01.05.01l4.46 1.56-3.05.57a.565.565 0 00-.44.54v5.4a.537.537 0 00.43.53z" fill="url(#aca-front)"/>
+        <path d="M8.586 3.3L2.878 4.378a.177.177 0 00-.14.175v8.127a.177.177 0 00.137.174L8.581 14.1a.176.176 0 00.21-.174V3.478a.175.175 0 00-.172-.178z" fill="url(#aca-side)"/>
+        <path fill="#b796f9" opacity=".5" d="M5.948 4.921v7.562l1.986.331v-8.25l-1.986.357zM3.509 5.329v6.625l1.729.363V5.031l-1.729.298z"/>
+        <path d="M16 2.048a1.755 1.755 0 11-1.76-1.76A1.756 1.756 0 0116 2.048z" fill="#32bedd"/>
+        <circle cx="4.65" cy="15.973" r="1.759" fill="#32bedd"/>
+        <path d="M18 6.689v3.844a.222.222 0 01-.133.2l-.766.316-3.07 1.268h-.011a.126.126 0 01-.038 0 .1.1 0 01-.1-.1V5.234a.1.1 0 01.054-.088h.019a.031.031 0 01.019 0 .055.055 0 01.034.008h.023L17.05 6.2l.8.282a.213.213 0 01.15.207z" fill="#773adc"/>
+        <path d="M13.959 5.14l-3.8.715a.118.118 0 00-.093.117v5.409a.118.118 0 00.091.116l3.8.831a.115.115 0 00.137-.09.109.109 0 000-.026V5.256a.117.117 0 00-.115-.118.082.082 0 00-.02.002z" fill="#a67af4"/>
+      </symbol>
+    </defs>
+  </svg>
   <main class="shell">
     <header class="topbar">
       <div>
@@ -738,6 +772,7 @@
             <desc id="svg-description">
               An interactive layered diagram showing Claude Code using LiteLLM to reach the employee's
               GitHub Copilot seat and entitled Claude model, with an optional administration overlay.
+              The CCGC control plane and CCGC-enabled LiteLLM are hosted on Azure Container Apps.
             </desc>
             <defs>
               <marker id="arrow-runtime" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
@@ -815,21 +850,23 @@
 
               <g class="node node-client" transform="translate(55 255)">
                 <rect class="node-card" width="185" height="90" rx="15"/>
-                <path class="node-icon" d="M18 24h18v14H18zM23 43h8M27 38v5"/>
+                <use class="brand-icon claude-icon" href="#icon-claude" x="18" y="27" width="24" height="24" aria-hidden="true"/>
                 <text class="node-title" x="108" y="39">Claude Code</text>
                 <text class="node-subtitle" x="92" y="63">CLI or Desktop Code</text>
               </g>
 
               <g class="node node-external" transform="translate(895 255)">
                 <rect class="node-card" width="210" height="90" rx="15"/>
-                <text class="node-title" x="105" y="39">GitHub Copilot</text>
+                <use class="brand-icon" href="#icon-github" x="16" y="27" width="23" height="23" aria-hidden="true"/>
+                <text class="node-title" x="118" y="39">GitHub Copilot</text>
                 <text class="node-subtitle" x="105" y="63">Employee entitlement</text>
               </g>
 
               <g class="node node-external" transform="translate(1210 255)">
                 <rect class="node-card" width="145" height="90" rx="15"/>
-                <text class="node-title" x="72.5" y="39">Claude model</text>
-                <text class="node-subtitle" x="73" y="63">Approved catalog</text>
+                <use class="brand-icon claude-icon" href="#icon-claude" x="61" y="5" width="23" height="23" aria-hidden="true"/>
+                <text class="node-title" x="72.5" y="48">Claude model</text>
+                <text class="node-subtitle" x="73" y="69">Approved catalog</text>
               </g>
             </g>
 
@@ -843,18 +880,18 @@
 
             <g class="node node-runtime" transform="translate(505 255)">
               <rect class="node-card" width="240" height="90" rx="15"/>
-              <text class="node-title" x="120" y="39">CCGC-enabled LiteLLM</text>
-              <text class="node-subtitle" x="120" y="63">Anthropic Messages gateway</text>
-              <rect class="node-tag" x="168" y="-12" width="72" height="23" rx="11"/>
-              <text class="tag-text" x="204" y="4">2 replicas</text>
+              <text class="node-title" x="120" y="33">CCGC-enabled LiteLLM</text>
+              <text class="node-subtitle" x="120" y="55">Anthropic Messages gateway</text>
+              <use href="#icon-container-apps" x="34" y="64" width="18" height="18" aria-hidden="true"/>
+              <text class="node-hosting" x="135" y="79">Azure Container Apps</text>
             </g>
 
             <g class="node node-runtime" transform="translate(655 100)">
               <rect class="node-card" width="220" height="90" rx="15"/>
-              <text class="node-title" x="110" y="39">CCGC control plane</text>
-              <text class="node-subtitle" x="110" y="63">Enrollment and admission</text>
-              <rect class="node-tag" x="143" y="-12" width="77" height="23" rx="11"/>
-              <text class="tag-text" x="181" y="4">2 replicas</text>
+              <text class="node-title" x="110" y="33">CCGC control plane</text>
+              <text class="node-subtitle" x="110" y="55">Enrollment and admission</text>
+              <use href="#icon-container-apps" x="34" y="64" width="18" height="18" aria-hidden="true"/>
+              <text class="node-hosting" x="135" y="79">Azure Container Apps</text>
             </g>
 
             <g class="layer shared-admin-detail">
@@ -881,6 +918,7 @@
             <desc id="user-svg-description">
               Claude Code uses bounded admission to send Anthropic Messages through CCGC-enabled LiteLLM,
               then GitHub Copilot's HTTPS Messages API using the employee entitlement to reach a Claude model.
+              The CCGC control plane and CCGC-enabled LiteLLM are hosted on Azure Container Apps.
             </desc>
             <defs>
               <marker id="user-arrow-runtime" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
@@ -915,33 +953,35 @@
             </g>
             <g class="node node-runtime" transform="translate(655 70)">
               <rect class="node-card" width="220" height="90" rx="15"/>
-              <text class="node-title" x="110" y="39">CCGC control plane</text>
-              <text class="node-subtitle" x="110" y="63">Enrollment and admission</text>
-              <rect class="node-tag" x="143" y="-12" width="77" height="23" rx="11"/>
-              <text class="tag-text" x="181" y="4">2 replicas</text>
+              <text class="node-title" x="110" y="33">CCGC control plane</text>
+              <text class="node-subtitle" x="110" y="55">Enrollment and admission</text>
+              <use href="#icon-container-apps" x="34" y="64" width="18" height="18" aria-hidden="true"/>
+              <text class="node-hosting" x="135" y="79">Azure Container Apps</text>
             </g>
             <g class="node node-client" transform="translate(55 190)">
               <rect class="node-card" width="185" height="90" rx="15"/>
-              <path class="node-icon" d="M18 24h18v14H18zM23 43h8M27 38v5"/>
+              <use class="brand-icon claude-icon" href="#icon-claude" x="18" y="27" width="24" height="24" aria-hidden="true"/>
               <text class="node-title" x="108" y="39">Claude Code</text>
               <text class="node-subtitle" x="92" y="63">CLI or Desktop Code</text>
             </g>
             <g class="node node-runtime" transform="translate(505 190)">
               <rect class="node-card" width="240" height="90" rx="15"/>
-              <text class="node-title" x="120" y="39">CCGC-enabled LiteLLM</text>
-              <text class="node-subtitle" x="120" y="63">Anthropic Messages gateway</text>
-              <rect class="node-tag" x="168" y="-12" width="72" height="23" rx="11"/>
-              <text class="tag-text" x="204" y="4">2 replicas</text>
+              <text class="node-title" x="120" y="33">CCGC-enabled LiteLLM</text>
+              <text class="node-subtitle" x="120" y="55">Anthropic Messages gateway</text>
+              <use href="#icon-container-apps" x="34" y="64" width="18" height="18" aria-hidden="true"/>
+              <text class="node-hosting" x="135" y="79">Azure Container Apps</text>
             </g>
             <g class="node node-external" transform="translate(895 190)">
               <rect class="node-card" width="210" height="90" rx="15"/>
-              <text class="node-title" x="105" y="39">GitHub Copilot</text>
+              <use class="brand-icon" href="#icon-github" x="16" y="27" width="23" height="23" aria-hidden="true"/>
+              <text class="node-title" x="118" y="39">GitHub Copilot</text>
               <text class="node-subtitle" x="105" y="63">Employee entitlement</text>
             </g>
             <g class="node node-external" transform="translate(1210 190)">
               <rect class="node-card" width="145" height="90" rx="15"/>
-              <text class="node-title" x="72.5" y="39">Claude model</text>
-              <text class="node-subtitle" x="73" y="63">Approved catalog</text>
+              <use class="brand-icon claude-icon" href="#icon-claude" x="61" y="5" width="23" height="23" aria-hidden="true"/>
+              <text class="node-title" x="72.5" y="48">Claude model</text>
+              <text class="node-subtitle" x="73" y="69">Approved catalog</text>
             </g>
           </svg>
           <svg class="admin-diagram" viewBox="0 0 1400 460" role="img" aria-labelledby="admin-svg-title admin-svg-description">
@@ -949,6 +989,7 @@
             <desc id="admin-svg-description">
               Administrator signs into the fixed Microsoft Entra tenant. The CCGC control plane
               manages Azure Key Vault, the CCGC-enabled LiteLLM gateway, and PostgreSQL state.
+              The control plane and gateway are hosted on Azure Container Apps.
             </desc>
             <defs>
               <marker id="admin-arrow-control" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
@@ -1004,10 +1045,10 @@
             </g>
             <g class="node node-runtime" transform="translate(680 115)">
               <rect class="node-card" width="230" height="90" rx="15"/>
-              <text class="node-title" x="115" y="39">CCGC control plane</text>
-              <text class="node-subtitle" x="115" y="63">Enrollment and admission</text>
-              <rect class="node-tag" x="153" y="-12" width="77" height="23" rx="11"/>
-              <text class="tag-text" x="191" y="4">2 replicas</text>
+              <text class="node-title" x="115" y="33">CCGC control plane</text>
+              <text class="node-subtitle" x="115" y="55">Enrollment and admission</text>
+              <use href="#icon-container-apps" x="34" y="64" width="18" height="18" aria-hidden="true"/>
+              <text class="node-hosting" x="135" y="79">Azure Container Apps</text>
             </g>
             <g class="node node-security" transform="translate(1050 115)">
               <rect class="node-card" width="250" height="90" rx="15"/>
@@ -1017,10 +1058,10 @@
             </g>
             <g class="node node-runtime" transform="translate(680 285)">
               <rect class="node-card" width="240" height="90" rx="15"/>
-              <text class="node-title" x="120" y="39">CCGC-enabled LiteLLM</text>
-              <text class="node-subtitle" x="120" y="63">Anthropic Messages gateway</text>
-              <rect class="node-tag" x="168" y="-12" width="72" height="23" rx="11"/>
-              <text class="tag-text" x="204" y="4">2 replicas</text>
+              <text class="node-title" x="120" y="33">CCGC-enabled LiteLLM</text>
+              <text class="node-subtitle" x="120" y="55">Anthropic Messages gateway</text>
+              <use href="#icon-container-apps" x="34" y="64" width="18" height="18" aria-hidden="true"/>
+              <text class="node-hosting" x="135" y="79">Azure Container Apps</text>
             </g>
             <g class="node node-data" transform="translate(990 285)">
               <rect class="node-card" width="310" height="90" rx="15"/>
