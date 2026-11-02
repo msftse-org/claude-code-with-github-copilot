@@ -291,7 +291,13 @@ test('PostgreSQL store atomically binds, reserves, fences, audits and revokes', 
     assert.equal(reserved.fence, 1);
     await assert.rejects(
       store.reserveDispatch(tokenHash, 'b'.repeat(64), 'claude-sonnet-5.5', 'main'),
-      /already reserved/i,
+      error => {
+        const conflict = error as { code?: string; message?: string; status?: number };
+        assert.equal(conflict.code, 'CONTEXT_CONFLICT');
+        assert.equal(conflict.status, 409);
+        assert.match(conflict.message ?? '', /conversation branch already has an active dispatch/i);
+        return true;
+      },
     );
     await store.finishDispatch(reserved.id, 'completed');
     await store.revokeApiKey(issued.id, 'e'.repeat(64));

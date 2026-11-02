@@ -173,6 +173,14 @@ write_body() {
   printf '%s\n' "$2" >"$1"
 }
 
+file_stat() {
+  local bsd_format="$1"
+  local gnu_format="$2"
+  local path="$3"
+  /usr/bin/stat -f "$bsd_format" "$path" 2>/dev/null ||
+    /usr/bin/stat -c "$gnu_format" "$path" 2>/dev/null
+}
+
 request_json_status() {
   local method="$1"
   local url="$2"
@@ -305,7 +313,7 @@ preflight_enrollment_settings() {
   [ -e "$SETTINGS_PATH" ] || return 0
   [ -f "$SETTINGS_PATH" ] ||
     fail 'existing Claude settings must be a regular file'
-  [ "$(/usr/bin/stat -f '%u' "$SETTINGS_PATH")" = "$(/usr/bin/id -u)" ] ||
+  [ "$(file_stat '%u' '%u' "$SETTINGS_PATH")" = "$(/usr/bin/id -u)" ] ||
     fail 'existing Claude settings must be owned by the current user'
   valid_json "$SETTINGS_PATH" ||
     fail 'existing Claude settings are not valid JSON'
@@ -355,9 +363,9 @@ require_private_file() {
   local label="$2"
   [ -f "$path" ] && [ ! -L "$path" ] ||
     fail "$label must be a non-symlink regular file"
-  [ "$(/usr/bin/stat -f '%u' "$path")" = "$(/usr/bin/id -u)" ] ||
+  [ "$(file_stat '%u' '%u' "$path")" = "$(/usr/bin/id -u)" ] ||
     fail "$label must be owned by the current user"
-  [ "$(/usr/bin/stat -f '%Lp' "$path")" = '600' ] ||
+  [ "$(file_stat '%Lp' '%a' "$path")" = '600' ] ||
     fail "$label must have mode 0600"
 }
 
@@ -495,7 +503,7 @@ prepare_settings() {
   helper="$(installed_helper)"
   if [ -f "$SETTINGS_PATH" ]; then
     [ ! -L "$SETTINGS_PATH" ] || fail 'existing Claude settings must not be a symlink'
-    [ "$(/usr/bin/stat -f '%u' "$SETTINGS_PATH")" = "$(/usr/bin/id -u)" ] ||
+    [ "$(file_stat '%u' '%u' "$SETTINGS_PATH")" = "$(/usr/bin/id -u)" ] ||
       fail 'existing Claude settings must be owned by the current user'
     valid_json "$SETTINGS_PATH" ||
       fail 'existing Claude settings are not valid JSON'

@@ -50,4 +50,6 @@ jobs:
           az bicep build --file infra/enterprise/main.bicep --stdout > "$RUNNER_TEMP/ccgc-enterprise.json"
       - run: pip install checkov==3.3.21
       - run: checkov -d infra --framework bicep terraform --skip-path infra/enterprise --skip-download --compact
-      - run: checkov -f "$RUNNER_TEMP/ccgc-enterprise.json" --framework arm --skip-download --compact
+      # The compiled ARM loses Bicep suppressions. These checks are covered by the
+      # constrained generated storage name and the documented external image scan/sign gate.
+      - run: checkov -f "$RUNNER_TEMP/ccgc-enterprise.json" --framework arm --skip-check CKV_AZURE_43,CKV_AZURE_166 --skip-download --compact

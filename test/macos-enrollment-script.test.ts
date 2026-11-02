@@ -142,7 +142,17 @@ test('macOS enrollment verifies health, discovery, output limits and inference b
 test('macOS gateway verification accepts canonical model IDs without display labels', async () => {
   const harness = `
 eval "$(/usr/bin/sed '/^command=/,$d' "$1")"
-request_json() {
+json_raw() {
+  node -e '
+    const fs = require("node:fs");
+    const [file, path] = process.argv.slice(1);
+    let value = JSON.parse(fs.readFileSync(file, "utf8"));
+    for (const part of path.split(".")) value = value[part];
+    if (value === undefined || value === null || typeof value === "object") process.exit(1);
+    process.stdout.write(String(value));
+  ' "$1" "$2"
+}
+request_json_status() {
   local method="$1"
   local url="$2"
   local output="$5"
@@ -158,6 +168,7 @@ request_json() {
       ;;
     *) return 1 ;;
   esac
+  printf '200'
 }
 tmp="$(mktemp -d)"
 trap 'rm -rf "$tmp"' EXIT
