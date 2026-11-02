@@ -152,6 +152,12 @@ json_raw() {
     process.stdout.write(String(value));
   ' "$1" "$2"
 }
+valid_json() {
+  node -e '
+    const fs = require("node:fs");
+    JSON.parse(fs.readFileSync(process.argv[1], "utf8"));
+  ' "$1"
+}
 request_json_status() {
   local method="$1"
   local url="$2"

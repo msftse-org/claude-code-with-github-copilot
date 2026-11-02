@@ -177,8 +177,11 @@ file_stat() {
   local bsd_format="$1"
   local gnu_format="$2"
   local path="$3"
-  /usr/bin/stat -f "$bsd_format" "$path" 2>/dev/null ||
+  if /usr/bin/stat --version >/dev/null 2>&1; then
     /usr/bin/stat -c "$gnu_format" "$path" 2>/dev/null
+  else
+    /usr/bin/stat -f "$bsd_format" "$path" 2>/dev/null
+  fi
 }
 
 request_json_status() {
