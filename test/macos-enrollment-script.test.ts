@@ -58,6 +58,12 @@ test('macOS enrollment script requires a choice before replacing enterprise-mana
 test('macOS enrollment preflight succeeds when settings are absent or conflict-free', async () => {
   const harness = `
 eval "$(/usr/bin/sed '/^command=/,$d' "$1")"
+valid_json() {
+  node -e '
+    const fs = require("node:fs");
+    JSON.parse(fs.readFileSync(process.argv[1], "utf8"));
+  ' "$1"
+}
 preflight_enrollment_settings 'https://broker.example'
 printf 'preflight-ok\\n'
 `;

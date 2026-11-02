@@ -193,7 +193,10 @@ test('browser auth creates an S256 request and stores only short-lived PKCE stat
   vm.runInNewContext(authSource, context);
   const auth = window.CCGC_ADMIN_AUTH as { acquireToken(): Promise<string> };
   void auth.acquireToken();
-  await new Promise(resolve => setTimeout(resolve, 20));
+  for (let attempt = 0; attempt < 50 && !assigned; attempt += 1) {
+    await new Promise(resolve => setTimeout(resolve, 10));
+  }
+  assert.notEqual(assigned, '');
   const authorize = new URL(assigned);
   assert.equal(
     authorize.origin + authorize.pathname,
