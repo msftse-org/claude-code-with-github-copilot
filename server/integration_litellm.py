@@ -55,7 +55,7 @@ class InstalledProviderTests(unittest.TestCase):
         self.assertEqual(request["output_config"], {"effort": "high"})
 
     def test_authentication_errors_do_not_require_a_database(self):
-        self.assertEqual(version("prisma"), "0.15.0")
+        self.assertEqual(version("prisma"), "0.11.0")
         from litellm.proxy.db.exception_handler import PrismaDBExceptionHandler
 
         self.assertFalse(PrismaDBExceptionHandler.is_database_service_unavailable_error(
@@ -63,7 +63,9 @@ class InstalledProviderTests(unittest.TestCase):
         ))
 
     def test_pinned_package_native_messages_dispatch_and_authentication_boundary(self):
-        self.assertEqual(version("litellm"), "1.104.0")
+        # The RC wheel is 1.108.0rc1; the upstream RC container's dist-info
+        # reports the release source version 1.108.0.
+        self.assertIn(version("litellm"), {"1.108.0rc1", "1.108.0"})
         with tempfile.TemporaryDirectory(prefix="ccgc-litellm-contract-") as state, patch.dict(os.environ, {
             "GITHUB_COPILOT_TOKEN_DIR": state, "LITELLM_LOCAL_MODEL_COST_MAP": "True", "DO_NOT_TRACK": "True",
         }):

@@ -1,7 +1,7 @@
 FROM alpine:3.22@sha256:5291449c3df73caf6ed85e649dec1b9e818b39a5d8c871e97afc13e9cd5e8fa8 AS litellm-source
 
-ADD "https://github.com/BerriAI/litellm/archive/464a4dba9dc1dadf6d7affaa985aa7050596a745.tar.gz" /tmp/litellm.tar.gz
-RUN echo "1dda51709d79bcaf082a15f56dc088ff70bb578f2a289f4f64c7f4c5031def22  /tmp/litellm.tar.gz" \
+ADD "https://github.com/BerriAI/litellm/archive/7a3c6229e1f41146d8dc8f543fd07f664c6a9707.tar.gz" /tmp/litellm.tar.gz
+RUN echo "105fa298acd087d49fdbc9bc72ae99212409f5d8606e021a536943492c0a5366  /tmp/litellm.tar.gz" \
       | sha256sum -c - \
     && mkdir /src \
     && tar -xzf /tmp/litellm.tar.gz --strip-components=1 -C /src
@@ -16,7 +16,10 @@ RUN mkdir /wheels \
       "azure-keyvault-secrets==4.10.0" \
       "PyJWT[crypto]==2.15.1"
 
-FROM ghcr.io/berriai/litellm:main-latest@sha256:de5b050c1e9bd7e6c0aebfa126c5df71de071962592ba3e9638b28e45bed3901
+FROM ghcr.io/berriai/litellm:v1.108.0-rc.1@sha256:0d412001c3116d3b03a479b02a351061e54b57210db5b7594cf83f13a4822765
+
+LABEL org.opencontainers.image.version="1.108.0-rc.1" \
+      org.opencontainers.image.revision="7a3c6229e1f41146d8dc8f543fd07f664c6a9707"
 
 COPY --from=litellm-source /src/litellm /app/.venv/lib/python3.13/site-packages/litellm
 COPY --from=litellm-source /src/litellm-proxy-extras/litellm_proxy_extras /app/.venv/lib/python3.13/site-packages/litellm_proxy_extras
