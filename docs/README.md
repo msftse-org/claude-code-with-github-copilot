@@ -515,11 +515,12 @@ the gateway maps those IDs to the seat's exact Copilot IDs:
 | Claude Sonnet 5.5 | `claude-sonnet-5-5` | `github_copilot/claude-sonnet-5.5` |
 | Claude Sonnet 5 | `claude-sonnet-5` | `github_copilot/claude-sonnet-5` |
 | Claude Opus 5.5 | `claude-opus-5-5` | `github_copilot/claude-opus-5.5` |
-| Claude Opus 5 | `claude-opus-5` | `github_copilot/claude-opus-5` |
-| Claude Opus 4.8 | `claude-opus-4-8` | `github_copilot/claude-opus-4.8` |
+| Claude Haiku 5.5 | `claude-haiku-5-5` | `github_copilot/claude-haiku-5.5` |
 | Claude Haiku 4.5 | `claude-haiku-4-5-20251001` | `github_copilot/claude-haiku-4.5` |
 
-A read-only metadata check confirmed these six enabled models on 2026-10-07.
+A live per-user OAuth probe confirmed these five enabled models on 2026-11-03.
+`claude-opus-5` and `claude-opus-4.8` returned `model_not_supported`
+from GitHub Copilot and are deliberately excluded.
 The gateway also accepts their exact Copilot IDs and undated hyphen spellings.
 It does not map Fable, GPT, unknown versions or disabled models to another model.
 It validates the upstream response against the selected model, without editing

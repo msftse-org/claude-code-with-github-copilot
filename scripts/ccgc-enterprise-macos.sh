@@ -663,6 +663,41 @@ prepare_profile() {
     fail 'enterprise binding models do not match the enrollment'
 }
 
+refresh_profile() {
+  local tmp_dir="$1"
+  local control_plane
+  local gateway
+  local api_key
+  local info_file="$tmp_dir/info.json"
+  local output="$tmp_dir/profile.json"
+  local models
+
+  require_private_file "$PROFILE_PATH" 'enterprise profile'
+  valid_json "$PROFILE_PATH" || fail 'enterprise profile is invalid'
+  control_plane="$(json_raw "$PROFILE_PATH" controlPlane 2>/dev/null || json_value "$PROFILE_PATH" gateway)"
+  gateway="$(json_value "$PROFILE_PATH" gateway)"
+  validate_gateway "$control_plane"
+  validate_gateway "$gateway"
+  api_key="$(keychain_get "$(api_key_service "$control_plane")" || true)"
+  validate_api_key "$api_key"
+  request_json GET "$control_plane/ccgc/enterprise/info" "$api_key" '' "$info_file"
+  [ "$(json_value "$info_file" inferenceGateway)" = "$gateway" ] ||
+    fail 'enterprise profile central LiteLLM gateway no longer matches the control plane'
+  [ "$(json_value "$PROFILE_PATH" tenantId)" = "$(json_value "$info_file" tenantId)" ] ||
+    fail 'enterprise profile tenant no longer matches the gateway binding'
+  [ "$(json_value "$PROFILE_PATH" objectId)" = "$(json_value "$info_file" objectId)" ] ||
+    fail 'enterprise profile user no longer matches the gateway binding'
+  [ "$(json_value "$PROFILE_PATH" githubAccountId)" = "$(json_value "$info_file" githubAccountId)" ] ||
+    fail 'enterprise profile GitHub account no longer matches the gateway binding'
+  models="$(json_array "$info_file" models)" || fail 'gateway response is missing models'
+  /bin/cp "$PROFILE_PATH" "$output"
+  /usr/bin/plutil -replace models -json "$models" "$output"
+  /usr/bin/plutil -replace bindingRevision -integer "$(json_value "$info_file" bindingRevision)" "$output"
+  /usr/bin/plutil -convert json "$output"
+  /bin/chmod 0600 "$output"
+  /bin/mv "$output" "$PROFILE_PATH"
+}
+
 enroll() {
   local control_plane="$DEFAULT_GATEWAY"
   local gateway
@@ -789,6 +824,9 @@ enroll() {
     "$(json_value "$tmp_dir/info.json" githubAccountId)"
   printf 'Configured %s approved model(s). The employee key expires at %s.\n' \
     "$model_count" "$(json_value "$response" apiKeyExpiresAt)"
+  if [ -d '/Applications/Claude.app' ]; then
+    printf 'Fully quit and reopen Claude Desktop, then use its Code tab to load the shared enterprise settings.\n'
+  fi
 }
 
 expiry_millis() {
@@ -886,15 +924,19 @@ configure() {
   require_claude_version
   install_self
   [ -f "$PROFILE_PATH" ] || fail 'enterprise profile is unavailable; run enrollment first'
-  gateway="$(json_value "$PROFILE_PATH" gateway)"
-  default_model="$(json_value "$PROFILE_PATH" models.0)"
   tmp_dir="$(/usr/bin/mktemp -d "${TMPDIR:-/tmp}/ccgc-configure.XXXXXX")"
   TEMP_DIR="$tmp_dir"
   trap cleanup_temp EXIT
+  refresh_profile "$tmp_dir"
+  gateway="$(json_value "$PROFILE_PATH" gateway)"
+  default_model="$(json_value "$PROFILE_PATH" models.0)"
   prepare_settings "$gateway" "$default_model" "$tmp_dir/settings.json"
   /bin/mkdir -p "$(dirname "$SETTINGS_PATH")"
   /bin/mv "$tmp_dir/settings.json" "$SETTINGS_PATH"
   printf 'Claude Code configuration updated.\n'
+  if [ -d '/Applications/Claude.app' ]; then
+    printf 'Fully quit and reopen Claude Desktop, then use its Code tab to load the shared enterprise settings.\n'
+  fi
 }
 
 doctor() {

@@ -17,6 +17,8 @@ test('macOS enrollment script documents the managed-device-safe flow', async () 
   const { stdout } = await exec('/bin/bash', [script.pathname, 'help']);
   assert.match(stdout, /stores the\s+30-day employee key in macOS Keychain/);
   assert.match(stdout, /Claude Code CLI\s+and the Code tab in Claude Desktop/);
+  const source = await readFile(script, 'utf8');
+  assert.match(source, /Fully quit and reopen Claude Desktop, then use its Code tab/);
   assert.match(stdout, /does not\s+disable Gatekeeper/);
   assert.match(stdout, /do not repeat enrollment for routine service/i);
   assert.match(stdout, /Enroll again only with a new Enterprise IT code/);
@@ -161,6 +163,7 @@ test('macOS enrollment verifies health, discovery, output limits and inference b
   assert.match(source, /advertised_gateway[\s\S]*gateway" = "\$control_plane"/);
   assert.match(source, /verify_gateway_health "\$control_plane" "\$tmp_dir\/health\.json"[\s\S]*ccgc\/enroll\/start/);
   assert.match(source, /verify_gateway_access "\$control_plane" "\$gateway" "\$api_key" "\$default_model" "\$tmp_dir"[\s\S]*prepare_profile/);
+  assert.match(source, /configure\(\)[\s\S]*refresh_profile "\$tmp_dir"[\s\S]*prepare_settings/);
   assert.match(source, /plutil -insert controlPlane/);
   assert.match(source, /output_limit=128000/);
   assert.match(source, /Reply exactly CCGC_CLIENT_READY/);

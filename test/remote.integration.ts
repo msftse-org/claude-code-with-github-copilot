@@ -22,8 +22,8 @@ const exec = promisify(execFile);
 
 const catalog = [
   ['claude-sonnet-5.5', 'Claude Sonnet 5.5'], ['claude-opus-5.5', 'Claude Opus 5.5'],
-  ['claude-opus-5', 'Claude Opus 5'], ['claude-opus-4.8', 'Claude Opus 4.8'],
-  ['claude-sonnet-5', 'Claude Sonnet 5'], ['claude-haiku-4.5', 'Claude Haiku 4.5'],
+  ['claude-sonnet-5', 'Claude Sonnet 5'], ['claude-haiku-5.5', 'Claude Haiku 5.5'],
+  ['claude-haiku-4.5', 'Claude Haiku 4.5'],
 ].map(([id, name]) => ({ ...fixtureModel, id: id!, name: name!, context: id!.includes('haiku') ? 200000 : 1000000, responseIds: [id!] }));
 
 for (const model of catalog) test(`ordinary configured Claude uses HTTPS and the real Keychain helper (${model.id})`, { timeout: 120000 }, async () => {

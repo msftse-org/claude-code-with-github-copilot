@@ -5,7 +5,7 @@
     "_generator": {
       "name": "bicep",
       "version": "0.48.1.52935",
-      "templateHash": "272623167262029191"
+      "templateHash": "4405965148979644628"
     }
   },
   "parameters": {
@@ -161,7 +161,7 @@
     },
     "modelsJson": {
       "type": "string",
-      "defaultValue": "{\"models\":[{\"id\":\"claude-sonnet-5.5\",\"name\":\"Claude Sonnet 5.5\",\"responseIds\":[\"claude-sonnet-5.5\",\"claude-sonnet-5-5\"],\"context\":1000000,\"output\":128000},{\"id\":\"claude-sonnet-5\",\"name\":\"Claude Sonnet 5\",\"responseIds\":[\"claude-sonnet-5\"],\"context\":1000000,\"output\":16384},{\"id\":\"claude-opus-5.5\",\"name\":\"Claude Opus 5.5\",\"responseIds\":[\"claude-opus-5.5\",\"claude-opus-5-5\"],\"context\":1000000,\"output\":16384},{\"id\":\"claude-opus-5\",\"name\":\"Claude Opus 5\",\"responseIds\":[\"claude-opus-5\"],\"context\":1000000,\"output\":16384},{\"id\":\"claude-opus-4.8\",\"name\":\"Claude Opus 4.8\",\"responseIds\":[\"claude-opus-4.8\",\"claude-opus-4-8\"],\"context\":1000000,\"output\":16384},{\"id\":\"claude-haiku-5.5\",\"name\":\"Claude Haiku 5.5\",\"responseIds\":[\"claude-haiku-5.5\",\"claude-haiku-5-5\"],\"context\":1000000,\"output\":16384},{\"id\":\"claude-haiku-4.5\",\"name\":\"Claude Haiku 4.5\",\"responseIds\":[\"claude-haiku-4.5\",\"claude-haiku-4-5\",\"claude-haiku-4-5-20251001\"],\"context\":200000,\"output\":16384}]}",
+      "defaultValue": "{\"models\":[{\"id\":\"claude-sonnet-5.5\",\"name\":\"Claude Sonnet 5.5\",\"responseIds\":[\"claude-sonnet-5.5\",\"claude-sonnet-5-5\"],\"context\":1000000,\"output\":128000},{\"id\":\"claude-sonnet-5\",\"name\":\"Claude Sonnet 5\",\"responseIds\":[\"claude-sonnet-5\"],\"context\":1000000,\"output\":16384},{\"id\":\"claude-opus-5.5\",\"name\":\"Claude Opus 5.5\",\"responseIds\":[\"claude-opus-5.5\",\"claude-opus-5-5\"],\"context\":1000000,\"output\":16384},{\"id\":\"claude-haiku-5.5\",\"name\":\"Claude Haiku 5.5\",\"responseIds\":[\"claude-haiku-5.5\",\"claude-haiku-5-5\"],\"context\":1000000,\"output\":16384},{\"id\":\"claude-haiku-4.5\",\"name\":\"Claude Haiku 4.5\",\"responseIds\":[\"claude-haiku-4.5\",\"claude-haiku-4-5\",\"claude-haiku-4-5-20251001\"],\"context\":200000,\"output\":16384}]}",
       "metadata": {
         "description": "Reviewed Claude model catalog consumed by the shared worker."
       }
@@ -267,7 +267,7 @@
             "_generator": {
               "name": "bicep",
               "version": "0.48.1.52935",
-              "templateHash": "16381465596874893447"
+              "templateHash": "8764977488346941580"
             }
           },
           "parameters": {
@@ -407,6 +407,7 @@
               "tags": "[variables('tags')]"
             },
             {
+              "condition": "[parameters('deployLegacyWorker')]",
               "type": "Microsoft.ManagedIdentity/userAssignedIdentities",
               "apiVersion": "2024-11-30",
               "name": "[variables('workerIdentityName')]",
@@ -575,7 +576,12 @@
                       ],
                       "networkSecurityGroup": {
                         "id": "[resourceId('Microsoft.Network/networkSecurityGroups', format('nsg-{0}-workload', parameters('prefix')))]"
-                      }
+                      },
+                      "serviceEndpoints": [
+                        {
+                          "service": "Microsoft.Storage"
+                        }
+                      ]
                     }
                   },
                   {
@@ -591,7 +597,7 @@
                   {
                     "name": "snet-acr-agent-pool",
                     "properties": {
-                      "addressPrefix": "10.80.2.64/27",
+                      "addressPrefix": "10.80.2.96/27",
                       "natGateway": {
                         "id": "[resourceId('Microsoft.Network/natGateways', format('ng-{0}-enterprise', parameters('prefix')))]"
                       },
@@ -700,6 +706,7 @@
               }
             },
             {
+              "condition": "[parameters('deployLegacyWorker')]",
               "type": "Microsoft.KeyVault/vaults/secrets",
               "apiVersion": "2024-11-01",
               "name": "[format('{0}/{1}', variables('vaultName'), 'broker-worker-dispatch-signing')]",
@@ -716,6 +723,7 @@
               ]
             },
             {
+              "condition": "[parameters('deployLegacyWorker')]",
               "type": "Microsoft.KeyVault/vaults/secrets",
               "apiVersion": "2024-11-01",
               "name": "[format('{0}/{1}', variables('vaultName'), 'worker-checkpoint-encryption')]",
