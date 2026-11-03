@@ -327,7 +327,7 @@ preflight_enrollment_settings() {
   helper="$(installed_helper)"
   existing="$(json_raw "$SETTINGS_PATH" apiKeyHelper 2>/dev/null || true)"
   if [ -n "$existing" ] && [ "$existing" != "$helper" ]; then
-    fail 'an unrelated Claude credential helper is already configured'
+    setting_conflicts+=('apiKeyHelper')
   fi
   for key in ANTHROPIC_API_KEY ANTHROPIC_AUTH_TOKEN CLAUDE_CODE_OAUTH_TOKEN; do
     if json_raw "$SETTINGS_PATH" "env.$key" >/dev/null 2>&1; then
@@ -526,7 +526,7 @@ prepare_settings() {
 
   if existing="$(json_raw "$output" apiKeyHelper 2>/dev/null)" &&
     [ -n "$existing" ] && [ "$existing" != "$helper" ]; then
-    fail 'an unrelated Claude credential helper is already configured'
+    setting_conflicts+=('apiKeyHelper')
   fi
 
   if ! /usr/bin/plutil -extract env json -o - "$output" >/dev/null 2>&1; then
@@ -591,7 +591,11 @@ EOF
         /bin/cp -p "$SETTINGS_PATH" "$backup_path"
         /bin/chmod 0600 "$backup_path"
         for key in "${setting_conflicts[@]}"; do
-          /usr/bin/plutil -remove "env.$key" "$output"
+          if [ "$key" = 'apiKeyHelper' ]; then
+            /usr/bin/plutil -remove "$key" "$output"
+          else
+            /usr/bin/plutil -remove "env.$key" "$output"
+          fi
         done
         printf 'Backed up existing Claude settings to %s\n' "$backup_path" >&2
         ;;

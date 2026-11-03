@@ -51,6 +51,8 @@ test('macOS enrollment script requires a choice before replacing enterprise-mana
   assert.match(source, /Back up Claude settings, replace only these enterprise-managed settings, and continue/);
   assert.match(source, /Cancel without changing Claude settings/);
   assert.match(source, /ccgc-backup\./);
+  assert.match(source, /setting_conflicts\+=\('apiKeyHelper'\)/);
+  assert.match(source, /plutil -remove "\$key" "\$output"/);
   assert.match(source, /plutil -remove "env\.\$key"/);
   assert.match(source, /ANTHROPIC_BASE_URL=\$gateway/);
 });
@@ -58,13 +60,27 @@ test('macOS enrollment script requires a choice before replacing enterprise-mana
 test('macOS enrollment preflight succeeds when settings are absent or conflict-free', async () => {
   const harness = `
 eval "$(/usr/bin/sed '/^command=/,$d' "$1")"
+json_raw() {
+  node -e '
+    const fs = require("node:fs");
+    const [file, path] = process.argv.slice(1);
+    let value = JSON.parse(fs.readFileSync(file, "utf8"));
+    for (const part of path.split(".")) value = value[part];
+    if (value === undefined || value === null || typeof value === "object") process.exit(1);
+    process.stdout.write(String(value));
+  ' "$1" "$2"
+}
 valid_json() {
   node -e '
     const fs = require("node:fs");
     JSON.parse(fs.readFileSync(process.argv[1], "utf8"));
   ' "$1"
 }
-preflight_enrollment_settings 'https://broker.example'
+if [ "\${CCGC_TEST_APPROVE-}" = '1' ]; then
+  preflight_enrollment_settings 'https://broker.example' <<< '1'
+else
+  preflight_enrollment_settings 'https://broker.example'
+fi
 printf 'preflight-ok\\n'
 `;
   const home = await mkdtemp(join(tmpdir(), 'ccgc-preflight-'));
@@ -83,6 +99,14 @@ printf 'preflight-ok\\n'
       env: { ...process.env, HOME: home },
     });
     assert.equal(clean.stdout.trim(), 'preflight-ok');
+
+    await writeFile(settings, '{"apiKeyHelper":"/bin/unrelated-helper"}\n', { mode: 0o600 });
+    await chmod(settings, 0o600);
+    const approved = await exec('/bin/bash', ['-c', harness, 'bash', script.pathname], {
+      env: { ...process.env, HOME: home, CCGC_TEST_APPROVE: '1' },
+    });
+    assert.equal(approved.stdout.trim(), 'preflight-ok');
+    assert.match(approved.stderr, /apiKeyHelper/);
   } finally {
     await rm(home, { recursive: true, force: true });
   }
