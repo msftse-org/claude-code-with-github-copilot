@@ -1,0 +1,226 @@
+{
+  "schema_version": 1,
+  "diagram_type": "architecture",
+  "meta": {
+    "title": "Copilot OAuth: Enterprise Options",
+    "quality_profile": "showcase",
+    "locale": "en",
+    "animation": "none",
+    "viewBox": [1240, 580],
+    "views": [
+      {
+        "id": "direct-native",
+        "label": "Direct native",
+        "focus": ["a-user", "a-litellm", "a-db", "a-github"],
+        "note": "Fewer components, but enterprise identity binding, bounded admission, coordinated revocation, and audit must be built separately."
+      },
+      {
+        "id": "recommended-hybrid",
+        "label": "Recommended hybrid",
+        "focus": ["b-user", "b-ccgc", "b-admission", "b-litellm", "b-store", "b-github"],
+        "note": "Native LiteLLM OAuth remains intact behind enterprise identity, enrollment, admission, governance, and revocation controls."
+      },
+      {
+        "id": "decision",
+        "label": "Decision",
+        "focus": ["a-litellm", "b-ccgc", "b-admission", "b-litellm", "b-store"],
+        "note": "Keep Option B now; simplify only after strict Entra JWT mapping proves full control parity and the RC capability matures."
+      }
+    ]
+  },
+  "components": [
+    {
+      "id": "a-user",
+      "type": "frontend",
+      "label": "Employee / Claude Code",
+      "sublabel": "Direct client entry",
+      "brand": "claude",
+      "pos": [340, 70],
+      "size": [160, 92]
+    },
+    {
+      "id": "a-litellm",
+      "type": "backend",
+      "label": "LiteLLM",
+      "sublabel": "Dashboard or virtual key",
+      "pos": [330, 230],
+      "size": [180, 122]
+    },
+    {
+      "id": "a-db",
+      "type": "database",
+      "label": "LiteLLM database",
+      "sublabel": "Encrypted GitHub access token",
+      "brand": "postgresql",
+      "pos": [50, 239],
+      "size": [180, 104]
+    },
+    {
+      "id": "a-github",
+      "type": "external",
+      "label": "GitHub Copilot",
+      "sublabel": "Native OAuth + inference",
+      "brand": "github",
+      "pos": [345, 440],
+      "size": [150, 92]
+    },
+    {
+      "id": "b-user",
+      "type": "frontend",
+      "label": "Employee / Claude",
+      "sublabel": "Code + Desktop managed entry",
+      "brand": "claude",
+      "pos": [670, 70],
+      "size": [160, 104]
+    },
+    {
+      "id": "b-ccgc",
+      "type": "security",
+      "label": "CCGC Control Plane",
+      "sublabel": "Entra + GitHub identity binding",
+      "pos": [1010, 60],
+      "size": [180, 132]
+    },
+    {
+      "id": "b-admission",
+      "type": "security",
+      "label": "Bounded admission",
+      "sublabel": "Short-lived, policy-scoped",
+      "pos": [670, 250],
+      "size": [180, 104]
+    },
+    {
+      "id": "b-litellm",
+      "type": "backend",
+      "label": "LiteLLM native OAuth",
+      "sublabel": "github_copilot + per_user_oauth",
+      "pos": [670, 420],
+      "size": [160, 122]
+    },
+    {
+      "id": "b-store",
+      "type": "database",
+      "label": "CCGC enterprise store",
+      "sublabel": "PostgreSQL / Key Vault metadata",
+      "brand": "postgresql",
+      "pos": [1010, 262],
+      "size": [160, 104]
+    },
+    {
+      "id": "b-github",
+      "type": "external",
+      "label": "GitHub Copilot",
+      "sublabel": "Native OAuth + inference",
+      "brand": "github",
+      "pos": [1010, 430],
+      "size": [160, 104]
+    }
+  ],
+  "boundaries": [
+    {
+      "kind": "security-group",
+      "label": "OPTION A — DIRECT LITELLM NATIVE",
+      "wraps": ["a-user", "a-litellm", "a-db", "a-github"],
+      "pad": 28
+    },
+    {
+      "kind": "security-group",
+      "label": "OPTION B — RECOMMENDED HYBRID",
+      "wraps": ["b-user", "b-ccgc", "b-admission", "b-litellm", "b-store", "b-github"],
+      "pad": 28
+    }
+  ],
+  "connections": [
+    {
+      "id": "a-entry",
+      "from": "a-user",
+      "to": "a-litellm",
+      "label": "dashboard / key",
+      "fromSide": "bottom",
+      "toSide": "top",
+      "labelDy": 24
+    },
+    {
+      "id": "a-oauth",
+      "from": "a-litellm",
+      "to": "a-github",
+      "label": "native per-user OAuth",
+      "fromSide": "bottom",
+      "toSide": "top",
+      "labelDy": 24,
+      "variant": "emphasis"
+    },
+    {
+      "id": "a-token",
+      "from": "a-litellm",
+      "to": "a-db",
+      "label": "encrypted token",
+      "fromSide": "left",
+      "toSide": "right",
+      "labelDy": -63
+    },
+    {
+      "id": "b-entry",
+      "from": "b-user",
+      "to": "b-ccgc",
+      "label": "Entra identity + enrollment"
+    },
+    {
+      "id": "b-admit",
+      "from": "b-ccgc",
+      "to": "b-admission",
+      "label": "short-lived admission",
+      "variant": "emphasis"
+    },
+    {
+      "id": "b-native",
+      "from": "b-admission",
+      "to": "b-litellm",
+      "label": "LiteLLM credential bridge",
+      "fromSide": "bottom",
+      "toSide": "top",
+      "variant": "emphasis"
+    },
+    {
+      "id": "b-token",
+      "from": "b-litellm",
+      "to": "b-github",
+      "label": "native OAuth + inference",
+      "variant": "emphasis"
+    },
+    {
+      "id": "b-govern",
+      "from": "b-ccgc",
+      "to": "b-store",
+      "label": "bindings, audit, revocation",
+      "fromSide": "bottom",
+      "toSide": "top"
+    }
+  ],
+  "cards": [
+    {
+      "dot": "amber",
+      "title": "Option A tradeoffs",
+      "items": [
+        "Native dashboard and token exchange with fewer components",
+        "Enterprise identity binding, bounded admission, coordinated offboarding, and audit must be built separately"
+      ]
+    },
+    {
+      "dot": "emerald",
+      "title": "Controls retained with Option B",
+      "items": [
+        "Entra tenant/role, expected GitHub account, enrollment, catalog, admission, revocation, and audit stay governed",
+        "LiteLLM retains native GitHub OAuth token storage, exchange, and inference"
+      ]
+    },
+    {
+      "dot": "violet",
+      "title": "Recommendation & migration trigger",
+      "items": [
+        "Keep Option B now: native OAuth behind the enterprise control plane, not custom OAuth",
+        "Remove the bridge only after mature Entra JWT → virtual-key mapping proves parity for users, admission, revocation, audit, and Code/Desktop provisioning"
+      ]
+    }
+  ]
+}
