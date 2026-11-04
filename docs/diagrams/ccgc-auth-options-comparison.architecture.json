@@ -12,19 +12,19 @@
         "id": "direct-native",
         "label": "Direct native",
         "focus": ["a-user", "a-litellm", "a-db", "a-github"],
-        "note": "Simpler native path; teams must separately add identity binding, bounded access, offboarding, revocation, and audit."
+        "note": "PRO — native flow with fewer components. CON — identity binding, bounded access, offboarding, revocation, and audit are separate."
       },
       {
         "id": "recommended-hybrid",
         "label": "Recommended hybrid",
         "focus": ["b-user", "b-ccgc", "b-admission", "b-litellm", "b-store", "b-github"],
-        "note": "Same native LiteLLM OAuth, plus enterprise identity checks, controlled enrollment, bounded admission, governance, and revocation."
+        "note": "PRO — enterprise identity, enrollment, admission, governance, and revocation. CON — added control-plane and integration upkeep."
       },
       {
         "id": "decision",
         "label": "Decision",
         "focus": ["a-litellm", "b-ccgc", "b-admission", "b-litellm", "b-store"],
-        "note": "Choose B now; remove only the credential bridge after strict JWT mapping reaches RC maturity and full control parity."
+        "note": "PRO — choose B for enterprise controls. CON — simplify only after strict JWT mapping reaches RC maturity and full control parity."
       }
     ]
   },
@@ -212,30 +212,32 @@
   "cards": [
     {
       "dot": "amber",
-      "title": "Option A tradeoffs",
+      "title": "Option A — Pros / Cons",
       "items": [
-        "Employee signs in to LiteLLM, links GitHub, and receives a virtual key/token directly—fewer services, simpler operations.",
-        "LiteLLM encrypts the GitHub access token in its DB; requests must authenticate as that same LiteLLM user.",
-        "No independent Entra ↔ expected-GitHub check; build offboarding, revocation, audit, expiry/attempt limits, and bounded access separately."
+        "PRO — Fewer components and lower operational complexity.",
+        "PRO — Native LiteLLM dashboard sign-in and GitHub-link flow.",
+        "CON — No independent Entra ↔ expected-GitHub identity binding.",
+        "CON — Direct credential distribution; offboarding, audit, revocation, and bounded access are separate."
       ]
     },
     {
       "dot": "emerald",
-      "title": "Controls retained with Option B",
+      "title": "Option B — Pros",
       "items": [
-        "Adds Entra tenant/audience/app-role checks, controlled enrollment, and expected GitHub login + immutable account-ID match.",
-        "Expiry/attempt-bounded admissions map each virtual key to the correct native OAuth user; revocation is coordinated.",
-        "LiteLLM still stores/exchanges GitHub tokens and runs inference; policy enforces the approved five-model catalog.",
-        "Audit joins Entra, GitHub, admission, model, and request."
+        "PRO — Entra checks plus expected GitHub login and immutable account-ID binding.",
+        "PRO — Controlled enrollment, bounded admission, coordinated revocation, and joined audit.",
+        "PRO — Approved-model policy while LiteLLM retains native github_copilot + per_user_oauth.",
+        "PRO — Recommended now for enterprise identity and policy controls."
       ]
     },
     {
-      "dot": "violet",
-      "title": "Recommendation & migration trigger",
+      "dot": "amber",
+      "title": "Option B — Costs / Cons & Migration",
       "items": [
-        "Choose B: both options use LiteLLM github_copilot + per_user_oauth; B adds enterprise identity/policy—not custom GitHub OAuth.",
-        "Strict Entra JWT → virtual-key mapping may later remove only the credential bridge.",
-        "Wait for RC maturity and parity for API-key users, Code/Desktop helpers, bounded admissions, revocation, audit, and Entra ↔ GitHub binding."
+        "CON — Added control-plane complexity and another service/database policy layer.",
+        "CON — Custom admission and identity integration require maintenance.",
+        "PRO — Strict Entra JWT mapping may later remove only the credential bridge.",
+        "CON — Simplify only after RC maturity and parity for clients, bounded access, revocation, audit, and identity binding."
       ]
     }
   ]
