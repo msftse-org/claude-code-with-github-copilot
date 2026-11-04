@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import { spawnSync } from 'node:child_process';
-import { lstatSync, readFileSync, writeFileSync } from 'node:fs';
+import { lstatSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 
 function fail(message) {
@@ -184,6 +184,7 @@ if (command === 'images') {
       if (!/^sha256:[a-f0-9]{64}$/.test(digest)) fail(`ACR returned an invalid digest for ${repository}.`);
       published[`${key}Image`] = `${registryLoginServer}/${repository}@${digest}`;
     }
+    mkdirSync(resolve(root, '.azure'), { recursive: true, mode: 0o700 });
     const outputPath = resolve(root, `.azure/enterprise-images.${gitSha}.json`);
     writeFileSync(outputPath, `${JSON.stringify({
       gitSha,

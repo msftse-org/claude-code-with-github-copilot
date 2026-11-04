@@ -278,6 +278,7 @@ npm run enterprise:entra -- \
   --display-name 'CCGC Enterprise API' \
   --pilot-group-object-id 00000000-0000-0000-0000-000000000000 \
   --admin-group-object-id 11111111-1111-1111-1111-111111111111 \
+  --admin-portal-redirect-uri https://PUBLIC_CONTROL_PLANE_FQDN/ccgc/admin \
   --confirm-entra-changes
 
 npm run enterprise:pilot -- foundation \
@@ -301,6 +302,10 @@ npm run enterprise:pilot -- runtime \
 The no-confirm variants run Azure `what-if`. Foundation deployment creates the
 private Premium ACR and scale-to-zero VNet build pool first; image publication
 then produces digest-only references consumed by runtime deployment.
+Image publication creates the private `.azure/` manifest directory when needed.
+The Docker build context remains an explicit allowlist, including the LiteLLM
+configuration, authentication extension, and non-secret bootstrap sentinel;
+local credentials and deployment parameter files are not included.
 
 ## LiteLLM bootstrap and employee onboarding
 
@@ -496,12 +501,33 @@ cache policy.
 
 ## Deployment status and remaining gates
 
-The Azure Sweden Central pilot runs the consolidated central-LiteLLM revision.
+The previously validated Azure Sweden Central pilot runs the consolidated central-LiteLLM revision.
 The public control plane and LiteLLM gateway are deployed with two replicas
 each, and one private PostgreSQL Flexible Server stores the `ccgc` and
 `litellm` schemas. Bootstrap, discovery, bounded admission, administration,
 revocation, and real Claude inference have passed. The managed macOS profile
 was also verified with Claude Code CLI `2.1.308` and Claude Desktop `3.6556.2`.
+
+### New managed pilot: 2026-11-04
+
+The separate `rg-ccgc-pilot-enterprise` environment is deployed in Sweden
+Central with two healthy control-plane replicas, two healthy LiteLLM replicas,
+and private, healthy zone-redundant PostgreSQL. Database bootstrap succeeded,
+HTTPS health and gateway discovery passed, unauthenticated model discovery and
+administration returned HTTP 401, and the assigned administrator's status
+request returned HTTP 200. The temporary private ACR build pool was removed.
+
+- [Administrator portal](https://ca-ccgc-pilot-broker.niceocean-1765aa16.swedencentral.azurecontainerapps.io/ccgc/admin)
+- [LiteLLM gateway](https://ca-ccgc-pilot-litellm.niceocean-1765aa16.swedencentral.azurecontainerapps.io)
+
+This new environment has no enrolled employees or linked Copilot accounts.
+Claude Code CLI/Desktop routing, Copilot entitlement, and inference have **not**
+been verified in this environment; the earlier pilot's live evidence does not
+establish them here. The approved baseline hosting estimate is approximately
+USD 1,050/month at 730 hours, excluding variable usage and taxes; autoscaling
+can increase it, and this estimate is not a spending cap.
+
+### Remaining production gates
 
 Production rollout still requires:
 

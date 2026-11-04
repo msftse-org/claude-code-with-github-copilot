@@ -86,6 +86,27 @@ test('enterprise deployment stages private image publication before runtime', as
   assert.match(automation, /if \(action === 'what-if'\) args\.push\('--no-pretty-print'\)/);
 });
 
+test('enterprise image publication supports a fresh checkout with an allowlisted build context', async () => {
+  const [ignore, dockerfile, automation] = await Promise.all([
+    source('.dockerignore'),
+    source('server/Dockerfile.enterprise-litellm'),
+    source('scripts/enterprise-pilot.mjs'),
+  ]);
+  const rules = new Set(ignore.trim().split('\n'));
+  assert.equal(rules.has('**'), true);
+  for (const path of [
+    'server/',
+    'server/Dockerfile.enterprise-litellm',
+    'server/litellm-github-copilot-bootstrap/',
+    ...[...dockerfile.matchAll(/^COPY (?!--from=)(\S+) \S+$/gm)]
+      .map(match => match[1]!),
+  ]) {
+    assert.equal(rules.has(`!${path}`), true, `build context excludes ${path}`);
+  }
+  assert.equal(rules.has('!server/*'), false);
+  assert.match(automation, /mkdirSync\(resolve\(root, '\.azure'\), \{ recursive: true, mode: 0o700 \}\)/);
+});
+
 test('the control plane and central LiteLLM enforce separate single-tenant authorization', async () => {
   const [platform, authenticator, entraAutomation] = await Promise.all([
     source('infra/enterprise/modules/platform.bicep'),
