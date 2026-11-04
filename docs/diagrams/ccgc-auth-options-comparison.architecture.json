@@ -2,29 +2,35 @@
   "schema_version": 1,
   "diagram_type": "architecture",
   "meta": {
-    "title": "Copilot OAuth: Enterprise Options",
+    "title": "TODAY: No Controls Missing",
     "quality_profile": "showcase",
     "locale": "en",
     "animation": "none",
-    "viewBox": [1240, 500],
+    "viewBox": [1240, 430],
     "views": [
       {
-        "id": "direct-native",
-        "label": "Direct native",
-        "focus": ["a-user", "a-litellm", "a-db", "a-github"],
-        "note": "PRO — native flow with fewer components. CON — identity binding, bounded access, offboarding, revocation, and audit are separate."
+        "id": "today",
+        "label": "Today: no controls missing",
+        "focus": ["today-banner", "b-user", "b-ccgc", "b-admission", "b-litellm", "b-github"],
+        "note": "Option B is production: LiteLLM native per-user OAuth plus the CCGC enterprise control plane."
       },
       {
-        "id": "recommended-hybrid",
-        "label": "Recommended hybrid",
-        "focus": ["b-user", "b-ccgc", "b-admission", "b-litellm", "b-store", "b-github"],
-        "note": "PRO — enterprise identity, enrollment, admission, governance, and revocation. CON — added control-plane and integration upkeep."
+        "id": "controls-lost",
+        "label": "Controls lost",
+        "focus": ["a-user", "a-litellm", "a-github"],
+        "note": "Only removing CCGC creates the gap: eight controls are not provided by per-user OAuth alone."
       },
       {
-        "id": "decision",
-        "label": "Decision",
-        "focus": ["a-litellm", "b-ccgc", "b-admission", "b-litellm", "b-store"],
-        "note": "PRO — choose B for enterprise controls. CON — simplify only after strict JWT mapping reaches RC maturity and full control parity."
+        "id": "controls-retained",
+        "label": "Controls retained",
+        "focus": ["b-ccgc", "b-admission", "b-litellm"],
+        "note": "CCGC adds coordinated identity, enrollment, bounded admission, catalog, provisioning, revocation, and audit."
+      },
+      {
+        "id": "recommendation",
+        "label": "Recommendation",
+        "focus": ["recommendation-banner", "b-ccgc", "b-admission", "b-litellm"],
+        "note": "Keep Option B; remove only the credential bridge later if Entra JWT mapping proves full parity."
       }
     ]
   },
@@ -32,28 +38,19 @@
     {
       "id": "a-user",
       "type": "frontend",
-      "label": "Employee / Claude Code",
-      "sublabel": "LiteLLM sign-in; GitHub link",
+      "label": "Employee / Claude",
+      "sublabel": "User-driven GitHub link",
       "brand": "claude",
-      "pos": [340, 40],
-      "size": [180, 92]
+      "pos": [70, 45],
+      "size": [170, 82]
     },
     {
       "id": "a-litellm",
       "type": "backend",
-      "label": "LiteLLM native OAuth",
+      "label": "LiteLLM native OAuth alone",
       "sublabel": "github_copilot + per_user_oauth",
-      "pos": [330, 180],
-      "size": [180, 122]
-    },
-    {
-      "id": "a-db",
-      "type": "database",
-      "label": "LiteLLM database",
-      "sublabel": "Encrypts each user's GitHub token",
-      "brand": "postgresql",
-      "pos": [50, 189],
-      "size": [180, 104]
+      "pos": [400, 35],
+      "size": [230, 102]
     },
     {
       "id": "a-github",
@@ -61,50 +58,57 @@
       "label": "GitHub Copilot",
       "sublabel": "Token exchange + inference",
       "brand": "github",
-      "pos": [345, 350],
-      "size": [150, 92]
+      "pos": [850, 45],
+      "size": [170, 82]
+    },
+    {
+      "id": "today-banner",
+      "type": "security",
+      "label": "TODAY / OPTION B: no controls missing",
+      "sublabel": "Native OAuth + CCGC; LiteLLM limits, logs, spend controls and revocation remain configurable",
+      "pos": [25, 165],
+      "size": [570, 66]
+    },
+    {
+      "id": "recommendation-banner",
+      "type": "security",
+      "label": "Recommendation: Keep Option B",
+      "sublabel": "Remove only the credential bridge later if Entra JWT mapping proves parity; do not remove the control plane",
+      "pos": [630, 165],
+      "size": [585, 66]
     },
     {
       "id": "b-user",
       "type": "frontend",
       "label": "Employee / Claude",
-      "sublabel": "Managed Code + Desktop entry",
+      "sublabel": "Managed clients + API keys",
       "brand": "claude",
-      "pos": [670, 40],
-      "size": [160, 104]
+      "pos": [25, 300],
+      "size": [155, 88]
     },
     {
       "id": "b-ccgc",
       "type": "security",
       "label": "CCGC Control Plane",
-      "sublabel": "Entra checks + GitHub ID binding",
-      "pos": [1010, 30],
-      "size": [180, 132]
+      "sublabel": "Identity binding, catalog + audit",
+      "pos": [225, 290],
+      "size": [195, 108]
     },
     {
       "id": "b-admission",
       "type": "security",
       "label": "Bounded admission",
-      "sublabel": "Expiry + attempt limits",
-      "pos": [670, 190],
-      "size": [180, 104]
+      "sublabel": "Expiry, attempts + revocation",
+      "pos": [470, 300],
+      "size": [170, 88]
     },
     {
       "id": "b-litellm",
       "type": "backend",
       "label": "LiteLLM native OAuth",
       "sublabel": "github_copilot + per_user_oauth",
-      "pos": [670, 358],
-      "size": [160, 110]
-    },
-    {
-      "id": "b-store",
-      "type": "database",
-      "label": "CCGC enterprise store",
-      "sublabel": "Bindings, policy + audit",
-      "brand": "postgresql",
-      "pos": [1010, 226],
-      "size": [160, 104]
+      "pos": [690, 290],
+      "size": [195, 108]
     },
     {
       "id": "b-github",
@@ -112,22 +116,22 @@
       "label": "GitHub Copilot",
       "sublabel": "Token exchange + inference",
       "brand": "github",
-      "pos": [1010, 360],
-      "size": [160, 104]
+      "pos": [1030, 300],
+      "size": [160, 88]
     }
   ],
   "boundaries": [
     {
       "kind": "security-group",
-      "label": "OPTION A — DIRECT LITELLM NATIVE",
-      "wraps": ["a-user", "a-litellm", "a-db", "a-github"],
-      "pad": 28
+      "label": "OPTION A — SIMPLER, BUT EIGHT CONTROLS MUST BE REBUILT",
+      "wraps": ["a-user", "a-litellm", "a-github"],
+      "pad": 22
     },
     {
       "kind": "security-group",
-      "label": "OPTION B — RECOMMENDED HYBRID",
-      "wraps": ["b-user", "b-ccgc", "b-admission", "b-litellm", "b-store", "b-github"],
-      "pad": 28
+      "label": "TODAY / OPTION B — CURRENT PRODUCTION: NATIVE OAUTH + ENTERPRISE CONTROLS",
+      "wraps": ["b-user", "b-ccgc", "b-admission", "b-litellm", "b-github"],
+      "pad": 20
     }
   ],
   "connections": [
@@ -135,52 +139,46 @@
       "id": "a-entry",
       "from": "a-user",
       "to": "a-litellm",
-      "label": "same LiteLLM user authenticates requests",
-      "fromSide": "bottom",
-      "toSide": "top",
-      "labelDy": 24
+      "label": "user connects GitHub account",
+      "fromSide": "right",
+      "toSide": "left"
     },
     {
       "id": "a-oauth",
       "from": "a-litellm",
       "to": "a-github",
       "label": "native per-user OAuth + inference",
-      "fromSide": "bottom",
-      "toSide": "top",
-      "labelDy": 24,
+      "fromSide": "right",
+      "toSide": "left",
       "variant": "emphasis"
-    },
-    {
-      "id": "a-token",
-      "from": "a-litellm",
-      "to": "a-db",
-      "label": "store encrypted GitHub token",
-      "fromSide": "left",
-      "toSide": "right",
-      "labelDy": -63
     },
     {
       "id": "b-entry",
       "from": "b-user",
       "to": "b-ccgc",
-      "label": "Entra gates + enrollment",
-      "labelAt": [1020, 176]
+      "label": "managed enrollment + provisioning",
+      "fromSide": "right",
+      "toSide": "left",
+      "labelAt": [203, 412]
     },
     {
       "id": "b-admit",
       "from": "b-ccgc",
       "to": "b-admission",
-      "label": "issue expiry- and attempt-bounded admission",
-      "labelDy": 17,
+      "label": "issue bounded admission",
+      "fromSide": "right",
+      "toSide": "left",
+      "labelAt": [445, 412],
       "variant": "emphasis"
     },
     {
       "id": "b-native",
       "from": "b-admission",
       "to": "b-litellm",
-      "label": "virtual key selects bound native OAuth user",
-      "fromSide": "bottom",
-      "toSide": "top",
+      "label": "select bound OAuth user",
+      "fromSide": "right",
+      "toSide": "left",
+      "labelAt": [665, 412],
       "variant": "emphasis"
     },
     {
@@ -188,56 +186,31 @@
       "from": "b-litellm",
       "to": "b-github",
       "label": "store/exchange GitHub token + infer",
-      "labelDy": 28,
+      "fromSide": "right",
+      "toSide": "left",
+      "labelAt": [958, 412],
       "variant": "emphasis"
-    },
-    {
-      "id": "b-govern",
-      "from": "b-ccgc",
-      "to": "b-store",
-      "label": "GitHub login + immutable ID match; audit",
-      "fromSide": "bottom",
-      "toSide": "top"
-    },
-    {
-      "id": "b-resolve",
-      "from": "b-store",
-      "to": "b-litellm",
-      "label": "resolve binding; coordinate revocation",
-      "labelDy": 9,
-      "fromSide": "left",
-      "toSide": "right"
     }
   ],
   "cards": [
     {
-      "dot": "amber",
-      "title": "Option A — Pros / Cons",
+      "dot": "rose",
+      "title": "Controls removed by Option A (1–4)",
       "items": [
-        "PRO — Fewer components and lower operational complexity.",
-        "PRO — Native LiteLLM dashboard sign-in and GitHub-link flow.",
-        "CON — No independent Entra ↔ expected-GitHub identity binding.",
-        "CON — Direct credential distribution; offboarding, audit, revocation, and bounded access are separate."
+        "LOST CONTROL — Entra ↔ approved GitHub identity binding: OAuth proves account control, not the employee’s approved login/ID. Risk: wrong or personal account.",
+        "LOST CONTROL — coordinated offboarding: today one binding revocation ends admissions/API keys/access; OAuth alone needs separate LiteLLM/GitHub cleanup. Risk: an issued credential can survive disablement.",
+        "LOST CONTROL — short-lived bounded admissions: grants expire, limit attempts, bind to catalog/binding revisions and are revocable; direct credentials are not bounded session grants. Risk: a copied credential has a larger reuse window.",
+        "LOST CONTROL — expected model catalog reconciliation: CCGC publishes five verified routes and invalidates stale admissions after changes; OAuth alone does not. Risk: stale users/configurations request removed models."
       ]
     },
     {
-      "dot": "emerald",
-      "title": "Option B — Pros",
+      "dot": "rose",
+      "title": "Controls removed by Option A (5–8)",
       "items": [
-        "PRO — Entra checks plus expected GitHub login and immutable account-ID binding.",
-        "PRO — Controlled enrollment, bounded admission, coordinated revocation, and joined audit.",
-        "PRO — Approved-model policy while LiteLLM retains native github_copilot + per_user_oauth.",
-        "PRO — Recommended now for enterprise identity and policy controls."
-      ]
-    },
-    {
-      "dot": "amber",
-      "title": "Option B — Costs / Cons & Migration",
-      "items": [
-        "CON — Added control-plane complexity and another service/database policy layer.",
-        "CON — Custom admission and identity integration require maintenance.",
-        "PRO — Strict Entra JWT mapping may later remove only the credential bridge.",
-        "CON — Simplify only after RC maturity and parity for clients, bounded access, revocation, audit, and identity binding."
+        "LOST CONTROL — end-to-end enterprise audit correlation: current audit links Entra ID, immutable GitHub ID, enrollment/API key, admission, model and request. LiteLLM logs alone do not automatically retain this exact corporate chain. Risk: harder incident/compliance evidence.",
+        "LOST CONTROL — managed enrollment/account-match approval: CCGC creates users, verifies expected GitHub login, retries and consumes one-time enrollment; native connection is user-driven. Risk: no admin proof of intended person/account.",
+        "LOST CONTROL — Claude Code/Desktop managed provisioning: installer backs up settings, manages Keychain/helper, refreshes catalog and configures Desktop Code; OAuth UI does not. Risk: inconsistent endpoint/model/key setup.",
+        "LOST CONTROL — API-key/non-interactive user path: CCGC supports enterprise API-key employees and admission exchange without dashboard sessions; native UI does not replace it automatically. Risk: no managed non-interactive lifecycle."
       ]
     }
   ]
