@@ -2,7 +2,7 @@
   "schema_version": 1,
   "diagram_type": "architecture",
   "meta": {
-    "title": "LiteLLM Enterprise vs LiteLLM + CCGC",
+    "title": "LiteLLM + CCGC Compatibility",
     "quality_profile": "showcase",
     "locale": "en",
     "animation": "none",
@@ -195,23 +195,35 @@
   ],
   "cards": [
     {
-      "dot": "emerald",
-      "title": "Official LiteLLM docs: native enterprise coverage",
+      "dot": "cyan",
+      "title": "Providers + endpoints",
       "items": [
-        "IDENTITY + OFFBOARDING — Entra/OIDC JWT auth, SCIM provisioning, and JWT-to-virtual-key mapping are native enterprise features. SCIM deprovisioning blocks the user’s virtual keys and clears auth cache; separate GitHub connection cleanup may still be required.",
-        "KEYS + MODELS — virtual keys support expiry, model access, budgets and rate limits; model mappings/access groups and token/API clients remain available. Model catalog and non-interactive access are not lost.",
-        "GITHUB COPILOT — per-user OAuth requires the same LiteLLM user, stores the GitHub token encrypted in the DB, supports disconnect, GHE.com hosts and model mappings, and shows the connected GitHub username.",
-        "CLAUDE + AUDIT — enterprise audit/request logs, beta CLI SSO, OS keychain, lite claude and Claude apiKeyHelper configuration are documented. Claude Desktop-specific automation is not documented."
+        "SUPPORTED A/B — Copilot per-user OAuth + Anthropic Messages/Claude Code; B inherits native OAuth.",
+        "SUPPORTED A/B — Chat Completions, Responses and Embeddings.",
+        "SUPPORTED A/B — public aliases; Claude apps require claude- or anth- names.",
+        "SUPPORTED A/B — GHE.com data-residency host."
+      ]
+    },
+    {
+      "dot": "emerald",
+      "title": "Enterprise controls",
+      "items": [
+        "SUPPORTED (ENTERPRISE) A/B — Entra/OIDC JWT + SCIM lifecycle.",
+        "SUPPORTED (ENTERPRISE) A/B — JWT-to-key mapping + admin audit; request logs available.",
+        "SUPPORTED A/B — virtual keys, token/API clients, model mappings, access groups and catalog.",
+        "SUPPORTED A/B — expiry, budgets, rates and spend; A loses no catalog or API-client path."
       ]
     },
     {
       "dot": "rose",
-      "title": "Residual CCGC controls — retain only when policy requires",
+      "title": "Clients + custom policy",
       "items": [
-        "CCGC DIFFERENTIATOR — enforced Entra employee → expected GitHub login and immutable account-ID match during enrollment. LiteLLM documents the connected username, not expected-account enforcement; a GHE.com host narrows the risk.",
-        "CCGC DIFFERENTIATOR — custom attempt-bounded and binding/catalog-revision-bound admission grants, including stale-admission invalidation beyond native key or JWT expiration.",
-        "CCGC DIFFERENTIATOR — exact end-to-end correlation across Entra identity, GitHub connection, custom admission, model and request, beyond native admin audit and request logs.",
-        "CCGC DIFFERENTIATOR — managed Claude Desktop-specific installation and conflict recovery where policy requires it. Lite CLI substantially covers Claude Code, but CLI SSO is beta."
+        "PARTIAL/BETA A/B — CLI SSO + keychain + lite claude; SUPPORTED A/B — apiKeyHelper. Verify on 1.108.0-rc.1.",
+        "NOT DOCUMENTED A / CUSTOM B — Claude Desktop automation.",
+        "NOT DOCUMENTED A / CUSTOM B — expected Entra→GitHub login/account-ID match.",
+        "NATIVE EXPIRY A / CUSTOM B — attempt/revision-bound admissions + stale invalidation.",
+        "NATIVE LOGS A / CUSTOM B — exact Entra/GitHub/admission/model/request correlation.",
+        "SOURCES — docs.litellm.ai: /providers/github_copilot; /proxy/{identity_provisioning,jwt_key_mapping,cli_sso,audit_logs}."
       ]
     }
   ]
