@@ -30,7 +30,7 @@
         "id": "migration",
         "label": "Migration target",
         "focus": ["recommendation-banner", "b-ccgc", "b-admission", "b-litellm"],
-        "note": "Keep CCGC temporarily on 1.108.0-rc.1; pilot native features, then remove duplicate logic and retain justified extensions."
+        "note": "Keep CCGC temporarily: CLI SSO is beta; validate newer documented features on 1.108.0 before simplification."
       }
     ]
   },
@@ -65,7 +65,7 @@
       "id": "today-banner",
       "type": "security",
       "label": "CURRENT PRODUCTION: no controls are lost",
-      "sublabel": "LiteLLM 1.108.0-rc.1 + CCGC; migrate only after native enterprise validation",
+      "sublabel": "LiteLLM 1.108.0 (formal release) + CCGC; validate before migration",
       "pos": [25, 165],
       "size": [570, 66]
     },
@@ -218,7 +218,7 @@
       "dot": "rose",
       "title": "Clients + custom policy",
       "items": [
-        "PARTIAL/BETA A/B — CLI SSO + keychain + lite claude; SUPPORTED A/B — apiKeyHelper. Verify on 1.108.0-rc.1.",
+        "PARTIAL/BETA A/B — CLI SSO + keychain + lite claude; SUPPORTED A/B — apiKeyHelper.",
         "NOT DOCUMENTED A / CUSTOM B — Claude Desktop automation.",
         "NOT DOCUMENTED A / CUSTOM B — expected Entra→GitHub login/account-ID match.",
         "NATIVE EXPIRY A / CUSTOM B — attempt/revision-bound admissions + stale invalidation.",

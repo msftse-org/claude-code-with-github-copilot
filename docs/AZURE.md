@@ -13,7 +13,7 @@ preserved through the catalog upgrade.
 
 Bicep/ARM provisioning, cloud-init, Docker/Compose and verified-SSH source upload
 succeeded. The catalog runtime passed fifteen bootstrap and four installed-package
-checks. LiteLLM 1.108.0-rc.1's authentication-error path uses pinned `prisma==0.11.0`,
+checks. LiteLLM 1.108.0's authentication-error path uses pinned `prisma==0.11.0`,
 returning HTTP 401 without adding a database. Caddy has a valid public TLS
 certificate. Actual Claude Code 2.1.284 passed its live route probe, then seven
 Read/Edit/Bash workflows while switching through all six models and back to
@@ -43,7 +43,7 @@ service is added.
 | Hostname | `ccgc-dev-87b7.swedencentral.cloudapp.azure.com`, resolves to `135.225.75.22` |
 | Operator | `ccgcadmin`, dedicated SSH key; Defender JIT TCP 22 from operator `/32`, maximum one hour |
 | Public service ports | 80/443 for Caddy; never 4000/8080 or Docker |
-| Runtime | Node 24.18.1, Python 3.14.6, LiteLLM 1.108.0-rc.1, Caddy 2.11.2 |
+| Runtime | Node 24.18.1, Python 3.14.6, LiteLLM 1.108.0, Caddy 2.11.2 |
 
 At provisioning handoff, only operator-restricted SSH responded. At 13:25 UTC
 on 2026-10-06, `MCAPSGovernance-AutomationApp` removed `allow-ssh-operator`;

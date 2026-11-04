@@ -63,9 +63,7 @@ class InstalledProviderTests(unittest.TestCase):
         ))
 
     def test_pinned_package_native_messages_dispatch_and_authentication_boundary(self):
-        # The RC wheel is 1.108.0rc1; the upstream RC container's dist-info
-        # reports the release source version 1.108.0.
-        self.assertIn(version("litellm"), {"1.108.0rc1", "1.108.0"})
+        self.assertEqual(version("litellm"), "1.108.0")
         with tempfile.TemporaryDirectory(prefix="ccgc-litellm-contract-") as state, patch.dict(os.environ, {
             "GITHUB_COPILOT_TOKEN_DIR": state, "LITELLM_LOCAL_MODEL_COST_MAP": "True", "DO_NOT_TRACK": "True",
         }):
