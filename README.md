@@ -464,8 +464,9 @@ npm run enterprise:actions-identity -- \
 ```
 
 The idempotent script creates the **CCGC Employee Access Automation** app
-registration with a federated credential for
-`repo:OWNER/REPO:environment:ccgc-admin`, assigns it `CCGC.Admin` (no client
+registration with a federated credential for the `ccgc-admin` environment's
+OIDC subject (name-based or GitHub's immutable owner/repository-ID form, read
+from the repository settings), assigns it `CCGC.Admin` (no client
 secret and no Azure RBAC), creates the `ccgc-admin` environment restricted to
 `main`, and sets the `AZURE_CLIENT_ID`, `AZURE_TENANT_ID`,
 `CCGC_ADMIN_AUDIENCE`, and `CCGC_BROKER_URL` environment variables. Granting an

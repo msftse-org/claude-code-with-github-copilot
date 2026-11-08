@@ -159,15 +159,18 @@ npm run enterprise:actions-identity -- \
 
 The script is idempotent. It allows `CCGC.Admin` to be assigned to
 applications, creates the **CCGC Employee Access Automation** app registration
-and service principal, adds a federated credential for
-`repo:OWNER/REPO:environment:ccgc-admin`, and assigns that service principal
-`CCGC.Admin`. The identity has no client secret and no Azure RBAC role. With
+and service principal, adds a federated credential for the `ccgc-admin`
+environment's OIDC subject, and assigns that service principal `CCGC.Admin`.
+The subject is read from the repository's OIDC settings, so both the
+name-based form (`repo:OWNER/REPO:environment:ccgc-admin`) and GitHub's
+immutable form (`repo:OWNER@OWNER_ID/REPO@REPO_ID:environment:ccgc-admin`)
+are supported. The identity has no client secret and no Azure RBAC role. With
 `--configure-github` it also creates the `ccgc-admin` environment, restricts
 it to the `main` branch, and sets the `AZURE_CLIENT_ID`, `AZURE_TENANT_ID`,
 `CCGC_ADMIN_AUDIENCE`, and `CCGC_BROKER_URL` environment variables. Assigning
 an application role requires an Entra administrator who can grant consent for
-the broker API. If the organization customizes the GitHub OIDC subject claim,
-adjust the federated credential subject to match.
+the broker API. For a custom OIDC subject template, pass the exact subject
+with `--subject`.
 
 **Enroll or renew.** Run the workflow with `action=enroll`. The run summary
 contains the code, its expiry, and copyable employee instructions; the code is

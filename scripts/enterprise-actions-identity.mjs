@@ -68,6 +68,23 @@ const brokerUrl = option('--broker-url');
 const apiDisplayName = option('--api-display-name') ?? 'CCGC Enterprise API';
 const displayName = option('--display-name') ?? 'CCGC Employee Access Automation';
 const configureGitHub = has('--configure-github');
+const subjectOverride = option('--subject');
+
+// GitHub repositories can emit name-based or immutable (owner/repository ID)
+// OIDC subjects; the federated credential must match the one actually emitted.
+function githubSubject() {
+  const settings = run('gh', ['api', `repos/${repository}/actions/oidc/customization/sub`], { allowFailure: true });
+  if (!settings) fail('Could not read the repository OIDC subject settings with gh. Pass --subject explicitly.');
+  if (settings.use_default === false) {
+    fail('The repository uses a custom OIDC subject template. Pass the exact environment subject with --subject.');
+  }
+  let prefix = settings.sub_claim_prefix;
+  if (!prefix && settings.use_immutable_subject) {
+    const details = run('gh', ['api', `repos/${repository}`]);
+    prefix = `repo:${details.owner.login}@${details.owner.id}/${details.name}@${details.id}`;
+  }
+  return `${prefix ?? `repo:${repository}`}:environment:${environment}`;
+}
 
 if (!repository || !/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(repository)) {
   fail('Use --repository OWNER/REPOSITORY for the repository that runs the employee access workflow.');
@@ -76,6 +93,9 @@ if (!/^[A-Za-z0-9_.-]{1,100}$/.test(environment)) fail('Use --environment with a
 if (!/^[A-Za-z0-9_./-]{1,200}$/.test(branch)) fail('Use --branch with the protected branch allowed to run the workflow.');
 if (!brokerUrl || !/^https:\/\/[A-Za-z0-9.-]+(:[0-9]+)?\/?$/.test(brokerUrl)) {
   fail('Use --broker-url with the public broker HTTPS origin, for example https://broker.example.com.');
+}
+if (subjectOverride !== undefined && !/^repo:[^\s:]+:environment:[A-Za-z0-9_.-]+$/.test(subjectOverride)) {
+  fail('Use --subject in the form repo:...:environment:NAME.');
 }
 if (!has('--confirm-entra-changes')) {
   fail('Add --confirm-entra-changes after reviewing the tenant, repository, and environment. This grants the workflow CCGC.Admin.');
@@ -99,7 +119,7 @@ const automation = single(displayName, true);
 const automationServicePrincipal = servicePrincipal(automation.appId);
 
 const issuer = 'https://token.actions.githubusercontent.com';
-const subject = `repo:${repository}:environment:${environment}`;
+const subject = subjectOverride ?? githubSubject();
 const credentials = graph('GET', `/applications/${automation.id}/federatedIdentityCredentials`).value ?? [];
 if (!credentials.some(credential => credential.issuer === issuer && credential.subject === subject)) {
   const name = `github-${repository}-${environment}`.replace(/[^A-Za-z0-9-]/g, '-').slice(0, 120);
