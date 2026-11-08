@@ -1,8 +1,12 @@
 # Enterprise Mac setup and operation
 
-This guide covers the legacy employee enrollment/admission compatibility
-path. For the preferred direct LiteLLM virtual-key setup and Desktop's
-separate Gateway configuration, use the [root README](../../README.md#on-the-mac).
+This guide covers standalone macOS enrollment with a personal LiteLLM key.
+Claude Code calls the enterprise LiteLLM gateway directly with that key, and
+LiteLLM serves each request through the employee's own GitHub Copilot
+connection. Employees get a key from Enterprise IT, run one script, paste the
+key, and approve GitHub in the browser that opens automatically. No checkout,
+Node.js, npm, or LiteLLM dashboard login is required. See also the
+[root README](../../README.md#getting-started).
 CLI settings and this guide's `doctor` do not establish Desktop routing.
 
 ## What is installed or stored on the Mac
@@ -11,25 +15,36 @@ CLI settings and this guide's `doctor` do not establish Desktop routing.
 |---|---|---|
 | Official Claude Code `2.1.296` or newer | Provides the unchanged coding interface and runs local Read, Edit, Bash, and permission decisions. | Install and verify the minimum supported version. |
 | Enterprise CCGC helper | Shell-based self-enrollment client and Claude `apiKeyHelper`. | Keep the installed private script at its stable path. |
-| Admission credential in macOS Keychain | Authenticates Claude requests for one employee and one bounded admission. | Allow the helper to create and renew it; never copy it manually. |
-| `~/.claude/settings.json` | Routes Claude to the central LiteLLM gateway and installs the control-plane credential helper. | Enrollment applies a conflict-checked update. |
-| Enterprise profile | Stores non-secret Entra/GitHub binding, catalog, revision, and admission metadata. | Let the helper create it; do not hand-edit or restore stale grants. |
+| Personal LiteLLM key in macOS Keychain | Authenticates that employee's inference requests directly for up to 90 days. | Use a newly issued key for renewal. |
+| `~/.claude/settings.json` | Routes Claude to LiteLLM and installs the Keychain credential helper. | Enrollment applies a conflict-checked update. |
+| Enterprise profile | Stores the gateway, verified LiteLLM/GitHub identity, credential reference, and model catalog; no secrets. | Let the helper create it; do not hand-edit it. |
+| `desktop-gateway.json` | Secret-free import file for Desktop's separate Gateway mode. | Import through Developer > Configure Third-Party Inference and relaunch. |
 
 GitHub OAuth and Copilot tokens do not belong on the Mac. LiteLLM encrypts the
-GitHub connection in its private PostgreSQL schema; Key Vault stores only the
-matching LiteLLM user key.
+GitHub connection in its private PostgreSQL schema. The employee's personal
+LiteLLM key is saved in macOS Keychain.
 
-## 1. Install prerequisites
+## 1. Get your personal key and the script
 
-Required for self-service API-key enrollment:
+Required:
 
 - macOS
 - Official Claude Code `2.1.296` or newer
+- Your own GitHub account with GitHub Copilot access
 - The repository's `scripts/ccgc-enterprise-macos.sh` enrollment script
-- A public CCGC control-plane URL and unexpired single-use enrollment code from Enterprise IT
+- The LiteLLM HTTPS URL and your 90-day personal key from Enterprise IT
 
-Download the tracked script from the private organization repository with an
-authenticated GitHub CLI session:
+Enterprise IT issues the key with the `CCGC employee access` GitHub Actions
+workflow (`enroll` action). The workflow creates or reuses your LiteLLM user
+and a new 90-day key. Its protected run summary shows the key, its expiry, the
+approved models, and the exact enrollment command with the LiteLLM URL.
+Anyone who can read that workflow run can use the key until it expires or is
+revoked, so IT keeps repository read access limited and sends the key only
+through an approved private channel.
+
+Enterprise IT distributes the tracked script through the approved software
+channel. An administrator with an authenticated GitHub CLI session can
+retrieve it from the private organization repository:
 
 ```bash
 gh auth status
@@ -61,26 +76,49 @@ Enrollment copies the script to a stable private path under
 change MDM policy. If organizational policy also blocks approved shell scripts,
 IT must distribute the script through the corporate software channel.
 
-## 2. Self-enroll with the one-time code
+## 2. Enroll with your personal key
+
+Run the enrollment command from the Actions run summary. It has this form:
 
 ```bash
-/bin/bash "$HOME/Downloads/ccgc-enterprise-macos.sh" enroll \
-  --code CCGC-ONE-TIME-CODE
+bash "$HOME/Downloads/ccgc-enterprise-macos.sh" enroll --gateway https://LITELLM_FQDN
 ```
 
-The script defaults to the deployed pilot control plane. A different deployment can
-be selected explicitly with `--gateway https://PUBLIC_CONTROL_PLANE_FQDN`.
+Use the LiteLLM HTTPS origin from Enterprise IT, without a path. Running the
+script without arguments enrolls against the deployed pilot LiteLLM endpoint
+built into the script.
 
-The script opens GitHub's device page, displays the expected GitHub login,
-and waits for authorization. The control plane rejects a different GitHub identity or
-an account without an active Copilot entitlement. After verification, the
-script stores the employee API key directly in Keychain, writes the
-non-secret profile, and configures Claude Code. The administrator never sees
-or transfers the API key.
+1. The script checks the Claude Code version and your existing Claude
+   settings. A conflicting shell environment variable stops enrollment; unset
+   it and retry. If `~/.claude/settings.json` already sets another
+   `apiKeyHelper`, `ANTHROPIC_API_KEY`, `ANTHROPIC_AUTH_TOKEN`,
+   `CLAUDE_CODE_OAUTH_TOKEN`, or a different `ANTHROPIC_BASE_URL`, the script
+   asks before the key is used whether to back up and replace only those
+   settings after verification, or cancel.
+2. Paste your personal key when prompted. Input is hidden, and the key does
+   not go into shell history.
+3. The script checks LiteLLM health, the key owner, the employee role, the key
+   expiry, and the Claude models available to the key.
+4. GitHub's device page opens automatically in your browser. Enter the code
+   that the script displays and approve with your own GitHub account that has
+   Copilot; the script names the expected account. With `--no-browser`, open
+   `https://github.com/login/device` yourself. If your LiteLLM user is already
+   connected to that account, for example when you renew with a new key, this
+   step is skipped.
+5. LiteLLM verifies the connected GitHub account and Copilot entitlement. If
+   the approving account does not match your LiteLLM user, the script removes
+   that connection and fails.
+6. Before saving anything, the script verifies the key owner, the connected
+   GitHub account, and the exact per-user `github-copilot-user` route for
+   every visible Claude model. It also checks model discovery, the
+   human-readable model name, the approved output limit, and one real bounded
+   inference response.
+7. It then stores the key in macOS Keychain, writes the non-secret profile,
+   configures Claude Code, and writes the Desktop import file.
 
-Enrollment also checks broker health, model discovery, the human-readable model
-name, the approved output limit, and one real bounded inference response before
-it saves local credentials or acknowledges the one-time code.
+Failed identity or routing verification does not replace the previous local
+profile or credentials. When the script prints `Enrollment complete`, restart
+any open Claude sessions and run `claude`.
 
 > [!IMPORTANT]
 > `enroll` is an initial or recovery action, not an update command. Once
@@ -89,53 +127,9 @@ it saves local credentials or acknowledges the one-time code.
 > Keep using the installed helper and run `doctor`; use `models` or `configure`
 > when their specific checks or repairs are needed.
 
-## 3. Alternative Entra or manual API-key login
+## 3. Understand the enterprise profile
 
-Enterprise IT provides:
-
-- the public HTTPS CCGC control-plane URL
-- the Entra application audience, such as `api://APPLICATION-ID`
-- confirmation that the employee is assigned to the authorized Entra pilot group
-- confirmation that the employee's Entra principal is linked to the same
-  employee's GitHub account and approved credential reference
-
-Run:
-
-```bash
-npm run enterprise:client -- login \
-  --gateway https://PUBLIC_CONTROL_PLANE_FQDN \
-  --audience api://ENTRA-APPLICATION-ID
-```
-
-The helper uses `DefaultAzureCredential` to obtain an Entra token for the
-configured audience over the public internet. The CCGC control plane verifies
-the tenant, audience, `CCGC.Access` scope/app role, and immutable object ID,
-then returns the approved employee binding, model catalog, and public
-CCGC-enabled LiteLLM gateway. No VPN is required; PostgreSQL and Key Vault
-remain private.
-
-The organization must define which `DefaultAzureCredential` source is allowed in
-production. Before login, remove unintended developer, CLI, IDE, or managed
-identity credentials that could select the wrong principal.
-
-If Enterprise IT assigned an employee API key instead, receive its private JSON
-file through an approved secret-delivery channel and ensure it has mode `0600`:
-
-```bash
-chmod 600 "$HOME/.config/ccgc/api-key.json"
-npm run enterprise:client -- login-api-key \
-  --gateway https://PUBLIC_CONTROL_PLANE_FQDN \
-  --api-key-file "$HOME/.config/ccgc/api-key.json"
-rm "$HOME/.config/ccgc/api-key.json"
-```
-
-The helper verifies the bound profile before storing the 30-day key in macOS
-Keychain. The key is never written to the enterprise profile or Claude
-settings. API keys cannot authorize enterprise administration routes.
-
-## 4. Understand the enterprise profile
-
-Login writes a private profile to:
+Enrollment writes a private profile to:
 
 ```text
 ~/.local/share/ccgc/enterprise/profile.json
@@ -143,46 +137,49 @@ Login writes a private profile to:
 
 It contains:
 
-- CCGC control-plane URL, central LiteLLM gateway URL, and Entra audience
-- Entra tenant and immutable object ID
-- linked GitHub login and immutable account ID
+- LiteLLM gateway URL
+- verified LiteLLM user ID and GitHub login
+- selected per-user Copilot credential name and isolated Keychain identifier
 - approved Claude model IDs
-- binding revision
-- current admission ID and expiry, when present
 
 It does not contain:
 
-- the Entra access token
+- the personal LiteLLM key
 - GitHub OAuth credentials
 - Copilot tokens
 - GitHub or gateway-service credentials
-- the opaque admission token
 
 The profile is private operational state. Do not commit it, synchronize it,
-hand-edit it, or copy an old admission to another Mac.
+hand-edit it, or copy it to another Mac.
 
-## 5. Update and re-enrollment policy
+## 4. Renewal and re-enrollment policy
 
-An existing enrollment remains valid across normal control-plane, LiteLLM,
+An existing enrollment remains valid across normal LiteLLM,
 model-catalog, helper-script, and Claude Code updates. Updating the tracked
-script does not consume a new enrollment code and does not require GitHub
-device authorization again. Enterprise IT should preserve the existing
-binding and employee credential during those rollouts.
+script does not require a new key or GitHub device authorization. Enterprise
+IT should preserve the existing employee key during those rollouts.
 
-Run enrollment again only when:
+Personal keys last 90 days. To renew, ask Enterprise IT to issue a new key,
+then run the `enroll` command from step 2 again and paste the new key. If your
+LiteLLM user is still connected to your GitHub account, enrollment skips the
+GitHub device step.
+
+Run enrollment again, always with a new personal key from Enterprise IT, only
+when:
 
 - setting up a different Mac or macOS user profile;
-- Enterprise IT revoked or intentionally rebound the employee identity;
-- the 30-day employee key expired or was revoked;
+- Enterprise IT revoked your access;
+- the 90-day personal key expired or is about to expire;
 - the local profile or Keychain credential was lost and cannot be recovered;
+- the installed helper reports that this enrollment is no longer supported;
 - Enterprise IT explicitly announces a migration that requires
-  re-enrollment and provides a new one-time code.
+  re-enrollment and provides a new key.
 
 If Claude stops working after an ordinary update, run `doctor` first. Do not
-request a new enrollment code or delete the profile/Keychain entry as a generic
+request a replacement key or delete the profile/Keychain entry as a generic
 troubleshooting step.
 
-## 6. Reapply Claude settings
+## 5. Reapply Claude settings
 
 Enrollment configures Claude automatically. To reapply the same conflict-checked
 configuration later, run:
@@ -191,9 +188,11 @@ configuration later, run:
 /bin/bash "$HOME/.local/share/ccgc/enterprise/ccgc-enterprise-macos.sh" configure
 ```
 
-This updates `~/.claude/settings.json` and:
+This re-verifies the enrollment with LiteLLM, refreshes the approved model
+catalog in the profile, rewrites `desktop-gateway.json`, and updates
+`~/.claude/settings.json`. The settings update:
 
-- sets the discovered central LiteLLM gateway as `ANTHROPIC_BASE_URL`
+- sets the enrolled LiteLLM gateway as `ANTHROPIC_BASE_URL`
 - configures the default approved model
 - enables gateway model discovery
 - installs the enterprise `apiKeyHelper`
@@ -201,7 +200,6 @@ This updates `~/.claude/settings.json` and:
 - preserves an existing permission default, or uses `manual` when none is set
 - sets `CLAUDE_CODE_AUTO_MODE_SERVER=0`, allowing opt-in auto mode to use
   Claude Code's local classifier instead of Anthropic-only server safeguards
-- removes obsolete project-owned feature-disable flags
 - preserves unrelated Claude settings and existing allow/deny rules
 
 If the existing Claude settings contain `ANTHROPIC_API_KEY`,
@@ -212,26 +210,27 @@ the file. This also safely handles an existing `ANTHROPIC_BASE_URL`. Shell
 environment settings are never edited automatically; unset them explicitly and
 retry.
 
-Configuration fails without changing the file if it finds a conflicting shell
-environment variable, provider route, credential helper, or user setting.
-Resolve the conflict explicitly; do not overwrite organizational policy.
+Configuration fails without changing the file if a shell environment variable
+conflicts, the settings file is unsafe or invalid, or you cancel the conflict
+prompt. Resolve the conflict explicitly; do not overwrite organizational policy.
 
-## 7. Inspect the approved models
+## 6. Inspect the approved models
 
 ```bash
 /bin/bash "$HOME/.local/share/ccgc/enterprise/ccgc-enterprise-macos.sh" models
 ```
 
-The command shows:
+The command re-verifies the enrollment with LiteLLM and shows:
 
+- the verified GitHub login
 - the default model
 - all models approved for this employee
-- the current binding revision
 
-The catalog comes from the employee binding. It is not an unrestricted provider
+The catalog is refreshed from LiteLLM and restricted to models routed through
+your own `github-copilot-user` connection. It is not an unrestricted provider
 catalog.
 
-## 8. Run the end-to-end doctor
+## 7. Run the end-to-end doctor
 
 Run this after enrollment, after a client update, or before opening a support
 case:
@@ -243,18 +242,22 @@ case:
 The doctor fails closed and reports the first actionable problem. It verifies:
 
 - the minimum supported Claude Code version
+- a current personal-key enrollment
 - private, user-owned, non-symlink helper/profile/settings files
 - absence of conflicting shell and Claude credentials
 - the enterprise base URL, model, helper, cache, permissions, and auto-mode settings
-- the employee key in macOS Keychain
-- control-plane health, LiteLLM discovery, and the current account binding
+- LiteLLM health
+- the personal key in macOS Keychain, its LiteLLM owner and employee role, and
+  the connected GitHub account
+- the per-user `github-copilot-user` route for every approved model, and an
+  unchanged model catalog (if it changed, run `configure`)
 - the approved model ID and human-readable discovery name
 - the Sonnet 5.5 128K output limit
 - one real bounded inference response
 
-It never prints the employee key or admission token.
+It never prints the personal key.
 
-## 9. Create an admission and start Claude
+## 8. Start Claude
 
 Start Claude normally:
 
@@ -264,41 +267,41 @@ claude
 
 When Claude invokes the `apiKeyHelper`, the helper:
 
-1. obtains an Entra token for the control-plane audience or loads the employee API key
-   from macOS Keychain
-2. requests an eight-hour, 50-attempt bounded admission
-3. stores the random opaque admission token in macOS Keychain
-4. stores only the admission ID and expiry in the non-secret profile
-5. returns the token to Claude on standard output
+1. validates the private profile and its isolated Keychain reference
+2. loads the personal LiteLLM key from macOS Keychain
+3. returns it to Claude on standard output
 
-The Keychain service name is derived from the CCGC control-plane URL. The
-credential is never written to the profile or Claude settings.
+The Keychain service name is derived from the gateway, verified user, and key,
+so a failed replacement cannot overwrite another employee's credential.
+The key is never written to the profile or Claude settings.
 
 Use `/model` inside Claude Code to select another approved model. Do not add
-provider keys or override the control-plane or LiteLLM gateway URLs.
+provider keys or override the LiteLLM gateway URL.
+
+## 9. Claude Desktop
+
+CLI settings do not select Claude Desktop's inference provider; Desktop needs
+its own third-party inference configuration. Enrollment and `configure` write
+a secret-free import file:
+
+```text
+~/.local/share/ccgc/enterprise/desktop-gateway.json
+```
+
+It selects Gateway mode with the enrolled LiteLLM URL, bearer authentication,
+and model discovery, and uses the installed helper's `token` command as the
+credential helper; it contains no key. Import it through Developer > Configure
+Third-Party Inference, then relaunch Desktop. When Desktop is installed,
+enrollment prints this reminder. `doctor` reports the installed Desktop
+version but does not verify Desktop routing.
 
 ## 10. Supported and unsupported behavior
 
-### Validated features
-
-- Chat and streaming
-- Read, Edit, and Bash
-- Model discovery and switching
-- Bounded admission renewal
-- Image and PDF input
-- Adaptive thinking
-- Low-effort between-tools thinking
-- Exact token counting
-- Completed-turn resume after admission renewal or gateway restart
-- Exact pending-tool resume after an enterprise worker restart is legacy-pilot
-  evidence and remains a central-LiteLLM migration acceptance gate
-- Coordinated agents/subagents
-- Background Bash tasks
-- Hooks
-- Automatic compaction through a real context-limit continuation cycle
-- Cron create/list/delete, durable restart, and timed one-shot firing
-- Automatic-memory write, persistence, and fresh-session reload
-- Auto permission mode through Claude Code's local classifier
+Broader Claude Code features (Edit, Bash, subagents, hooks, compaction, image
+and PDF input, adaptive thinking) were exercised against earlier gateway
+architectures and must be re-verified on the current LiteLLM deployment before
+you rely on them. The root README's [Evidence](../../README.md#evidence)
+section records what has been verified and at which evidence level.
 
 | Feature | Status | Employee impact |
 |---|---|---|
@@ -306,21 +309,20 @@ provider keys or override the control-plane or LiteLLM gateway URLs.
 | Advisor | Anthropic API only | Claude Code omits the Advisor server tool when configured with this custom Copilot gateway. |
 
 Auto mode is not the default. Start or select it only under the organization's
-normal Claude Code permission policy; the local classifier path has official
-client coverage through this gateway and does not require LiteLLM to emulate
-Anthropic safeguard results.
-
-The detailed reasons and enforcement points are in the root
-[feature compatibility table](../../README.md#claude-code-feature-compatibility).
+normal Claude Code permission policy. Enrollment sets
+`CLAUDE_CODE_AUTO_MODE_SERVER=0`, so auto mode uses Claude Code's local
+classifier and does not require LiteLLM to emulate Anthropic safeguard
+results.
 
 ## 11. Keychain behavior
 
-Only the opaque admission token is stored in macOS Keychain. It is:
+The personal LiteLLM key is stored in macOS Keychain. It is:
 
 - specific to one customer deployment
-- bound server-side to one Entra/GitHub employee binding
-- short-lived and attempt-limited
-- replaced when fewer than five minutes remain
+- bound to the LiteLLM user who connected the enrolled GitHub account
+- limited to the approved model catalog and routes
+- valid for 90 days, unless revoked earlier
+- replaced through a newly issued key; prior keys remain until expiry or revocation
 - useless as a GitHub or Copilot credential
 
 Do not export, copy, log, or share the Keychain entry.
@@ -330,24 +332,20 @@ If Keychain access fails, confirm that:
 - the same macOS user performed enrollment
 - Keychain is unlocked
 - the `security` command is permitted
-- the profile still points to the expected broker
+- the profile still points to the expected LiteLLM gateway
 
 ## 12. Binding changes and revocation
 
-An administrator binding update increments the binding revision and revokes
-existing admissions and API keys. The employee must obtain the updated profile
-through a reviewed enterprise login or new enrollment issued by Enterprise IT
-before continuing. API keys also expire after 30 days and can be revoked
-independently. This exceptional recovery flow does not change the rule that
-routine updates preserve enrollment.
+The Actions workflow's `revoke` action removes the employee's LiteLLM user,
+keys, and Copilot connection. Personal keys also expire after 90 days.
+The employee needs a newly issued key after expiry or revocation.
+Routine service updates do not require re-enrollment.
 
 Stop and contact enterprise IT if any of these change unexpectedly:
 
-- tenant, object ID, or authentication method
 - GitHub account ID or login
 - model catalog
-- binding revision
-- CCGC control-plane or LiteLLM gateway URL
+- LiteLLM gateway URL
 
 Do not delete or edit the profile to bypass an identity conflict.
 
@@ -355,28 +353,32 @@ Do not delete or edit the profile to bypass an identity conflict.
 
 | Symptom | Action |
 |---|---|
-| Entra sign-in returns no token | Verify the approved credential source can obtain `<audience>/.default`. |
-| Control plane returns HTTP 401 | Reauthenticate with the intended Entra principal and confirm audience configuration. |
-| Control plane returns HTTP 403 | Ask enterprise IT to verify the employee binding and its revision. |
-| LiteLLM returns HTTP 401 or 403 | Run `doctor` to renew the bounded admission and verify the binding; do not add a provider key. |
+| Enrollment returns HTTP 401 | Check the key, LiteLLM URL, and whether the key has expired or been revoked; ask IT to issue a new key if needed. |
+| Enrollment rejects the GitHub identity | Approve as the exact account named by the script; do not use another person's Copilot seat. |
+| Enrollment says the LiteLLM user is connected to a different GitHub account | Contact Enterprise IT; do not approve with another account. |
+| GitHub authorization expired | Run `enroll` again with the same key and approve the displayed code promptly. |
+| The GitHub account has no GitHub Copilot entitlement | Approve with your own Copilot-entitled account, or ask IT to confirm your Copilot access. |
+| `this enrollment is no longer supported` | Ask Enterprise IT for a new personal LiteLLM key and run `enroll` again. |
+| `enterprise profile models changed` | Run the installed helper's `configure`, then `doctor`. |
+| LiteLLM returns HTTP 401 or 403 | Run `doctor`; ask IT to check key expiry, revocation, and Copilot entitlement. Do not add a provider key. |
 | Keychain credential is unavailable | Unlock Keychain and confirm the current macOS user owns the enrollment. |
 | Routing conflict | Remove or resolve the reported environment or Claude setting; do not force an overwrite. |
 | No models are listed | Ask enterprise IT to verify the employee's approved catalog and account binding. |
 | Claude stopped working after an update | Run the installed helper's `doctor`; do not delete credentials or repeat enrollment unless Enterprise IT confirms a lifecycle condition above. |
-| A LiteLLM replica or gateway restarts | Run `doctor`, renew the bounded admission, and resume only through normal Claude behavior. Never replay an uncertain in-flight inference automatically. |
+| A LiteLLM replica or gateway restarts | Run `doctor` and resume only through normal Claude behavior. Never replay an uncertain in-flight inference automatically. |
 
 Useful checks:
 
 ```bash
 claude --version
-npm run enterprise:client -- models
-npm run enterprise:client -- configure
+bash "$HOME/.local/share/ccgc/enterprise/ccgc-enterprise-macos.sh" models
+bash "$HOME/.local/share/ccgc/enterprise/ccgc-enterprise-macos.sh" configure
 ```
 
 ## 14. Security rules
 
-- Use only the employee's own Entra identity and Copilot seat.
-- Never pool, copy, or share admission or Copilot credentials.
+- Use only the employee's own enrolled GitHub account and Copilot seat.
+- Never pool, copy, or share your personal key or Copilot credentials.
 - Never add an Anthropic, GitHub, or Copilot token to Claude settings.
 - Never place the profile or Keychain data in source control or synchronized
   storage.

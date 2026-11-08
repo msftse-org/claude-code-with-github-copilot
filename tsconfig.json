@@ -10,7 +10,12 @@
     "allowImportingTsExtensions": true,
     "erasableSyntaxOnly": true,
     "noEmit": true,
-    "types": ["node"]
+    "types": [
+      "node"
+    ]
   },
-  "include": ["src/**/*.ts", "test/**/*.ts"]
+  "include": [
+    "test/**/*.ts",
+    "scripts/**/*.d.mts"
+  ]
 }

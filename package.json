@@ -1,45 +1,19 @@
 {
   "name": "claude-code-with-github-copilot",
-  "version": "0.2.0-alpha.1",
+  "version": "0.3.0",
   "private": true,
   "type": "module",
-  "description": "Single-tenant CCGC-enabled LiteLLM using per-user GitHub Copilot OAuth",
+  "description": "Claude Code through GitHub Copilot: LiteLLM on Azure with per-user Copilot OAuth and personal virtual keys",
   "engines": {
     "node": ">=24.0.0 <25"
   },
-  "bin": {
-    "ccgc": "src/cli.ts"
-  },
   "scripts": {
-    "ccgc": "node src/cli.ts",
-    "serve": "node src/serve.ts",
-    "serve:enterprise": "node src/enterprise-serve.ts",
-    "serve:enterprise-worker": "node src/enterprise-worker-serve.ts",
-    "serve:enterprise-operator": "node src/enterprise-operator-serve.ts",
-    "enterprise:admin": "node src/enterprise-admin.ts",
-    "enterprise:client": "node src/enterprise-cli.ts",
-    "enterprise:manage": "node src/enterprise-management-cli.ts",
-    "enterprise:operator": "node src/enterprise-operator-cli.ts",
-    "enterprise:actions-identity": "node scripts/enterprise-actions-identity.mjs",
-    "enterprise:entra": "node scripts/enterprise-entra.mjs",
-    "enterprise:pilot": "node scripts/enterprise-pilot.mjs",
+    "deploy": "node scripts/deploy.mjs",
     "check": "tsc --noEmit",
-    "test": "node --test test/*.test.ts",
-    "test:client": "node --test test/claude.integration.ts test/remote.integration.ts",
-    "test:bootstrap": "python3 -m unittest discover -s server -p 'test_*.py'",
-    "deploy": "python3 server/deploy.py",
-    "test:infra": "terraform -chdir=infra/terraform test",
-    "test:litellm": "server/.venv/bin/python -m unittest discover -s server -p 'integration_*.py'"
+    "test": "node --test test/*.test.ts"
   },
   "devDependencies": {
     "@types/node": "24.10.1",
-    "@types/pg": "8.15.5",
     "typescript": "5.9.3"
-  },
-  "dependencies": {
-    "@azure/identity": "4.13.1",
-    "@azure/keyvault-secrets": "4.10.0",
-    "jose": "6.1.0",
-    "pg": "8.16.3"
   }
 }

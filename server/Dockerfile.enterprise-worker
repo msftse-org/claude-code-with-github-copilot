@@ -1,9 +1,0 @@
-FROM node:24.18.1-bookworm-slim
-RUN groupadd --gid 10001 ccgc && useradd --uid 10001 --gid ccgc --create-home ccgc
-WORKDIR /app
-COPY package.json package-lock.json ./
-RUN npm ci --omit=dev --ignore-scripts && npm cache clean --force
-COPY src ./src
-USER ccgc
-ENV NODE_ENV=production PORT=8080 CCGC_BIND_HOST=0.0.0.0
-ENTRYPOINT ["node", "/app/src/enterprise-worker-serve.ts"]

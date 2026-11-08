@@ -4,61 +4,44 @@
 
 - The product must use the actual, unmodified Claude Code app or CLI with Anthropic/Claude models made available through the user's GitHub Copilot seat.
 - GitHub Copilot supplies model access and entitlement; Claude Code owns the coding workflow, repository tools, and permission controls.
-- Do not replace Claude Code with another coding client or a second agent, describe the goal as billing redirection, introduce a separate Anthropic/BYOK inference credential, or assume Azure is required.
+- Do not replace Claude Code with another coding client or a second agent, describe the goal as billing redirection, or introduce a separate Anthropic/BYOK inference credential.
 - A model label, successful text prompt, SDK call, or billing record does not prove the invariant. Success requires the real client, a Copilot-entitled Claude model, the effective Copilot route, and a functioning Claude Code tool workflow.
+
+## Architecture
+
+- Claude clients call LiteLLM directly with a personal 90-day LiteLLM virtual key. There is no broker, admission service, API Management, or custom LiteLLM auth.
+- LiteLLM resolves each request to the key owner's own GitHub connection through the native per-user OAuth credential `github-copilot-user` (`github_copilot_auth_type: per_user_oauth`). A key must never reach another user's Copilot connection.
+- `infra/main.bicep` (subscription scope) and `infra/modules/litellm.bicep` deploy the official, digest-pinned LiteLLM image on Azure Container Apps with private PostgreSQL, a private Key Vault, and NAT egress.
+- `scripts/deploy.mjs` previews or deploys the infrastructure, then `scripts/litellm-bootstrap.mjs` registers the per-user credential and the Claude model routes.
+- `.github/workflows/ccgc-employee-access.yml` runs `scripts/enterprise-actions-access.mjs` to enroll (user plus 90-day key) or revoke an employee. It uses the `ccgc-admin` environment, which holds `LITELLM_URL` and the `LITELLM_MASTER_KEY` secret.
+- `scripts/ccgc-enterprise-macos.sh` is the standalone employee setup. It stores the key in macOS Keychain, starts the GitHub device flow through LiteLLM, verifies the connection and model routes, and configures Claude Code.
 
 ## Commands
 
 Use Node.js 24 and install with `npm ci`.
 
 ```bash
-npm run check          # strict TypeScript check, no emit
-npm test               # synthetic unit and protocol tests
-npm run test:client    # real pinned Claude CLI against local fake upstream
-npm run enterprise:client -- --help
+npm run check                 # strict TypeScript check of tests and script declarations
+npm test                      # synthetic tests
+node --test test/deploy.test.ts
+node scripts/deploy.mjs --help
+az bicep build --file infra/main.bicep --stdout >/dev/null && az bicep lint --file infra/main.bicep
+bash -n scripts/ccgc-enterprise-macos.sh
 ```
 
-Run one test file with `node --test test/gateway.test.ts`. Run one named test with:
-
-```bash
-node --test --test-name-pattern="<test name>" test/gateway.test.ts
-```
-
-`npm run test:client` does not call Copilot inference or prove account entitlement. Live commands can consume Copilot allowance and require the user's explicit authorization; do not initiate device login, provision cloud resources, or treat a blocked live check as permission to bypass account or organization controls.
-
-## Architecture
-
-- `src/cli.ts` is the configuration-first remote CLI. It configures the supported Claude gateway surface, performs diagnostics, and manages the gateway credential without running a persistent local inference listener.
-- `src/remote-client.ts`, `src/remote-server.ts`, and `src/remote.ts` implement the remote profile, admission, metadata, and credential boundaries.
-- `src/litellm.ts` represents the preferred first connector candidate: LiteLLM's native GitHub Copilot Anthropic Messages provider.
-- `src/enterprise-auth.ts`, `src/enterprise-store.ts`, and `src/enterprise-server.ts` implement the Entra-authenticated, PostgreSQL-fenced enterprise broker.
-- `src/enterprise-worker-server.ts` is the isolated per-user LiteLLM wrapper; `src/enterprise-client.ts` supplies Claude with opaque bounded admission tokens.
-- `infra/enterprise/` is additive private Bicep. The internal Container Apps broker is the only enterprise ingress.
-- `src/local-cli.ts`, `src/gateway.ts`, `src/copilot.ts`, and `src/claude.ts` retain the local native Messages adapter as an experimental development and regression harness, not the target deployment.
-- `src/protocol.ts` owns strict parsing and explicit bridge errors. Unsupported or ambiguous input must fail closed rather than be silently removed, retried, or routed to another provider.
-- `test/claude.integration.ts` exercises the pinned real Claude Code CLI with fake upstreams and disposable repositories; the other test files cover CLI, Copilot, gateway, and protocol behavior.
-
-The target decision order is:
-
-1. Evaluate ordinary Claude client gateway configuration with a remote LiteLLM native Copilot Messages provider.
-2. Keep LiteLLM as the per-user Copilot connector unless a replacement passes the same live gates.
-3. Use custom remote connector code only for controls LiteLLM cannot satisfy economically.
-4. Retain the local adapter as a proof/regression fallback, not the default product experience.
-
-Normally prove the selected Copilot-entitled Claude model through the smallest approved live harness before remote hosting. The owner explicitly approved a hosting-first investigation and Sweden Central scaffolding on 2026-10-06; follow `docs/AZURE.md` for this exception. Billable deployment still requires separate approval, and hosting does not authorize Copilot linking/inference or waive live proof. Do not add automatic provider, model, region, or SKU fallback.
+Live commands can consume Copilot allowance, create billable Azure resources, or change who can use a gateway. They require the user's explicit authorization. `deploy.mjs` only previews unless `--confirm-deploy` is passed. Never initiate device login on someone's behalf, and never treat a blocked live check as permission to bypass account or organization controls.
 
 ## Evidence and documentation
 
-- `docs/PRD.md` is the target product and architecture contract. `README.md` describes implemented behavior and current evidence.
-- When research changes feasibility, architecture, support status, or a selected provider, update `docs/PRD.md` in the same task rather than only reporting findings in chat.
-- When implementation or verification status changes, update the corresponding README claims in the same task. Keep target architecture and implemented alpha behavior explicitly separate.
-- Distinguish source/documentation review, synthetic tests, real-client/fake-upstream tests, and live Copilot verification. Never promote one evidence level into another.
-- Record exact client/provider versions and whether each app/CLI path is verified, blocked, or untested. CLI evidence does not establish Desktop compatibility.
+- `README.md` describes implemented behavior and current evidence; `docs/ENTERPRISE.md` is the administrator runbook; `docs/mac/README.md` is the employee guide.
+- When implementation, deployment, or verification status changes, update the corresponding documentation in the same task.
+- Distinguish source/documentation review, synthetic tests, real-client/fake-upstream tests, and live Copilot verification. Never promote one evidence level into another. Evidence from an earlier deployment must be re-established after a rebuild or upgrade.
+- Record exact client and LiteLLM versions and whether each path is verified, blocked, or untested. CLI evidence does not establish Desktop compatibility.
 
 ## Implementation conventions
 
-- TypeScript runs directly as ESM with `.ts` import extensions. Keep compatibility with strict `NodeNext`, `noUncheckedIndexedAccess`, `noUnusedLocals`, `noUnusedParameters`, and `erasableSyntaxOnly`.
-- Use Node built-ins for runtime behavior unless a dependency is justified by the selected architecture; current npm dependencies are development-only.
-- Preserve explicit `BridgeError` codes and safe user-facing errors. Do not add broad catches, implicit retries, redirects, caller-selected upstreams, or success-shaped fallbacks.
-- Keep credentials out of command arguments, logs, Claude Code's environment, and client-facing headers. Preserve HTTPS-only gateway validation, exact Claude model mapping, bounded responses, and explicit unofficial-access acknowledgement.
-- Keep tests synthetic by default. Any live test must be isolated from repository content, clearly state that it may consume allowance, and report live access as unverified until the actual client route succeeds.
+- Scripts are dependency-free Node.js ESM (`.mjs`) with `.d.mts` declarations; tests are strict TypeScript run directly by `node --test`. Keep compatibility with `NodeNext`, `noUncheckedIndexedAccess`, `noUnusedLocals`, `noUnusedParameters`, and `erasableSyntaxOnly`.
+- Fail closed with clear errors. Do not add broad catches, implicit retries, redirects, provider or model fallback, or success-shaped fallbacks.
+- Keep secrets (master key, salt key, database password, employee keys, GitHub tokens) out of command arguments, logs, repository files, Claude Code's environment, and client-facing headers. Pass them through stdin, private 0600 files, Key Vault, or GitHub environment secrets.
+- The LiteLLM salt key encrypts stored GitHub connections; it must never change for an existing database.
+- Keep tests synthetic by default. Any live test must state that it may consume allowance and report live access as unverified until the actual client route succeeds.

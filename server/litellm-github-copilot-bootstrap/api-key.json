@@ -1,7 +1,0 @@
-{
-  "token": "ccgc-invalid-per-user-router-bootstrap",
-  "expires_at": 4102444800,
-  "endpoints": {
-    "api": "https://api.githubcopilot.com"
-  }
-}
