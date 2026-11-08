@@ -167,6 +167,7 @@ The managed macOS enrollment entry point is the tracked
 | Models, teams, budgets, rates, spend | Model restriction returned 403; TPM limit returned 429; spend was recorded; budget enforcement returned 422 after the accounting window | Native LiteLLM |
 | Rotation and revocation | Replacement key passed; revoked key returned 401 | CCGC credential/admission plus LiteLLM key controls |
 | User isolation | Unconnected second user returned 401 and could not use another user's OAuth connection | Previously validated on compatibility architecture |
+| Rollback path | Not applicable | Temporary CCGC API key, admission issuance, and LiteLLM discovery **live pass** |
 
 ### Validated features
 
