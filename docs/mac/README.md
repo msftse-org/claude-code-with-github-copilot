@@ -1,7 +1,9 @@
 # Enterprise Mac setup and operation
 
-This guide covers the employee Mac configuration for the enterprise CCGC
-architecture.
+This guide covers the legacy employee enrollment/admission compatibility
+path. For the preferred direct LiteLLM virtual-key setup and Desktop's
+separate Gateway configuration, use the [root README](../../README.md#on-the-mac).
+CLI settings and this guide's `doctor` do not establish Desktop routing.
 
 ## What is installed or stored on the Mac
 

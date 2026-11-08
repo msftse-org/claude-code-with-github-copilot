@@ -63,9 +63,10 @@ The compatibility labels reflect the latest verified implementation: images,
 PDFs, adaptive thinking, exact token counts, coordinated agent branches,
 background tasks, completed-turn resume, exact pending-tool restart, automatic
 compaction, Cron lifecycle, and automatic-memory persistence are working.
-Claude Code CLI `2.1.308` and Claude Desktop `3.6556.2` were verified through
-this route. The Advisor tool remains unavailable when the client uses a custom
-Anthropic gateway.
+Claude Code CLI `2.1.308` was verified through this route. Earlier shared-settings
+checks did not establish Desktop routing. The root README records the later,
+separate Desktop Gateway-mode verification with direct LiteLLM keys. The Advisor
+tool remains unavailable when the client uses a custom Anthropic gateway.
 
 Entra authenticates CCGC access, not Copilot entitlement. Each immutable
 enterprise principal must be linked to that same employee's authorized GitHub

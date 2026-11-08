@@ -156,6 +156,59 @@ Entra sign-in, configuration, Keychain behavior, verification, and daily use.
 The managed macOS enrollment entry point is the tracked
 [`scripts/ccgc-enterprise-macos.sh`](scripts/ccgc-enterprise-macos.sh) script.
 
+### Claude Desktop uses separate gateway settings
+
+`~/.claude/settings.json` configures the CLI, not Desktop's third-party
+inference mode. After direct-key login, export a secret-free Desktop
+configuration from the repository with Node.js 24:
+
+```bash
+umask 077
+node src/enterprise-cli.ts desktop-config > "$HOME/Downloads/ccgc-desktop-gateway.json"
+```
+
+In Desktop, enable **Help > Troubleshooting > Enable Developer Mode**, open
+**Developer > Configure Third-Party Inference**, and use the configuration
+selector's **Import configuration** action. Import the generated JSON, then
+choose **Apply Changes > Relaunch now**.
+
+The export selects **Gateway**, **Helper script**, Bearer authentication, and
+gateway model discovery. It calls the same Keychain-backed `token` command;
+it contains no API key and does not fall back to an Anthropic credential.
+Re-export after moving the repository or changing the Node executable path.
+This is the macOS TypeScript-client path, not a portable Windows profile.
+
+Desktop now identifies the provider as **Gateway**. Third-party mode uses
+separate local conversation history; existing subscription history is not
+deleted. A provider label alone is not proof: verify a real Code session in
+LiteLLM's request logs under the intended user and `github_copilot` route.
+CLI `doctor` does not verify Desktop.
+
+See Anthropic's [gateway configuration](https://claude.com/docs/third-party/claude-desktop/gateway)
+and [credential-helper contract](https://claude.com/docs/third-party/claude-desktop/credential-helper).
+
+### Configured Claude model catalog
+
+The scoped bootstrap now reconciles both user and existing virtual-key model
+allowlists, including explicitly selected direct LiteLLM users. The client
+refreshes `/v1/models` before configuration and model listing. Canonical IDs
+are preserved, including dots in version numbers.
+
+Live results for the tested Copilot connection on 2026-11-08:
+
+| Client model ID | LiteLLM provider model | Result |
+|---|---|---|
+| `claude-sonnet-5.5` | `github_copilot/claude-sonnet-5.5` | API, CLI Read workflow, and Desktop Code Read workflow passed |
+| `claude-sonnet-5` | `github_copilot/claude-sonnet-5` | Messages API and CLI Read workflow passed |
+| `claude-haiku-5.5` | `github_copilot/claude-haiku-5.5` | Messages API and CLI Read workflow passed; Desktop auxiliary request also passed |
+| `claude-haiku-4.5` | `github_copilot/claude-haiku-4.5` | Messages API and CLI Read workflow passed |
+| `claude-opus-5.5` | `github_copilot/claude-opus-5.5` | **Blocked upstream:** GitHub returned `model_not_supported`; no fallback |
+
+Discovery currently advertises all five configured routes; it is not an
+upstream entitlement check. Opus 5.5 is therefore **not verified working** for
+this connection. This reviewed catalog is not a claim that every model
+available to every Copilot account has been exhaustively discovered.
+
 ## Claude Code feature compatibility
 
 ### Authentication-path parity
@@ -167,8 +220,9 @@ The managed macOS enrollment entry point is the tracked
 | Chat Completions | **Live pass** | Same LiteLLM backend |
 | Responses | **Live pass** | Same LiteLLM backend |
 | Embeddings | Endpoint available; no approved embedding model is configured in the pilot | Same LiteLLM backend |
-| Claude Code CLI | **Live pass with Claude Code 2.1.308** | Deployed and previously validated |
-| Claude Desktop Code tab | Uses the same validated `~/.claude/settings.json`; interactive GUI retest remains pending | Deployed and previously validated |
+| Claude Code CLI | **Live Read workflow pass with Claude Code 2.1.319** | Deployed and previously validated |
+| Claude Desktop Code tab | **Live Read workflow pass with Desktop 4.23118.0**, using its separate Gateway mode and Keychain helper | Current third-party-mode retest not performed |
+| Desktop Chat / Cowork | Same documented third-party configuration; full interactive workflows not tested in this rollout | Not tested in this rollout |
 | Per-user GitHub OAuth | Same LiteLLM user must own key and connection | Same downstream connection after CCGC resolution |
 | Models, teams, budgets, rates, spend | Model restriction returned 403; TPM limit returned 429; spend was recorded; budget enforcement returned 422 after the accounting window | Native LiteLLM |
 | Rotation and revocation | Replacement key passed; revoked key returned 401 | CCGC credential/admission plus LiteLLM key controls |
@@ -379,8 +433,8 @@ one-time enrollment. The administrator never transfers or sees the key.
 
 Enrollment installs a private copy at
 `~/.local/share/ccgc/enterprise/ccgc-enterprise-macos.sh` because Claude uses
-the script's `token` command as its `apiKeyHelper`. The terminal CLI and the
-Claude Desktop Code tab read this same `~/.claude/settings.json` profile. Run
+the script's `token` command as its `apiKeyHelper`. This configures the
+terminal CLI; Desktop needs its separate third-party gateway configuration. Run
 the script's `doctor` command after enrollment, a Claude client update, or
 before sending sanitized diagnostics to Enterprise IT:
 
@@ -388,12 +442,13 @@ before sending sanitized diagnostics to Enterprise IT:
 /bin/bash "$HOME/.local/share/ccgc/enterprise/ccgc-enterprise-macos.sh" doctor
 ```
 
-Local macOS verification on 2026-10-28 passed with Claude Code CLI `2.1.308`
-and the Claude Desktop Code tab in app `3.6556.2`. Both used the shared
-enterprise settings and canonical `claude-sonnet-5.5` model ID for live
-inference. Claude Desktop's account shell remains signed in to the user's
-Claude plan; the Code session provider is selected independently by the shared
-Claude Code settings.
+Earlier checks of shared CLI settings did not establish Desktop's provider
+routing. On 2026-11-08, Desktop `4.23118.0` was explicitly switched to Gateway
+mode. A real Code session read an isolated synthetic file and returned its
+sentinel; LiteLLM recorded successful `github_copilot/claude-sonnet-5.5`
+requests under the same user who owns the virtual key and GitHub connection.
+CLI `2.1.319` independently passed the same kind of Read workflow. Neither the
+Pro account label nor a successful CLI check establishes Desktop routing.
 
 Existing employees do **not** repeat `enroll` for routine control-plane,
 LiteLLM, model-catalog, image, or Claude Code updates. Those updates preserve
@@ -524,11 +579,13 @@ is healthy and LiteLLM reports its database connected.
 - [LiteLLM gateway](https://ca-ccgc-pilot-litellm.bluefield-2d967d14.swedencentral.azurecontainerapps.io)
 - [Temporary compatibility broker](https://ca-ccgc-pilot-broker.bluefield-2d967d14.swedencentral.azurecontainerapps.io)
 
-The migration deployment used immutable images from commit `a8c00fe`, created
-no resources, deleted no resources, and produced broker revision `0000022` and
-LiteLLM revision `0000009`. Broker retirement remains deferred until the
-Claude Desktop GUI retest, broader two-user test, traffic observation, and a
-separate destructive what-if are complete.
+The latest scoped-catalog deployment uses broker/bootstrap code from
+`4b715f9`, with broker revision `0000024` and the retained LiteLLM revision
+`0000010`. Its runtime preview created and deleted no resources, and automatic
+bootstrap succeeded. Four configured models passed live inference; Opus 5.5
+remains blocked upstream as listed above. Desktop Code's direct-key GUI
+workflow passed. Broker retirement still requires broader two-user testing,
+traffic observation, and a separate destructive what-if.
 
 ### Remaining production gates
 

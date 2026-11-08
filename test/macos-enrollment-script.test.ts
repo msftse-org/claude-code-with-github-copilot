@@ -16,9 +16,9 @@ test('macOS enrollment script has valid Bash syntax', async () => {
 test('macOS enrollment script documents the managed-device-safe flow', async () => {
   const { stdout } = await exec('/bin/bash', [script.pathname, 'help']);
   assert.match(stdout, /stores the\s+30-day employee key in macOS Keychain/);
-  assert.match(stdout, /Claude Code CLI\s+and the Code tab in Claude Desktop/);
+  assert.match(stdout, /Claude Desktop requires separate third-party gateway configuration/);
   const source = await readFile(script, 'utf8');
-  assert.match(source, /Fully quit and reopen Claude Desktop, then use its Code tab/);
+  assert.match(source, /CLI settings do not select its provider/);
   assert.match(stdout, /does not\s+disable Gatekeeper/);
   assert.match(stdout, /do not repeat enrollment for routine service/i);
   assert.match(stdout, /Enroll again only with a new Enterprise IT code/);
@@ -235,7 +235,7 @@ test('macOS doctor covers local security, conflicts, Keychain, binding and live 
   assert.match(source, /Claude settings retain a conflicting default model/);
   assert.match(source, /enterprise profile models no longer match the gateway binding/);
   assert.match(source, /verify_gateway_access "\$control_plane" "\$gateway" "\$api_key" "\$default_model" "\$tmp_dir"/);
-  assert.match(source, /Claude Desktop Code: %s \(shared enterprise settings verified\)/);
+  assert.match(source, /Claude Desktop: %s \(installed; gateway routing is not verified by CLI doctor\)/);
   assert.match(source, /CCGC doctor passed/);
 });
 

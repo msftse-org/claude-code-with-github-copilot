@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import { parseArgs } from 'node:util';
-import { EnterpriseClient, configureEnterprise } from './enterprise-client.ts';
+import { EnterpriseClient, configureEnterprise, enterpriseDesktopConfig } from './enterprise-client.ts';
 import { BridgeError, object, parseJson, safeError, text } from './protocol.ts';
 import { readPrivate } from './private-state.ts';
 
@@ -10,12 +10,16 @@ const help = `ccgc enterprise - enterprise client profile
   ccgc-enterprise login-api-key --gateway https://private-gateway --api-key-file /private/key.json
   ccgc-enterprise login-litellm-key --gateway https://litellm-gateway --api-key-file /private/key.json
   ccgc-enterprise configure [--apply]
+  ccgc-enterprise desktop-config
   ccgc-enterprise token
   ccgc-enterprise models
 
 The token command is the Claude apiKeyHelper. Direct LiteLLM virtual keys are
 returned unchanged from macOS Keychain. Legacy Entra and CCGC API-key profiles
 continue to use bounded admissions during migration.
+desktop-config prints a secret-free JSON configuration to import through
+Desktop's Developer > Configure Third-Party Inference window. CLI settings
+do not configure Desktop's separate third-party mode.
 `;
 
 async function main(argv = process.argv.slice(2)): Promise<void> {
@@ -33,7 +37,7 @@ async function main(argv = process.argv.slice(2)): Promise<void> {
   });
   if (values.help || !positionals.length) { console.log(help); return; }
   const command = positionals[0];
-  if (positionals.length !== 1 || !['login', 'login-api-key', 'login-litellm-key', 'configure', 'token', 'models'].includes(command ?? '')) {
+  if (positionals.length !== 1 || !['login', 'login-api-key', 'login-litellm-key', 'configure', 'desktop-config', 'token', 'models'].includes(command ?? '')) {
     throw new BridgeError('INVALID_OPTIONS', 'Unknown enterprise command.');
   }
   const client = new EnterpriseClient();
@@ -69,6 +73,10 @@ async function main(argv = process.argv.slice(2)): Promise<void> {
   }
   if (command === 'token') {
     console.log(await client.token());
+    return;
+  }
+  if (command === 'desktop-config') {
+    console.log(JSON.stringify(enterpriseDesktopConfig(await client.refreshModels()), null, 2));
     return;
   }
   if (command === 'models') {

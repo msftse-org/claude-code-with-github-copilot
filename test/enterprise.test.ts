@@ -20,7 +20,8 @@ import { createServer as createNetServer } from 'node:net';
 import { mkdtemp, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { EnterpriseClient, configureEnterprise } from '../src/enterprise-client.ts';
+import { fileURLToPath } from 'node:url';
+import { EnterpriseClient, configureEnterprise, enterpriseDesktopConfig, enterpriseSettingsPatch } from '../src/enterprise-client.ts';
 import type { Secrets } from '../src/remote-client.ts';
 
 const principal: EnterprisePrincipal = {
@@ -650,6 +651,23 @@ test('enterprise client stores a direct LiteLLM key only in Keychain', async () 
     assert.deepEqual(refreshed.models, ['claude-sonnet-5.5', 'claude-opus-5.5']);
     assert.deepEqual((await client.load()).models, refreshed.models);
     assert.equal(requests, 2);
+    const desktop = enterpriseDesktopConfig(refreshed);
+    assert.equal(desktop.inferenceGatewayBaseUrl, profile.gateway);
+    assert.equal(desktop.inferenceProvider, 'gateway');
+    assert.equal(desktop.inferenceCredentialKind, 'helper-script');
+    assert.equal(desktop.inferenceGatewayAuthScheme, 'bearer');
+    assert.equal(desktop.inferenceCredentialHelper, process.execPath);
+    assert.deepEqual(desktop.inferenceCredentialHelperArgs, [
+      fileURLToPath(new URL('../src/enterprise-cli.ts', import.meta.url)),
+      'token',
+    ]);
+    assert.equal(desktop.modelDiscoveryEnabled, true);
+    assert.equal(desktop.inferenceGatewayApiKey, undefined);
+    assert.equal(JSON.stringify(desktop).includes(apiKey), false);
+    for (const id of ['claude-sonnet-5.5', 'claude-haiku-4.5']) {
+      const settings = enterpriseSettingsPatch({ ...refreshed, models: [id] });
+      assert.equal((settings.env as Record<string, string>).ANTHROPIC_DEFAULT_MODEL, id);
+    }
     assert.doesNotMatch(
       await readFile(join(home, '.local', 'share', 'ccgc', 'enterprise', 'profile.json'), 'utf8'),
       /sk-/,

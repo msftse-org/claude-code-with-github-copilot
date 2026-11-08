@@ -146,6 +146,13 @@ availability, direct-key model discovery, Anthropic Messages, Chat
 Completions, Responses, Claude Code CLI, model restriction, TPM limits, spend
 accounting, delayed budget enforcement, replacement-key rotation, revocation,
 fail-closed inference for an unconnected second user, and the temporary CCGC
-API-key/admission rollback path. Claude Desktop GUI, broader two-user
-concurrency, and traffic observation remain required before the broker is
-removed.
+API-key/admission rollback path. Desktop 4.23118.0 now has separate, supported
+Gateway configuration with a Keychain-backed credential helper; a real Code
+Read workflow passed with LiteLLM attribution to the intended user's Copilot
+route. CLI settings alone do not configure this Desktop surface. See the root
+README for setup and the model-by-model results: four configured models
+passed, while Opus 5.5 returned upstream `model_not_supported`.
+
+Broader two-user concurrency and traffic observation remain required before
+the broker is removed. Desktop Chat/Cowork workflows were not verified in
+this rollout.

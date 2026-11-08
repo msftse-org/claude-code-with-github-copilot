@@ -1159,4 +1159,23 @@ capabilities and rejects any attempted authentication/network access.
 
 The code is now a remote alpha with scoped live evidence, not a P0-complete remote MVP. Remote mode uses explicit configuration and ordinary `claude`; the separate `ccgc local start` harness retains its stricter launcher. The revised requirements remain targets, not blanket shipped support. See [README](../README.md) for exact commands, bounds, authorization steps and unresolved runtime/managed-policy/storage gates. The live proof establishes the observed seat/model path, not vendor endorsement, a general organizational-policy determination or compatibility with other client/model versions.
 
+### 2026-11-08 direct-key and Desktop evidence update
+
+The current enterprise pilot uses per-user LiteLLM virtual keys and each
+user's own LiteLLM GitHub Copilot OAuth connection. The TypeScript client
+exports secret-free Desktop configuration through `desktop-config`, using
+the documented Gateway mode and a Keychain credential helper. This is
+independent of the CLI settings file; earlier shared-settings checks must
+not be treated as Desktop routing evidence.
+
+Claude Code CLI 2.1.319 and Desktop 4.23118.0 Code each completed an isolated
+Read-tool workflow on Sonnet 5.5. Desktop requests were recorded under the
+intended LiteLLM user on `github_copilot/claude-sonnet-5.5`. Sonnet 5, Haiku
+5.5, and Haiku 4.5 also passed Messages API inference and actual CLI Read
+workflows with exact model selection. The configured Opus
+5.5 route returned GitHub `model_not_supported`, with no fallback. Model
+discovery reflects configured allowlists, not a guarantee of upstream
+availability. Desktop Chat/Cowork workflows, other client/model combinations,
+and the remaining production gates are not established by this evidence.
+
 The project is an independent compatibility experiment, not affiliated with, endorsed by, or supported by GitHub or Anthropic. Their product names remain their respective trademarks. Technical feasibility, SDK licensing, service entitlement, organizational authorization, and vendor support are distinct questions.

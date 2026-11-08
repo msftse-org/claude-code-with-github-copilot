@@ -263,9 +263,7 @@ export function enterpriseHelperCommand(): string {
 }
 
 export function enterpriseSettingsPatch(value: EnterpriseProfile): ObjectValue {
-  const defaultModel = value.models[0] === 'claude-haiku-4.5'
-    ? 'claude-haiku-4-5-20251001'
-    : value.models[0]!;
+  const defaultModel = value.models[0]!;
   return {
     env: {
       ANTHROPIC_BASE_URL: value.gateway,
@@ -276,6 +274,22 @@ export function enterpriseSettingsPatch(value: EnterpriseProfile): ObjectValue {
     },
     apiKeyHelper: enterpriseHelperCommand(),
     permissions: { defaultMode: 'manual' },
+  };
+}
+
+export function enterpriseDesktopConfig(value: EnterpriseProfile): ObjectValue {
+  const entrypoint = fileURLToPath(new URL('./enterprise-cli.ts', import.meta.url));
+  if (/["%\x00-\x1f\x7f]/.test(entrypoint)) {
+    throw new BridgeError('CONFIG_UNREADABLE', 'Desktop helper arguments cannot contain quotes, percent signs, or control characters.');
+  }
+  return {
+    inferenceProvider: 'gateway',
+    inferenceGatewayBaseUrl: value.gateway,
+    inferenceGatewayAuthScheme: 'bearer',
+    inferenceCredentialKind: 'helper-script',
+    inferenceCredentialHelper: process.execPath,
+    inferenceCredentialHelperArgs: [entrypoint, 'token'],
+    modelDiscoveryEnabled: true,
   };
 }
 

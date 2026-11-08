@@ -54,8 +54,8 @@ Usage:
   bash ccgc-enterprise-macos.sh doctor
 
 The enrollment command verifies the assigned GitHub account, stores the
-30-day employee key in macOS Keychain, and configures both the Claude Code CLI
-and the Code tab in Claude Desktop through their shared settings profile. It
+30-day employee key in macOS Keychain, and configures the Claude Code CLI.
+Claude Desktop requires separate third-party gateway configuration. This script
 does not disable Gatekeeper, remove quarantine attributes, or change MDM policy.
 Existing employees do not repeat enrollment for routine service, model, script,
 or Claude Code updates. Run doctor first; use models or configure when needed.
@@ -825,7 +825,7 @@ enroll() {
   printf 'Configured %s approved model(s). The employee key expires at %s.\n' \
     "$model_count" "$(json_value "$response" apiKeyExpiresAt)"
   if [ -d '/Applications/Claude.app' ]; then
-    printf 'Fully quit and reopen Claude Desktop, then use its Code tab to load the shared enterprise settings.\n'
+    printf 'Claude Desktop requires separate configuration through Developer > Configure Third-Party Inference; CLI settings do not select its provider.\n'
   fi
 }
 
@@ -935,7 +935,7 @@ configure() {
   /bin/mv "$tmp_dir/settings.json" "$SETTINGS_PATH"
   printf 'Claude Code configuration updated.\n'
   if [ -d '/Applications/Claude.app' ]; then
-    printf 'Fully quit and reopen Claude Desktop, then use its Code tab to load the shared enterprise settings.\n'
+    printf 'Claude Desktop requires separate configuration through Developer > Configure Third-Party Inference; CLI settings do not select its provider.\n'
   fi
 }
 
@@ -1025,7 +1025,7 @@ doctor() {
   printf 'Claude Code: %s (minimum supported: %s)\n' \
     "$DETECTED_CLAUDE_VERSION" "$MINIMUM_CLAUDE_VERSION"
   if desktop_version="$(claude_desktop_version)"; then
-    printf 'Claude Desktop Code: %s (shared enterprise settings verified)\n' "$desktop_version"
+    printf 'Claude Desktop: %s (installed; gateway routing is not verified by CLI doctor)\n' "$desktop_version"
   else
     printf 'Claude Desktop Code: not installed; CLI profile verified\n'
   fi
