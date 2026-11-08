@@ -632,7 +632,9 @@ test('enterprise client stores a direct LiteLLM key only in Keychain', async () 
       assert.equal(String(input), 'https://litellm.example/v1/models');
       assert.equal(new Headers(init?.headers).get('authorization'), ['Bearer', apiKey].join(' '));
       return Response.json({
-        data: [{ id: 'claude-sonnet-5.5' }, { id: 'non-claude-model' }],
+        data: requests === 1
+          ? [{ id: 'claude-sonnet-5.5' }, { id: 'non-claude-model' }]
+          : [{ id: 'claude-sonnet-5.5' }, { id: 'claude-opus-5.5' }],
       });
     },
   );
@@ -644,7 +646,10 @@ test('enterprise client stores a direct LiteLLM key only in Keychain', async () 
     assert.deepEqual(profile.models, ['claude-sonnet-5.5']);
     assert.equal(await client.token(), apiKey);
     assert.equal(await client.token(), apiKey);
-    assert.equal(requests, 1);
+    const refreshed = await client.refreshModels();
+    assert.deepEqual(refreshed.models, ['claude-sonnet-5.5', 'claude-opus-5.5']);
+    assert.deepEqual((await client.load()).models, refreshed.models);
+    assert.equal(requests, 2);
     assert.doesNotMatch(
       await readFile(join(home, '.local', 'share', 'ccgc', 'enterprise', 'profile.json'), 'utf8'),
       /sk-/,

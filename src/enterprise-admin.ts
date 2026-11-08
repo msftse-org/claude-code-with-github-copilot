@@ -215,6 +215,50 @@ export async function reconcileLiteLLMUsers(
         502,
       );
     }
+    const keyIds = new Set<string>();
+    for (let page = 1; page <= 100; page++) {
+      const listed = await request(
+        `/key/list?user_id=${encodeURIComponent(userId)}&page=${page}&size=100&return_full_object=true`,
+      );
+      if (!listed.ok) {
+        throw new BridgeError(
+          'GATEWAY_UNAVAILABLE',
+          `LiteLLM key catalog lookup failed for ${userId} with HTTP ${listed.status}.`,
+          502,
+        );
+      }
+      const payload = object(parseJson(await listed.text()));
+      const keys = Array.isArray(payload.keys) ? payload.keys : [];
+      for (const value of keys) {
+        const key = typeof value === 'string'
+          ? value
+          : text(object(value).token ?? object(value).api_key, 'LiteLLM key identifier');
+        if (!key || key.length > 512) {
+          throw new BridgeError('INVALID_RESPONSE', 'LiteLLM returned an invalid key identifier.', 502);
+        }
+        keyIds.add(key);
+      }
+      const totalPages = payload.total_pages === null || payload.total_pages === undefined
+        ? 1
+        : Number(payload.total_pages);
+      if (!Number.isInteger(totalPages) || totalPages < 0 || totalPages > 100) {
+        throw new BridgeError('INVALID_RESPONSE', 'LiteLLM returned invalid key pagination.', 502);
+      }
+      if (page >= totalPages) break;
+    }
+    for (const key of keyIds) {
+      const updated = await request('/key/update', {
+        method: 'POST',
+        body: JSON.stringify({ key, models: uniqueModels }),
+      });
+      if (!updated.ok) {
+        throw new BridgeError(
+          'GATEWAY_UNAVAILABLE',
+          `LiteLLM key catalog update failed for ${userId} with HTTP ${updated.status}.`,
+          502,
+        );
+      }
+    }
   }
 }
 

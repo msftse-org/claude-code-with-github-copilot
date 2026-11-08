@@ -208,6 +208,25 @@ export class EnterpriseClient {
     return next;
   }
 
+  async refreshModels(): Promise<EnterpriseProfile> {
+    const current = await this.load();
+    if (current.inferenceAuthentication !== 'directKey') return current;
+    const apiKey = await this.secrets.get(apiKeyId(current.gateway));
+    const response = await responseJson(await this.fetcher(`${current.gateway}/v1/models`, {
+      headers: { authorization: ['Bearer', apiKey].join(' ') },
+      redirect: 'error',
+      signal: AbortSignal.timeout(30_000),
+    }));
+    const data = Array.isArray(response.data) ? response.data : [];
+    const models = [...new Set(data
+      .map(item => object(item))
+      .map(item => text(item.id, 'model ID'))
+      .filter(model => /^claude-[a-z0-9.-]+$/.test(model)))];
+    const next = profile({ ...current, models });
+    await writePrivate(this.statePath, { ...next });
+    return next;
+  }
+
   async token(): Promise<string> {
     const current = await this.load();
     if (current.inferenceAuthentication === 'directKey') {

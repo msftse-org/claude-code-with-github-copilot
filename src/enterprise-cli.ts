@@ -72,7 +72,7 @@ async function main(argv = process.argv.slice(2)): Promise<void> {
     return;
   }
   if (command === 'models') {
-    const value = await client.load();
+    const value = await client.refreshModels();
     console.log(JSON.stringify({
       default: value.models[0],
       models: value.models,
@@ -80,7 +80,7 @@ async function main(argv = process.argv.slice(2)): Promise<void> {
     }, null, 2));
     return;
   }
-  console.log(JSON.stringify(await configureEnterprise(await client.load(), values.apply ?? false), null, 2));
+  console.log(JSON.stringify(await configureEnterprise(await client.refreshModels(), values.apply ?? false), null, 2));
 }
 
 main().catch(error => {

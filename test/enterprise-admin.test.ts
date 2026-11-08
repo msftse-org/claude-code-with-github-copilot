@@ -88,6 +88,10 @@ test('operator connection flow rejects another GitHub account', { concurrency: f
 
 test('LiteLLM reconciliation assigns the complete catalog to every existing user', async () => {
   const requests: Array<{ path: string; init?: RequestInit }> = [];
+  const keyIds = new Map([
+    ['11111111-1111-4111-8111-111111111111', ['key-hash-1', 'key-hash-2']],
+    ['22222222-2222-4222-8222-222222222222', ['key-hash-3']],
+  ]);
   await reconcileLiteLLMUsers(
     [
       '11111111-1111-4111-8111-111111111111',
@@ -97,14 +101,29 @@ test('LiteLLM reconciliation assigns the complete catalog to every existing user
     ['claude-sonnet-5.5', 'claude-opus-5.5', 'claude-sonnet-5.5'],
     async (path, init) => {
       requests.push({ path, init });
+      if (path.startsWith('/key/list?')) {
+        const userId = new URL(`https://litellm.example${path}`).searchParams.get('user_id')!;
+        return Response.json({
+          keys: keyIds.get(userId)!.map(token => ({ token })),
+          total_pages: 1,
+        });
+      }
       return Response.json({ status: 'success' });
     },
   );
 
-  assert.equal(requests.length, 2);
-  assert.deepEqual(requests.map(request => request.path), ['/user/update', '/user/update']);
+  assert.equal(requests.length, 7);
+  assert.deepEqual(requests.map(request => request.path), [
+    '/user/update',
+    '/key/list?user_id=11111111-1111-4111-8111-111111111111&page=1&size=100&return_full_object=true',
+    '/key/update',
+    '/key/update',
+    '/user/update',
+    '/key/list?user_id=22222222-2222-4222-8222-222222222222&page=1&size=100&return_full_object=true',
+    '/key/update',
+  ]);
   assert.deepEqual(
-    requests.map(request => JSON.parse(String(request.init?.body))),
+    requests.filter(request => request.path === '/user/update').map(request => JSON.parse(String(request.init?.body))),
     [
       {
         user_id: '11111111-1111-4111-8111-111111111111',
@@ -116,6 +135,14 @@ test('LiteLLM reconciliation assigns the complete catalog to every existing user
       },
     ],
   );
+  assert.deepEqual(
+    requests.filter(request => request.path === '/key/update').map(request => JSON.parse(String(request.init?.body))),
+    [
+      { key: 'key-hash-1', models: ['claude-sonnet-5.5', 'claude-opus-5.5'] },
+      { key: 'key-hash-2', models: ['claude-sonnet-5.5', 'claude-opus-5.5'] },
+      { key: 'key-hash-3', models: ['claude-sonnet-5.5', 'claude-opus-5.5'] },
+    ],
+  );
 });
 
 test('LiteLLM reconciliation fails closed when a user update fails', async () => {
@@ -123,7 +150,9 @@ test('LiteLLM reconciliation fails closed when a user update fails', async () =>
     reconcileLiteLLMUsers(
       ['11111111-1111-4111-8111-111111111111'],
       ['claude-sonnet-5.5'],
-      async () => new Response(null, { status: 404 }),
+      async path => path === '/user/update'
+        ? new Response(null, { status: 404 })
+        : Response.json({ keys: [], total_pages: 1 }),
     ),
     (error: unknown) => error instanceof BridgeError
       && error.code === 'GATEWAY_UNAVAILABLE'
