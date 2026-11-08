@@ -51,7 +51,7 @@ async function main(): Promise<void> {
   if (!Array.isArray(catalog.models)) throw new BridgeError('INVALID_OPTIONS', 'Model catalog is invalid.');
   const models = catalog.models.map(value => text(object(value).id, 'model ID'));
   const additionalUsers = process.env.CCGC_LITELLM_ADDITIONAL_USER_IDS_JSON ?? '[]';
-  const parsedAdditionalUsers = additionalLiteLLMUserIds(parseJson(additionalUsers));
+  const parsedAdditionalUsers = additionalLiteLLMUserIds(additionalUsers);
   await bootstrapLiteLLM({
     litellmCredentialName: required('CCGC_LITELLM_CREDENTIAL_NAME'),
     models,

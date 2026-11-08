@@ -146,15 +146,23 @@ test('LiteLLM reconciliation assigns the complete catalog to every existing user
 });
 
 test('additional LiteLLM users are validated, bounded, and deduplicated', () => {
+  assert.deepEqual(additionalLiteLLMUserIds('[]'), []);
   assert.deepEqual(
-    additionalLiteLLMUserIds([
+    additionalLiteLLMUserIds(JSON.stringify([
       '11111111-1111-4111-8111-111111111111',
       '11111111-1111-4111-8111-111111111111',
-    ]),
+    ])),
     ['11111111-1111-4111-8111-111111111111'],
   );
-  assert.throws(() => additionalLiteLLMUserIds(['not-a-uuid']));
-  assert.throws(() => additionalLiteLLMUserIds(Array.from({ length: 101 }, () => '11111111-1111-4111-8111-111111111111')));
+  for (const raw of ['not-json', '{}', 'null', '["not-a-uuid"]', JSON.stringify(['-'.repeat(36)])]) {
+    assert.throws(
+      () => additionalLiteLLMUserIds(raw),
+      (error: unknown) => error instanceof BridgeError && error.code === 'INVALID_OPTIONS',
+    );
+  }
+  assert.throws(() => additionalLiteLLMUserIds(JSON.stringify(
+    Array.from({ length: 101 }, () => '11111111-1111-4111-8111-111111111111'),
+  )));
 });
 
 test('LiteLLM reconciliation fails closed when a user update fails', async () => {
