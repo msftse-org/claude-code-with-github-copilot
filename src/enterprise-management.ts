@@ -43,7 +43,6 @@ export class EnterpriseManagement {
   readonly postgresUrl: string;
   readonly tenantId: string;
   readonly enrollmentModels: string[];
-  readonly nativeEntraJwtMappings: boolean;
   readonly fetcher: typeof fetch;
   readonly credential: DefaultAzureCredential;
   readonly enrollmentSecrets?: EnrollmentSecrets;
@@ -55,7 +54,6 @@ export class EnterpriseManagement {
     postgresUrl: string;
     tenantId: string;
     enrollmentModels: string[];
-    nativeEntraJwtMappings?: boolean;
     fetcher?: typeof fetch;
     credential?: DefaultAzureCredential;
     enrollmentSecrets?: EnrollmentSecrets;
@@ -66,7 +64,6 @@ export class EnterpriseManagement {
     this.postgresUrl = options.postgresUrl;
     this.tenantId = options.tenantId.toLowerCase();
     this.enrollmentModels = [...new Set(options.enrollmentModels)];
-    this.nativeEntraJwtMappings = options.nativeEntraJwtMappings ?? false;
     this.fetcher = options.fetcher ?? fetch;
     this.credential = options.credential ?? new DefaultAzureCredential();
     this.enrollmentSecrets = options.enrollmentSecrets;
@@ -96,131 +93,6 @@ export class EnterpriseManagement {
       throw new BridgeError('GATEWAY_UNAVAILABLE', `LiteLLM returned HTTP ${response.status}.`, 502);
     }
     return parseJson(raw);
-  }
-
-  private entraIssuer(): string {
-    return `https://login.microsoftonline.com/${this.tenantId}/v2.0`;
-  }
-
-  private async jwtKeyMappings(): Promise<Array<{
-    id: string;
-    claimName: string;
-    claimValue: string;
-    issuer: string | null;
-    active: boolean;
-  }>> {
-    const mappings = [];
-    let page = 1;
-    let totalPages = 1;
-    do {
-      const response = await this.request(
-        `/jwt/key/mapping/list?page=${page}&size=100`,
-        this.litellmMasterKey,
-      );
-      const candidates = Array.isArray(response.mappings) ? response.mappings : [];
-      for (const candidate of candidates) {
-        const mapping = object(candidate);
-        const id = typeof mapping.id === 'string' ? mapping.id : undefined;
-        const claimName = typeof mapping.jwt_claim_name === 'string'
-          ? mapping.jwt_claim_name
-          : undefined;
-        const claimValue = typeof mapping.jwt_claim_value === 'string'
-          ? mapping.jwt_claim_value
-          : undefined;
-        if (id && claimName && claimValue) {
-          mappings.push({
-            id,
-            claimName,
-            claimValue,
-            issuer: typeof mapping.jwt_issuer === 'string' ? mapping.jwt_issuer : null,
-            active: mapping.is_active === true,
-          });
-        }
-      }
-      totalPages = typeof response.total_pages === 'number' ? response.total_pages : 1;
-      page += 1;
-    } while (page <= totalPages);
-    return mappings;
-  }
-
-  async reconcileJwtKeyMapping(objectId: string, key: string): Promise<void> {
-    const issuer = this.entraIssuer();
-    const existing = (await this.jwtKeyMappings()).find(mapping =>
-      mapping.claimName === 'oid'
-      && mapping.claimValue === objectId
-      && mapping.issuer === issuer);
-    await this.request(
-      existing ? '/jwt/key/mapping/update' : '/jwt/key/mapping/new',
-      this.litellmMasterKey,
-      {
-        method: 'POST',
-        body: JSON.stringify(existing
-          ? {
-              id: existing.id,
-              key,
-              jwt_issuer: issuer,
-              description: `CCGC verified enrollment for ${objectId}`,
-              is_active: true,
-            }
-          : {
-              jwt_claim_name: 'oid',
-              jwt_claim_value: objectId,
-              key,
-              jwt_issuer: issuer,
-              description: `CCGC verified enrollment for ${objectId}`,
-            }),
-      },
-    );
-  }
-
-  async disableJwtKeyMapping(objectId: string): Promise<void> {
-    const issuer = this.entraIssuer();
-    const existing = (await this.jwtKeyMappings()).find(mapping =>
-      mapping.claimName === 'oid'
-      && mapping.claimValue === objectId
-      && mapping.issuer === issuer);
-    if (!existing?.active) return;
-    await this.request('/jwt/key/mapping/update', this.litellmMasterKey, {
-      method: 'POST',
-      body: JSON.stringify({
-        id: existing.id,
-        is_active: false,
-        description: `CCGC revoked enrollment for ${objectId}`,
-      }),
-    });
-  }
-
-  async reconcileJwtMappings(): Promise<ObjectValue> {
-    if (!this.nativeEntraJwtMappings) {
-      throw new BridgeError(
-        'ACCESS_UNVERIFIED',
-        'Native Entra JWT mapping preparation is not enabled for this deployment.',
-        409,
-      );
-    }
-    const store = this.store();
-    try {
-      const result = await store.pool.query(
-        `SELECT object_id, credential_secret_name
-         FROM enterprise_account_bindings
-         WHERE revoked_at IS NULL
-         ORDER BY object_id`,
-      );
-      let reconciled = 0;
-      for (const row of result.rows as Array<Record<string, unknown>>) {
-        const objectId = text(row.object_id, 'object ID').toLowerCase();
-        const secretName = text(row.credential_secret_name, 'credential secret name');
-        const credential = object(parseJson(await this.secrets().get(secretName)));
-        await this.reconcileJwtKeyMapping(
-          objectId,
-          text(credential.apiKey, 'LiteLLM user key'),
-        );
-        reconciled += 1;
-      }
-      return { status: 'reconciled', reconciled };
-    } finally {
-      await store.close();
-    }
   }
 
   private async adminCommand(command: 'link' | 'revoke', input: ObjectValue): Promise<ObjectValue> {
@@ -457,20 +329,10 @@ export class EnterpriseManagement {
   }
 
   async link(input: ObjectValue): Promise<ObjectValue> {
-    const result = await this.adminCommand('link', input);
-    if (this.nativeEntraJwtMappings) {
-      await this.reconcileJwtKeyMapping(
-        text(input.objectId, 'object ID').toLowerCase(),
-        text(input.litellmApiKey, 'LiteLLM user key'),
-      );
-    }
-    return result;
+    return this.adminCommand('link', input);
   }
 
   async revoke(input: ObjectValue): Promise<ObjectValue> {
-    if (this.nativeEntraJwtMappings) {
-      await this.disableJwtKeyMapping(text(input.objectId, 'object ID').toLowerCase());
-    }
     return this.adminCommand('revoke', input);
   }
 

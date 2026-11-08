@@ -1,6 +1,10 @@
 package main
 
-import "testing"
+import (
+	"os"
+	"path/filepath"
+	"testing"
+)
 
 func TestCredentialIdentifiersAreStableAndSeparate(t *testing.T) {
 	gateway := "https://broker.example"
@@ -29,6 +33,48 @@ func TestEnrollmentCredentialValidation(t *testing.T) {
 	}
 	if !validAdmission("0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef") {
 		t.Fatal("expected valid admission token")
+	}
+	if !validLiteLLMKey("sk-abcdefghijklmnopqrstuvwxyz") {
+		t.Fatal("expected valid LiteLLM virtual key")
+	}
+	if validLiteLLMKey("sk-short") {
+		t.Fatal("accepted invalid LiteLLM virtual key")
+	}
+}
+
+func TestReadPrivateAPIKeyRequiresPrivateRegularFile(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "key.json")
+	if err := os.WriteFile(path, []byte(`{"apiKey":"sk-abcdefghijklmnopqrstuvwxyz"}`), 0600); err != nil {
+		t.Fatal(err)
+	}
+	key, err := readPrivateAPIKey(path)
+	if err != nil || key != "sk-abcdefghijklmnopqrstuvwxyz" {
+		t.Fatalf("unexpected key result %q: %v", key, err)
+	}
+	if err := os.Chmod(path, 0644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := readPrivateAPIKey(path); err == nil {
+		t.Fatal("accepted an API-key file readable by other users")
+	}
+}
+
+func TestDirectKeyProfileIsValidWithoutEnterpriseIdentity(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	expected := profile{
+		Gateway:    "https://litellm.example",
+		AuthMethod: "litellmKey",
+		Models:     []string{"claude-sonnet-5.5"},
+	}
+	if err := writeProfile(expected); err != nil {
+		t.Fatal(err)
+	}
+	actual, err := readProfile()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if actual.Gateway != expected.Gateway || actual.AuthMethod != expected.AuthMethod {
+		t.Fatalf("unexpected direct-key profile: %#v", actual)
 	}
 }
 

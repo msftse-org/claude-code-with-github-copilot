@@ -25,7 +25,6 @@ export interface EnterpriseAdministrationActions {
   startEnrollment(input: ObjectValue): Promise<ObjectValue>;
   pollEnrollment(input: ObjectValue): Promise<ObjectValue>;
   completeEnrollment(input: ObjectValue): Promise<ObjectValue>;
-  reconcileJwtMappings?(): Promise<ObjectValue>;
   status(): Promise<ObjectValue>;
 }
 
@@ -35,7 +34,6 @@ export interface EnterpriseServerOptions {
   workers?: WorkerResolver;
   dispatchSigner?: DispatchSigner;
   inferenceGateway?: string;
-  nativeEntraInference?: boolean;
   adminAuthenticator?: EnterpriseAuthenticator;
   adminActions?: EnterpriseAdministrationActions;
   adminBrowserOrigin?: string;
@@ -168,12 +166,6 @@ export async function startEnterpriseServer(options: EnterpriseServerOptions) {
         '/ccgc/admin/api-keys/revoke': input => options.adminActions!.revokeApiKey(input),
         '/ccgc/admin/access/query': input => options.adminActions!.listAccess(input),
         '/ccgc/admin/enrollments': input => options.adminActions!.createEnrollment(input),
-        '/ccgc/admin/jwt-mappings/reconcile': () => {
-          if (!options.adminActions!.reconcileJwtMappings) {
-            throw new BridgeError('ROUTE_UNSUPPORTED', 'JWT mapping reconciliation is unavailable.', 404);
-          }
-          return options.adminActions!.reconcileJwtMappings();
-        },
         '/ccgc/admin/status': () => options.adminActions!.status(),
       };
       const route = routes[url.pathname];
@@ -207,10 +199,6 @@ export async function startEnterpriseServer(options: EnterpriseServerOptions) {
         models: binding.models,
         bindingRevision: binding.revision,
         authentication: principal.authentication ?? 'entra',
-        inferenceAuthentication: options.nativeEntraInference
-          && (principal.authentication ?? 'entra') === 'entra'
-          ? 'nativeEntra'
-          : 'ccgcAdmission',
         ...(inferenceGateway ? { inferenceGateway } : {}),
       });
       return;

@@ -1,11 +1,9 @@
 import json
-import os
 import sys
 import unittest
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
-import ccgc_litellm_auth as auth_module
 from ccgc_litellm_auth import (
     AuthenticationRejected,
     Binding,
@@ -79,30 +77,6 @@ class CCGCLiteLLMAuthTests(unittest.IsolatedAsyncioTestCase):
             "sk-1234567890abcdefghijklmnop",
         )
         self.assertEqual(self.store.principal.object_id, OBJECT)
-
-    async def test_native_entra_jwt_is_delegated_to_litellm(self):
-        auth = CCGCAuthenticator(
-            TENANT,
-            self.store,
-            self.secrets,
-            self.tokens,
-            native_jwt_auth=True,
-        )
-        with self.assertRaisesRegex(AuthenticationRejected, "delegated"):
-            await auth.authenticate("header.payload.signature", "/v1/messages")
-        self.assertFalse(hasattr(self.tokens, "token"))
-
-    async def test_disabled_native_jwt_cannot_fall_through_after_ccgc_rejection(self):
-        rejecting = SimpleNamespace(
-            authenticate=AsyncMock(side_effect=AuthenticationRejected("database unavailable"))
-        )
-        request = SimpleNamespace(url=SimpleNamespace(path="/v1/messages"))
-        with (
-            patch.object(auth_module, "_authenticator", rejecting),
-            patch.dict(os.environ, {"CCGC_NATIVE_JWT_AUTH": "false"}),
-        ):
-            key = await auth_module.user_api_key_auth(request, "header.payload.signature")
-        self.assertEqual(key, "sk-ccgc-native-jwt-disabled")
 
     async def test_existing_litellm_keys_are_left_for_normal_authentication(self):
         with self.assertRaises(AuthenticationRejected):

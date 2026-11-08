@@ -1,16 +1,5 @@
 general_settings:
   store_model_in_db: true
-  enable_jwt_auth: true
-  litellm_jwtauth:
-    user_id_jwt_field: oid
-    user_email_jwt_field: preferred_username
-    user_roles_jwt_field: roles
-    user_allowed_roles:
-      - CCGC.Access
-    user_id_upsert: false
-    virtual_key_claim_field: oid
-    unregistered_jwt_client_behavior: reject
-    public_key_stale_ttl: 0
   custom_auth: ccgc_litellm_auth.user_api_key_auth
   custom_auth_run_common_checks: true
   custom_auth_settings:

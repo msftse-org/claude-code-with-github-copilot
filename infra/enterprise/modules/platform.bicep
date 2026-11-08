@@ -3,8 +3,6 @@ param location string
 param tenantId string
 param entraAudience string
 param deployRuntime bool
-param enableNativeEntraJwtMappings bool
-param enableNativeEntraInference bool
 param brokerImage string
 param workerImage string
 param deployLegacyWorker bool
@@ -744,14 +742,6 @@ resource broker 'Microsoft.App/containerApps@2025-01-01' = if (deployRuntime) {
               value: litellmMasterKeySecret.name
             }
             {
-              name: 'CCGC_NATIVE_ENTRA_INFERENCE'
-              value: string(enableNativeEntraInference)
-            }
-            {
-              name: 'CCGC_NATIVE_ENTRA_JWT_MAPPINGS'
-              value: string(enableNativeEntraJwtMappings || enableNativeEntraInference)
-            }
-            {
               name: 'CCGC_MODELS_JSON'
               value: modelsJson
             }
@@ -1140,22 +1130,6 @@ resource litellm 'Microsoft.App/containerApps@2025-01-01' = if (deployRuntime &&
             {
               name: 'CCGC_ENTRA_ROLE'
               value: 'CCGC.Access'
-            }
-            {
-              name: 'CCGC_NATIVE_JWT_AUTH'
-              value: string(enableNativeEntraInference)
-            }
-            {
-              name: 'JWT_PUBLIC_KEY_URL'
-              value: '${az.environment().authentication.loginEndpoint}${tenantId}/v2.0/.well-known/openid-configuration'
-            }
-            {
-              name: 'JWT_ISSUER'
-              value: '${az.environment().authentication.loginEndpoint}${tenantId}/v2.0'
-            }
-            {
-              name: 'JWT_AUDIENCE'
-              value: entraTokenAudience
             }
             {
               name: 'CCGC_KEY_VAULT_URL'

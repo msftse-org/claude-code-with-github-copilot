@@ -71,6 +71,12 @@ type admissionResult struct {
 	ExpiresAt string `json:"expiresAt"`
 }
 
+type modelResult struct {
+	Data []struct {
+		ID string `json:"id"`
+	} `json:"data"`
+}
+
 type apiError struct {
 	Status int
 }
@@ -94,6 +100,8 @@ func run(args []string) error {
 	switch args[0] {
 	case "enroll":
 		return enroll(args[1:])
+	case "login-key":
+		return loginKey(args[1:])
 	case "token":
 		return printToken(args[1:])
 	case "models":
@@ -116,20 +124,82 @@ func printHelp() {
 
 Usage:
   ccgc-enterprise enroll --gateway HTTPS_URL --code CCGC-CODE
+  ccgc-enterprise login-key --gateway HTTPS_URL --api-key-file PRIVATE_JSON
   ccgc-enterprise token
   ccgc-enterprise models
   ccgc-enterprise configure
   ccgc-enterprise version
 
-The enroll command opens GitHub device authorization, verifies the assigned
+The login-key command stores a per-user LiteLLM virtual key in the operating-
+system credential store and configures Claude Code and the Claude Desktop Code
+tab. The enroll command opens GitHub device authorization, verifies the assigned
 GitHub identity, stores the 30-day employee key in the operating-system
 credential store, and configures Claude Code. The token command is Claude's
-apiKeyHelper and prints only a short-lived bounded admission token.
+apiKeyHelper; it returns a direct LiteLLM key for login-key profiles and a
+short-lived bounded admission token for legacy enrollment profiles.
 
 Do not repeat enroll for routine service, model, executable, or Claude Code
 updates. Use models or configure as needed. Enroll again only with a new
 Enterprise IT code for credential, identity, workstation, or explicitly
 announced migration recovery.`)
+}
+
+func loginKey(args []string) error {
+	flags := flag.NewFlagSet("login-key", flag.ContinueOnError)
+	gatewayFlag := flags.String("gateway", "", "LiteLLM gateway HTTPS URL")
+	keyFile := flags.String("api-key-file", "", "private JSON file containing apiKey")
+	if err := flags.Parse(args); err != nil {
+		return err
+	}
+	if flags.NArg() != 0 || *gatewayFlag == "" || *keyFile == "" {
+		return errors.New("login-key requires --gateway and --api-key-file")
+	}
+	gateway, err := normalizeGateway(*gatewayFlag)
+	if err != nil {
+		return err
+	}
+	apiKey, err := readPrivateAPIKey(*keyFile)
+	if err != nil {
+		return err
+	}
+	var available modelResult
+	if err := requestJSON(http.MethodGet, gateway+"/v1/models", apiKey, nil, &available); err != nil {
+		return fmt.Errorf("verify LiteLLM virtual key: %w", err)
+	}
+	models := make([]string, 0, len(available.Data))
+	seen := map[string]bool{}
+	for _, item := range available.Data {
+		if strings.HasPrefix(item.ID, "claude-") && !seen[item.ID] {
+			seen[item.ID] = true
+			models = append(models, item.ID)
+		}
+	}
+	if len(models) == 0 {
+		return errors.New("LiteLLM virtual key has no Claude models")
+	}
+	if err := secureSet(apiKeyCredentialID(gateway), apiKey); err != nil {
+		return fmt.Errorf("store LiteLLM virtual key: %w", err)
+	}
+	saved := false
+	defer func() {
+		if !saved {
+			_ = secureDelete(apiKeyCredentialID(gateway))
+		}
+	}()
+	next := profile{
+		Gateway:    gateway,
+		AuthMethod: "litellmKey",
+		Models:     models,
+	}
+	if err := writeProfile(next); err != nil {
+		return err
+	}
+	if err := configure(next); err != nil {
+		return err
+	}
+	saved = true
+	fmt.Printf("Configured direct LiteLLM access with %d Claude model(s).\n", len(models))
+	return nil
 }
 
 func enroll(args []string) error {
@@ -245,6 +315,17 @@ func printToken(args []string) error {
 	current, err := readProfile()
 	if err != nil {
 		return err
+	}
+	if current.AuthMethod == "litellmKey" {
+		apiKey, getErr := secureGet(apiKeyCredentialID(current.Gateway))
+		if getErr != nil {
+			return fmt.Errorf("LiteLLM virtual key unavailable: %w", getErr)
+		}
+		if !validLiteLLMKey(apiKey) {
+			return errors.New("stored LiteLLM virtual key is invalid")
+		}
+		fmt.Println(apiKey)
+		return nil
 	}
 	admissionID := profileCredentialID(current.Gateway)
 	if current.Grant != nil && current.Grant.Expires > time.Now().Add(5*time.Minute).UnixMilli() {
@@ -388,6 +469,21 @@ func validAPIKey(value string) bool {
 	return len(value) == 51 && strings.HasPrefix(value, "ccgc_sk_") && tokenAlphabet(value[8:])
 }
 
+func validLiteLLMKey(value string) bool {
+	if len(value) < 19 || !strings.HasPrefix(value, "sk-") {
+		return false
+	}
+	for _, character := range value[3:] {
+		if !(character >= 'a' && character <= 'z') &&
+			!(character >= 'A' && character <= 'Z') &&
+			!(character >= '0' && character <= '9') &&
+			character != '_' && character != '-' && character != '.' {
+			return false
+		}
+	}
+	return true
+}
+
 func validAdmission(value string) bool {
 	if len(value) != 64 {
 		return false
@@ -439,10 +535,32 @@ func readProfile() (profile, error) {
 	if err := json.Unmarshal(raw, &result); err != nil {
 		return result, errors.New("enterprise profile is invalid")
 	}
-	if result.AuthMethod != "apiKey" || result.Gateway == "" || len(result.Models) == 0 {
+	if (result.AuthMethod != "apiKey" && result.AuthMethod != "litellmKey") ||
+		result.Gateway == "" || len(result.Models) == 0 {
 		return result, errors.New("enterprise profile is incomplete")
 	}
 	return result, nil
+}
+
+func readPrivateAPIKey(path string) (string, error) {
+	stat, err := os.Lstat(path)
+	if err != nil {
+		return "", fmt.Errorf("inspect API-key file: %w", err)
+	}
+	if !stat.Mode().IsRegular() || stat.Mode()&os.ModeSymlink != 0 || stat.Mode().Perm()&0077 != 0 {
+		return "", errors.New("API-key file must be a non-symlink regular file with mode 0600")
+	}
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		return "", fmt.Errorf("read API-key file: %w", err)
+	}
+	var input struct {
+		APIKey string `json:"apiKey"`
+	}
+	if err := json.Unmarshal(raw, &input); err != nil || !validLiteLLMKey(input.APIKey) {
+		return "", errors.New("API-key file does not contain a valid LiteLLM virtual key")
+	}
+	return input.APIKey, nil
 }
 
 func writeProfile(value profile) error {

@@ -45,13 +45,12 @@ administration-only view.
 
 ![Claude Code employee request flow](docs/diagrams/ccgc-employee-runtime.visual-check.2048x1320.light.png)
 
-Each installation serves exactly one customer and one Microsoft Entra tenant.
-Claude Code sends the native Anthropic Messages API to CCGC-enabled LiteLLM.
-The CCGC authentication extension resolves the employee's bounded credential
-to that employee's LiteLLM virtual key and encrypted GitHub OAuth connection.
-LiteLLM's built-in GitHub Copilot provider then calls GitHub Copilot's HTTPS
-`/v1/messages` API using the employee's Copilot authorization and streams the
-Anthropic-compatible response back to Claude Code.
+Each installation serves one customer. Every person receives a distinct
+LiteLLM virtual key and connects their own GitHub account through LiteLLM's
+per-user GitHub Copilot OAuth capability. Claude Code sends the native
+Anthropic Messages API directly to LiteLLM; LiteLLM authenticates the virtual
+key, applies user/team/model/budget policy, and uses that same user's encrypted
+GitHub connection.
 
 This is an HTTPS API integration, not a GitHub SDK and not direct access to the
 Anthropic API. GitHub Copilot supplies the employee-specific model entitlement;
@@ -64,19 +63,17 @@ key.
 
 ![CCGC administration and employee enrollment](docs/diagrams/ccgc-admin-control-plane.visual-check.2048x1320.light.png)
 
-The separate CCGC control plane handles administrator sign-in, one-time
-enrollment, immutable Entra-to-GitHub binding, revocation, bounded admission
-issuance, and LiteLLM user/model reconciliation. It does not proxy inference.
-The legacy broker-to-worker inference path is disabled by default and retained
-only as an explicit migration rollback.
+LiteLLM UI is the target user and administrator control panel for users,
+virtual keys, teams, models, budgets, rates, spend, rotation, revocation, and
+per-user GitHub connections. The separate CCGC control plane remains deployed
+temporarily only to preserve existing enrollment and admission clients during
+the migration window; it does not proxy inference.
 
 > [!IMPORTANT]
-> The Azure pilot now runs the central-LiteLLM architecture with one managed
-> PostgreSQL Flexible Server containing separate `ccgc` and `litellm` schemas.
-> The control plane and LiteLLM each run two healthy replicas, and live Claude
-> Code CLI and Desktop Code-tab inference have passed. This remains an
-> enterprise pilot; production rollout still requires the release gates in
-> [docs/ENTERPRISE.md](docs/ENTERPRISE.md).
+> The direct-key source changes are implemented and locally validated, but the
+> revised architecture has not yet been deployed. Production still runs the
+> compatibility admission path until the zero-delete migration deployment and
+> live direct-key test matrix pass.
 
 > [!WARNING]
 > The Copilot connector is unofficial and is not endorsed by GitHub or
@@ -94,48 +91,44 @@ for inspection and export.
 
 ## Why the enterprise path uses central LiteLLM
 
-The enterprise path has two runtime roles:
+LiteLLM is both the inference gateway and the target control plane. It already
+owns the controls required on this path: virtual-key authentication, users,
+teams, model access, budgets, rate limits, spend, key rotation/revocation, and
+per-user GitHub OAuth. API Management is not required because it would
+duplicate gateway policy without replacing LiteLLM's user-to-GitHub credential
+resolution.
 
-| Component | What it is | Why it is required |
+[Open the interactive authentication comparison](docs/diagrams/ccgc-auth-options-comparison.html).
+
+| Area | LiteLLM direct key — target | CCGC admission — migration only |
 |---|---|---|
-| CCGC-enabled LiteLLM | The customer's existing LiteLLM or a managed LiteLLM deployed by this solution. | Serves Anthropic Messages directly, validates the single tenant, resolves immutable employee bindings, applies existing LiteLLM policy, and uses per-user GitHub Copilot OAuth. |
-| CCGC control plane | Project-developed TypeScript/Node.js service. | Provides administrator and employee enrollment, revocation, bounded admission issuance, model/user reconciliation, and audit state without proxying inference. |
+| Request identity | User-owned LiteLLM virtual key | Entra/CCGC key exchanged for an admission |
+| Control panel | LiteLLM UI only | CCGC administration plus LiteLLM |
+| GitHub account | Same LiteLLM user owns key and OAuth connection | CCGC binding resolves to that user's LiteLLM key |
+| Models, budgets, rates, spend | Native LiteLLM | Native LiteLLM after custom-auth resolution |
+| Rotation and revocation | Native LiteLLM key lifecycle | CCGC and LiteLLM lifecycles |
+| Extra services | None on the request path | Broker, CCGC database state, Key Vault records, custom auth |
+| Main advantage | Simplest path; no enterprise JWT license dependency | Safe rollback for existing managed clients |
+| Main disadvantage | Secure user-key distribution and storage | More components, failure modes, and operations |
 
-Current LiteLLM Gateway supports **Per-user GitHub OAuth**: each request is
-authenticated as the same LiteLLM user who connected GitHub, and each user's
-encrypted GitHub connection is stored separately in LiteLLM's PostgreSQL
-schema. This
-solution adds the missing single-tenant Entra-to-GitHub binding through
-[`server/ccgc_litellm_auth.py`](server/ccgc_litellm_auth.py). Existing customer
-LiteLLM virtual keys continue through normal authentication because custom auth
-runs in `auto` mode.
-
-Two installation modes implement the same contract:
-
-| Mode | Result |
-|---|---|
-| `managed` | Deploys the complete control plane, CCGC-enabled LiteLLM, one PostgreSQL Flexible Server with separate `ccgc` and `litellm` schemas, Key Vault, monitoring, and bootstrap job. |
-| `existing` | Deploys a separate CCGC control server and CCGC PostgreSQL server, then attaches to the customer's existing LiteLLM URL, workload identity, database, policies, and model estate. The overlay does not replace existing keys, teams, budgets, callbacks, database objects, or unrelated models. |
-
-The existing-LiteLLM overlay is in
-[`deploy/existing-litellm/`](deploy/existing-litellm/).
+Both options use the same LiteLLM per-user GitHub OAuth provider and Copilot
+entitlement. The difference is request authentication and user selection.
 
 ## Enterprise Azure components
 
 | Component | Purpose |
 |---|---|
-| Azure Container Apps | Scales the public CCGC control plane and, in managed mode, the public CCGC-enabled LiteLLM gateway; it also runs the one-shot bootstrap job. |
-| Microsoft Entra ID | Authenticates the one customer tenant's employees and administrators; employee API keys remain an optional control-plane-managed alternative. |
-| Azure Database for PostgreSQL | Managed mode uses one server with a `ccgc` schema for identity/admission/audit state and a `litellm` schema for gateway state. Existing mode keeps a separate CCGC server while preserving the customer's existing LiteLLM database. |
-| Azure Key Vault | Stores account-scoped LiteLLM user-key references and managed LiteLLM administration secrets. |
+| Azure Container Apps | Runs LiteLLM and temporarily retains the CCGC broker during the non-destructive migration. |
+| Microsoft Entra ID | Continues to protect legacy CCGC administration; it is not used to authenticate target inference requests. |
+| Azure Database for PostgreSQL | Stores LiteLLM users, virtual keys, policy, spend, and encrypted per-user GitHub connections; the `ccgc` schema remains temporarily for rollback. |
+| Azure Key Vault | Retains migration-only CCGC records and managed LiteLLM administration secrets until reviewed cleanup. |
 | Azure Container Registry | Stores approved immutable control-plane and managed LiteLLM images. |
 | Azure Monitor and Application Insights | Records operational metadata without prompt or response bodies. |
 
-The control plane and LiteLLM are distinct public HTTPS origins. Claude Code
-uses LiteLLM for `/v1/messages` and `/v1/models`; its credential helper uses the
-control plane only to renew bounded admissions. Administration routes remain
-Entra-only and require `CCGC.Admin`. Existing LiteLLM keys remain valid and are
-not interpreted as CCGC credentials.
+Target clients use LiteLLM directly for `/v1/messages`, `/v1/models`, Chat
+Completions, Responses, and embeddings where configured. The credential helper
+returns the user's virtual key from OS credential storage. Existing admissions
+remain accepted temporarily for migration rollback.
 
 ## On the Mac
 
@@ -143,15 +136,14 @@ Each employee needs:
 
 - Official Claude Code `2.1.296` or newer
 - The project-developed enterprise `ccgc` command-line helper
-- A bounded opaque admission credential stored in macOS Keychain
+- A user-owned LiteLLM virtual key stored in macOS Keychain
 - `~/.claude/settings.json` pointing Claude Code to the central LiteLLM gateway
-- A private, non-secret profile containing authentication method, GitHub,
-  model, and binding metadata
+- A private, non-secret profile containing the gateway and discovered models
 
-The Mac uses Microsoft Entra or a Keychain-held employee API key to request an
-admission from the control plane. The admission is presented directly to
-LiteLLM, whose CCGC extension resolves only the matching employee virtual key.
-GitHub OAuth tokens remain encrypted in the LiteLLM PostgreSQL schema.
+Use `login-litellm-key` in the TypeScript CLI or `login-key` in the native
+client with a mode-0600 JSON key file. The client verifies `/v1/models`, moves
+the key into OS credential storage, and never writes it to Claude settings or
+the profile. GitHub OAuth tokens remain encrypted in LiteLLM PostgreSQL.
 
 See [Mac enterprise setup and operation](docs/mac/README.md) for installation,
 Entra sign-in, configuration, Keychain behavior, verification, and daily use.
@@ -160,12 +152,28 @@ The managed macOS enrollment entry point is the tracked
 
 ## Claude Code feature compatibility
 
+### Authentication-path parity
+
+| Capability | Direct LiteLLM key | CCGC admission compatibility |
+|---|---|---|
+| `/v1/models` | Implemented; live migration validation pending | Deployed and previously validated |
+| Anthropic `/v1/messages` | LiteLLM-native; live migration validation pending | Deployed and previously validated |
+| Chat Completions | LiteLLM-native; live migration validation pending | Same LiteLLM backend |
+| Responses | LiteLLM-native where configured; live validation pending | Same LiteLLM backend |
+| Embeddings | LiteLLM-native where configured; live validation pending | Same LiteLLM backend |
+| Claude Code CLI | Client support implemented; live validation pending | Deployed and previously validated |
+| Claude Desktop Code tab | Shared Claude settings; live validation pending | Deployed and previously validated |
+| Per-user GitHub OAuth | Same LiteLLM user must own key and connection | Same downstream connection after CCGC resolution |
+| Models, teams, budgets, rates, spend | Native LiteLLM | Native LiteLLM |
+| Rotation and revocation | Native LiteLLM key controls | CCGC credential/admission plus LiteLLM key controls |
+| Two-user isolation | Must pass before migration promotion | Previously validated on compatibility architecture |
+
 ### Validated features
 
 - Core chat and streaming
 - Read, Edit, and Bash
 - Model discovery and model switching
-- Bounded admission renewal
+- Bounded admission renewal on the temporary compatibility path
 - Image input and PDF document input
 - Adaptive thinking, effort metadata, and thinking-block handling
 - Low-effort between-tools thinking
@@ -501,31 +509,19 @@ cache policy.
 
 ## Deployment status and remaining gates
 
-The previously validated Azure Sweden Central pilot runs the consolidated central-LiteLLM revision.
-The public control plane and LiteLLM gateway are deployed with two replicas
-each, and one private PostgreSQL Flexible Server stores the `ccgc` and
-`litellm` schemas. Bootstrap, discovery, bounded admission, administration,
-revocation, and real Claude inference have passed. The managed macOS profile
-was also verified with Claude Code CLI `2.1.308` and Claude Desktop `3.6556.2`.
+The Sweden Central pilot currently runs LiteLLM `1.108.0` with the CCGC
+admission compatibility path. PostgreSQL is healthy and LiteLLM reports its
+database connected. The direct LiteLLM-key client implementation in this
+revision is locally validated but **not yet deployed**.
 
-### New managed pilot: 2026-11-04
+- [LiteLLM UI](https://ca-ccgc-pilot-litellm.bluefield-2d967d14.swedencentral.azurecontainerapps.io/ui)
+- [LiteLLM gateway](https://ca-ccgc-pilot-litellm.bluefield-2d967d14.swedencentral.azurecontainerapps.io)
+- [Temporary compatibility broker](https://ca-ccgc-pilot-broker.bluefield-2d967d14.swedencentral.azurecontainerapps.io)
 
-The separate `rg-ccgc-pilot-enterprise` environment is deployed in Sweden
-Central with two healthy control-plane replicas, two healthy LiteLLM replicas,
-and private, healthy zone-redundant PostgreSQL. Database bootstrap succeeded,
-HTTPS health and gateway discovery passed, unauthenticated model discovery and
-administration returned HTTP 401, and the assigned administrator's status
-request returned HTTP 200. The temporary private ACR build pool was removed.
-
-- [Administrator portal](https://ca-ccgc-pilot-broker.niceocean-1765aa16.swedencentral.azurecontainerapps.io/ccgc/admin)
-- [LiteLLM gateway](https://ca-ccgc-pilot-litellm.niceocean-1765aa16.swedencentral.azurecontainerapps.io)
-
-This new environment has no enrolled employees or linked Copilot accounts.
-Claude Code CLI/Desktop routing, Copilot entitlement, and inference have **not**
-been verified in this environment; the earlier pilot's live evidence does not
-establish them here. The approved baseline hosting estimate is approximately
-USD 1,050/month at 730 hours, excluding variable usage and taxes; autoscaling
-can increase it, and this estimate is not a spending cap.
+The next deployment must be a zero-delete migration update. Direct-key model
+discovery, per-user OAuth, all required API protocols, Claude Code/Desktop,
+two-user isolation, policy enforcement, rotation, revocation, and compatibility
+rollback must pass before broker retirement.
 
 ### Remaining production gates
 
@@ -542,12 +538,10 @@ The foundation must not be described as production-ready until these gates pass.
 
 ## Diagram provenance
 
-The current Archify JSON and updated GPT-image poster show Claude Code calling
-one public single-tenant CCGC-enabled LiteLLM, with a separate control plane and
-one managed PostgreSQL Flexible Server containing `ccgc` and `litellm` schemas.
-Historical artifacts for revision 0.21 still show the superseded broker/worker
-topology and are labeled accordingly. Diagram sources, provenance, and
-validation receipts are in
+The current authentication comparison shows the recommended direct LiteLLM
+virtual-key path and the temporary CCGC admission rollback path, including
+their shared per-user GitHub OAuth behavior and different operational costs.
+Diagram sources, provenance, and validation receipts are in
 [docs/diagrams](docs/diagrams/README.md).
 
 ## Resources

@@ -14,6 +14,17 @@ import type { RemoteInfo } from './remote.ts';
 import { readState, writePrivate } from './private-state.ts';
 
 const exec = promisify(execFile);
+
+function keychainCredential(value: unknown): string {
+  if (typeof value !== 'string'
+    || (!/^[a-f0-9]{64}$/.test(value)
+      && !/^ccgc_sk_[A-Za-z0-9_-]{43}$/.test(value)
+      && !/^sk-[A-Za-z0-9._-]{16,}$/.test(value))) {
+    throw new BridgeError('GATEWAY_AUTH_REQUIRED', 'Expected a supported credential supplied through protected input.', 401);
+  }
+  return value;
+}
+
 export interface Secrets {
   get(id: string): Promise<string>;
   set(id: string, value: string): Promise<void>;
@@ -33,7 +44,7 @@ export class Keychain implements Secrets {
   async get(id: string) {
     try {
       const { stdout } = await exec('/usr/bin/security', ['find-generic-password', '-a', 'owner', '-s', this.service(id), '-w'], { timeout: 15000, env: this.environment() });
-      return credential(stdout.trim());
+      return keychainCredential(stdout.trim());
     } catch (error) {
       if (error instanceof BridgeError) throw error;
       throw new BridgeError('GATEWAY_AUTH_REQUIRED', 'Gateway renewal credential is unavailable in the macOS Keychain.', 401);
@@ -41,7 +52,7 @@ export class Keychain implements Secrets {
   }
   async set(id: string, value: string) {
     const service = this.service(id);
-    const token = credential(value);
+    const token = keychainCredential(value);
     await new Promise<void>((resolve, reject) => {
       const child = spawn('/usr/bin/security', ['-i'], { stdio: ['pipe', 'ignore', 'ignore'], env: this.environment() });
       const timer = setTimeout(() => child.kill('SIGTERM'), 15000);
@@ -55,7 +66,7 @@ export class Keychain implements Secrets {
       // Both interpolated values use a strict hex-only alphabet; no secret in process arguments.
       child.stdin.end(`add-generic-password -U -a owner -s ${service} -w ${token}\n`);
     });
-    if (credential(await this.get(id)) !== token) throw new BridgeError('KEYCHAIN_FAILED', 'Keychain did not persist the supplied credential.');
+    if (keychainCredential(await this.get(id)) !== token) throw new BridgeError('KEYCHAIN_FAILED', 'Keychain did not persist the supplied credential.');
   }
   async remove(id: string) {
     try { await exec('/usr/bin/security', ['delete-generic-password', '-a', 'owner', '-s', this.service(id)], { timeout: 15000, env: this.environment() }); }

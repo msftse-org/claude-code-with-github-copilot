@@ -16,8 +16,6 @@ param entraAudience string
 
 @description('Deploy the single-tenant control plane, bootstrap job, and CCGC-enabled LiteLLM after immutable images have been published.')
 param deployRuntime bool = true
-param enableNativeEntraJwtMappings bool = false
-param enableNativeEntraInference bool = false
 
 @description('Immutable broker container image, preferably an ACR digest.')
 param brokerImage string = ''
@@ -104,8 +102,6 @@ module platform 'modules/platform.bicep' = {
     tenantId: tenantId
     entraAudience: entraAudience
     deployRuntime: deployRuntime
-    enableNativeEntraJwtMappings: enableNativeEntraJwtMappings
-    enableNativeEntraInference: enableNativeEntraInference
     brokerImage: brokerImage
     workerImage: workerImage
     deployLegacyWorker: deployLegacyWorker
