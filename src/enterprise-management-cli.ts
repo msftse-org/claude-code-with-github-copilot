@@ -4,12 +4,12 @@ import { lstat, open, readFile } from 'node:fs/promises';
 import { DefaultAzureCredential } from '@azure/identity';
 import { BridgeError, object, parseJson, positive, safeError, text, type ObjectValue } from './protocol.ts';
 
-type Command = 'status' | 'create-user' | 'connect' | 'link' | 'revoke' | 'create-api-key' | 'revoke-api-key' | 'create-enrollment';
+type Command = 'status' | 'create-user' | 'connect' | 'link' | 'revoke' | 'create-api-key' | 'revoke-api-key' | 'create-enrollment' | 'reconcile-jwt-mappings';
 
 function usage(): never {
   throw new BridgeError(
     'INVALID_OPTIONS',
-    'Usage: enterprise:manage <status|create-user|connect|link|revoke|create-api-key|revoke-api-key|create-enrollment> --url <broker-https-url> --audience <app-id-uri> [--input <0600-json>] [--output <new-json>]',
+    'Usage: enterprise:manage <status|create-user|connect|link|revoke|create-api-key|revoke-api-key|create-enrollment|reconcile-jwt-mappings> --url <broker-https-url> --audience <app-id-uri> [--input <0600-json>] [--output <new-json>]',
   );
 }
 
@@ -41,7 +41,7 @@ async function writePrivate(path: string, value: unknown): Promise<void> {
 
 function argumentsFrom(argv: string[]) {
   const command = argv[0] as Command;
-  if (!['status', 'create-user', 'connect', 'link', 'revoke', 'create-api-key', 'revoke-api-key', 'create-enrollment'].includes(command)) usage();
+  if (!['status', 'create-user', 'connect', 'link', 'revoke', 'create-api-key', 'revoke-api-key', 'create-enrollment', 'reconcile-jwt-mappings'].includes(command)) usage();
   const values = new Map<string, string>();
   for (let index = 1; index < argv.length; index += 2) {
     const flag = argv[index];
@@ -62,7 +62,7 @@ function argumentsFrom(argv: string[]) {
 }
 
 const options = argumentsFrom(process.argv.slice(2));
-const input = options.command === 'status'
+const input = ['status', 'reconcile-jwt-mappings'].includes(options.command)
   ? {}
   : options.input ? await privateJson(options.input) : usage();
 const credential = new DefaultAzureCredential();
@@ -90,6 +90,9 @@ async function request(path: string, value: ObjectValue): Promise<ObjectValue> {
 
 async function execute(): Promise<ObjectValue> {
   if (options.command === 'status') return request('/ccgc/admin/status', {});
+  if (options.command === 'reconcile-jwt-mappings') {
+    return request('/ccgc/admin/jwt-mappings/reconcile', {});
+  }
   if (options.command === 'create-user') {
     if (!options.output) usage();
     const created = await request('/ccgc/admin/users', input);

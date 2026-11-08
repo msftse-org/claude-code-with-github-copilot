@@ -176,6 +176,7 @@ test('single-tenant control plane publishes central LiteLLM and does not proxy i
     authenticator: new DualEnterpriseAuthenticator(new FakeAuthenticator(), store),
     store,
     inferenceGateway: 'https://litellm.customer.example',
+    nativeEntraInference: true,
   });
   try {
     const base = `http://127.0.0.1:${server.port}`;
@@ -190,7 +191,17 @@ test('single-tenant control plane publishes central LiteLLM and does not proxy i
       headers: { authorization: ['Bearer', 'valid'].join(' ') },
     });
     assert.equal(authenticatedInfo.status, 200);
-    assert.equal((await authenticatedInfo.json()).inferenceGateway, 'https://litellm.customer.example');
+    assert.deepEqual(await authenticatedInfo.json(), {
+      tenantId: principal.tenantId,
+      objectId: principal.objectId,
+      githubLogin: binding.githubLogin,
+      githubAccountId: binding.githubAccountId,
+      models: binding.models,
+      bindingRevision: binding.revision,
+      authentication: 'entra',
+      inferenceAuthentication: 'nativeEntra',
+      inferenceGateway: 'https://litellm.customer.example',
+    });
     const inference = await fetch(`${base}/v1/messages`, {
       method: 'POST',
       headers: { authorization: `Bearer ${'a'.repeat(64)}`, 'content-type': 'application/json' },
@@ -295,6 +306,7 @@ test('enterprise broker binds principal, admission, dispatch fence and isolated 
       models: binding.models,
       bindingRevision: 1,
       authentication: 'entra',
+      inferenceAuthentication: 'ccgcAdmission',
     });
 
     const admission = await fetch(`${base}/ccgc/enterprise/admissions`, {
@@ -610,7 +622,7 @@ test('account connector pool keeps LiteLLM user keys account scoped', async () =
   ]);
 });
 
-test('enterprise client uses Entra for control and an opaque admission token for Claude', async () => {
+test('enterprise client uses Entra directly for native LiteLLM inference', async () => {
   const home = await mkdtemp(join(tmpdir(), 'ccgc-enterprise-client-'));
   const values = new Map<string, string>();
   const secrets: Secrets = {
@@ -641,27 +653,24 @@ test('enterprise client uses Entra for control and an opaque admission token for
           githubAccountId: binding.githubAccountId,
           models: binding.models,
           bindingRevision: 1,
+          inferenceAuthentication: 'nativeEntra',
           inferenceGateway: 'https://litellm.example',
         });
       }
-      assert.equal(url, 'https://enterprise.example/ccgc/enterprise/admissions');
       admissions++;
-      return Response.json({
-        id: '33333333-3333-3333-3333-333333333333',
-        token: 'a'.repeat(64),
-        expiresAt: new Date(Date.now() + 60 * 60_000).toISOString(),
-      }, { status: 201 });
+      return new Response(null, { status: 500 });
     },
   );
   try {
     const profile = await client.login('https://enterprise.example', 'api://ccgc');
     assert.equal(profile.objectId, principal.objectId);
     assert.equal(profile.authMethod, 'entra');
+    assert.equal(profile.inferenceAuthentication, 'nativeEntra');
     assert.equal(profile.controlPlane, 'https://enterprise.example');
     assert.equal(profile.gateway, 'https://litellm.example');
-    assert.equal(await client.token(), 'a'.repeat(64));
-    assert.equal(await client.token(), 'a'.repeat(64));
-    assert.equal(admissions, 1);
+    assert.equal(await client.token(), 'entra-token');
+    assert.equal(await client.token(), 'entra-token');
+    assert.equal(admissions, 0);
     const configured = await configureEnterprise(await client.load(), true, home);
     assert.equal(configured.applied, true);
     const settings = JSON.parse(await readFile(join(home, '.claude', 'settings.json'), 'utf8')) as Record<string, unknown>;

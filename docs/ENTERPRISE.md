@@ -30,11 +30,15 @@ Bootstrap, discovery, bounded admission, administration, revocation, and live
 Claude inference have passed. The legacy broker/worker path remains disabled by
 default and is retained only for an explicitly approved rollback.
 
+The source also implements native LiteLLM Entra JWT-to-virtual-key mapping.
+Production activation remains disabled by default until the LiteLLM enterprise
+license and live authorization parity are verified.
+
 ## Required runtime components
 
 | Component | Responsibility |
 |---|---|
-| CCGC-enabled LiteLLM | Public Anthropic Messages gateway. Its custom-auth extension accepts normal customer LiteLLM keys unchanged and resolves CCGC Entra, API-key, or bounded admission credentials to the enrolled employee's LiteLLM virtual key. |
+| CCGC-enabled LiteLLM | Public Anthropic Messages gateway. Native JWT auth validates Entra issuer, audience, JWKS, `CCGC.Access`, and the employee `oid`, then resolves an explicitly registered virtual-key mapping. Its custom-auth extension retains employee API-key and bounded-admission compatibility; normal customer LiteLLM keys remain unchanged. |
 | CCGC control plane | Public administration and enrollment service. `CCGC.Access` or employee API keys create bounded admissions; `CCGC.Admin` manages employees, GitHub device authorization, bindings, model reconciliation, status, and revocation. |
 | Bootstrap job | Initializes the enterprise schema, grants both control-plane and LiteLLM database principals, and idempotently creates the per-user OAuth credential, approved model groups, and user catalogs. |
 | PostgreSQL | Managed mode uses one server: the `ccgc` schema stores immutable bindings, employee API keys, enrollment state, admission budgets, revisions, and audit intent; the `litellm` schema stores virtual keys, encrypted per-user GitHub connections, policies, and gateway state. Existing mode keeps the dedicated CCGC server and the customer's existing LiteLLM database. |
@@ -48,21 +52,49 @@ gateway, while the control plane owns only lifecycle operations.
 1. `ccgc-enterprise login` obtains a gateway-audience Entra token through
    `DefaultAzureCredential`, or `login-api-key` loads an administrator-issued
    30-day employee API key from a private file into macOS Keychain.
-2. Claude's `apiKeyHelper` creates or renews a bounded admission and stores only
-   its random 256-bit token in macOS Keychain. API keys are stored only as
-   SHA-256 digests by the broker and never authorize administration routes.
+2. The control-plane profile selects `nativeEntra` for Entra employees only
+   when native inference is enabled. Claude's `apiKeyHelper` then returns the
+   Entra token directly. API-key profiles continue to create or renew a bounded
+   admission and store only its random 256-bit token in macOS Keychain.
 3. Claude sends `/v1/messages` and `/v1/models` directly to central LiteLLM.
-4. `ccgc_litellm_auth` hashes opaque CCGC credentials or validates an Entra JWT,
-   reads only the fixed tenant's binding, enforces the admission attempt budget,
-   and loads the bound Key Vault secret.
-5. The extension verifies that the secret's GitHub login and immutable numeric
-   account ID match the database binding, then returns the employee's existing
-   LiteLLM virtual key.
+4. Native LiteLLM JWT auth verifies the configured issuer, audience, JWKS, and
+   `CCGC.Access` role. It uses `oid` for both user identity and the manually
+   registered virtual-key lookup; an unregistered `oid` fails closed with 403.
+5. For compatibility credentials, `ccgc_litellm_auth` hashes the CCGC API key or
+   admission, reads the fixed tenant's binding, enforces the attempt budget,
+   verifies the bound GitHub identity, and returns the same LiteLLM virtual key.
 6. Normal LiteLLM authorization applies model/team/budget policy and selects the
    same user's encrypted GitHub connection for Copilot inference.
 
 Existing LiteLLM keys that do not match a CCGC credential format fall through
 to normal LiteLLM authentication in `custom_auth_settings.mode: auto`.
+
+## Native Entra activation
+
+The two deployment switches default to `false` so updating the image or
+infrastructure does not silently change employee authentication:
+
+1. Confirm the LiteLLM enterprise license and JWT feature entitlement.
+2. Deploy with `enableNativeEntraJwtMappings=true` and
+   `enableNativeEntraInference=false`.
+3. Populate every active employee mapping:
+
+   ```bash
+   npm run enterprise:manage -- reconcile-jwt-mappings \
+     --url https://PUBLIC_BROKER_FQDN \
+     --audience api://ENTRA-APPLICATION-ID
+   ```
+
+4. Verify the reconciled count, mapped-key policy parity, revocation, model
+   access, budgets, rates, audit records, and fail-closed 403 for an unmapped
+   `oid`.
+5. Deploy with both switches `true`. This enables LiteLLM JWT auth, delegates
+   JWT-shaped credentials away from CCGC custom auth, and publishes
+   `nativeEntra` profiles.
+
+Set `enableNativeEntraInference=false` to roll back to bounded admissions.
+Keeping mapping preparation enabled preserves mapping updates and revocation
+while native JWT request authentication remains disabled.
 
 ## Employee isolation and scaling
 
@@ -83,11 +115,11 @@ to normal LiteLLM authentication in `custom_auth_settings.mode: auto`.
 |---|---|
 | `src/enterprise-auth.ts` | Entra issuer/audience/tenant/scope and immutable object-ID validation |
 | `src/enterprise-store.ts` | PostgreSQL bindings, admissions, per-branch reservations/fences, per-user concurrency, and audit outbox |
-| `server/ccgc_litellm_auth.py` | LiteLLM custom auth for Entra, employee API keys, bounded admissions, immutable GitHub binding verification, and virtual-key resolution |
+| `server/ccgc_litellm_auth.py` | LiteLLM custom auth for employee API keys and bounded admissions; delegates Entra JWTs to native LiteLLM auth only when enabled |
 | `src/enterprise-server.ts` | Role-separated control-plane administration, enrollment, profile, admission, and central-LiteLLM discovery routes |
-| `src/enterprise-client.ts` | Separate control-plane and inference-gateway profile, admission renewal, Keychain, and Claude settings patch |
+| `src/enterprise-client.ts` | Separate control-plane and inference-gateway profile, direct Entra token or admission selection, Keychain, and Claude settings patch |
 | `src/enterprise-admin.ts` | Explicit same-user credential link, binding revocation, and reusable LiteLLM bootstrap logic |
-| `src/enterprise-management*.ts` | `CCGC.Admin` lifecycle actions for status, internal users, GitHub connection, binding, and revocation |
+| `src/enterprise-management*.ts` | `CCGC.Admin` lifecycle actions for users, GitHub connection, bindings, JWT-key mapping reconciliation, revocation, and status |
 | `src/enterprise-bootstrap.ts` | One-shot database and LiteLLM initialization run by the private bootstrap job |
 | `infra/enterprise/` | Dual-mode Azure deployment for managed or existing LiteLLM |
 | `deploy/existing-litellm/` | Additive image and configuration overlay for a customer-owned LiteLLM |
@@ -371,8 +403,11 @@ npm run enterprise:manage -- link \
 approved model IDs, `credentialSecretName`, `litellmCredentialName`,
 `litellmApiKey`, and concise administrator evidence. The admin command verifies that
 the LiteLLM key's user connection is currently connected to the confirmed
-GitHub login before storing only the LiteLLM key in Key Vault. The GitHub token remains encrypted in LiteLLM's PostgreSQL schema. Evidence is
-stored only as SHA-256.
+GitHub login before storing only the LiteLLM key in Key Vault. When mapping
+preparation is enabled, the control plane also creates or reactivates the exact
+Entra `oid` to virtual-key mapping. Revocation disables that mapping before
+revoking the CCGC binding. The GitHub token remains encrypted in LiteLLM's
+PostgreSQL schema. Evidence is stored only as SHA-256.
 
 The employee then runs:
 

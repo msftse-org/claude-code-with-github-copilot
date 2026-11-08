@@ -2,35 +2,35 @@
   "schema_version": 1,
   "diagram_type": "architecture",
   "meta": {
-    "title": "LiteLLM + CCGC Compatibility",
+    "title": "LiteLLM Native JWT + CCGC Compatibility",
     "quality_profile": "showcase",
     "locale": "en",
     "animation": "none",
-    "viewBox": [1240, 430],
+    "viewBox": [1240, 520],
     "views": [
       {
-        "id": "native-coverage",
-        "label": "Native coverage",
-        "focus": ["a-user", "a-litellm", "a-github"],
-        "note": "Native enterprise LiteLLM combines Entra/OIDC, SCIM, virtual-key controls, audit, clients, and per-user Copilot OAuth."
+        "id": "normal-inference",
+        "label": "Normal inference",
+        "focus": ["a-user", "a-entra", "a-litellm", "a-github"],
+        "note": "Implemented in source: the employee's Entra access token goes directly to LiteLLM native JWT auth; production activation remains gated."
       },
       {
-        "id": "provider-flow",
-        "label": "Copilot provider",
-        "focus": ["a-litellm", "a-github", "b-litellm", "b-github"],
-        "note": "Both options use github_copilot + per_user_oauth; requests must come from the same LiteLLM user who connected GitHub."
+        "id": "mapping-lifecycle",
+        "label": "Mapping lifecycle",
+        "focus": ["a-control", "a-litellm"],
+        "note": "Verified enrollment creates or reactivates the oid mapping; revocation disables that mapping before the CCGC binding is revoked."
       },
       {
-        "id": "ccgc-differentiators",
-        "label": "CCGC differentiators",
-        "focus": ["b-ccgc", "b-admission", "b-litellm"],
-        "note": "Retain only policy-specific controls: expected GitHub match, custom admissions, exact correlation, and Desktop automation."
+        "id": "compatibility-paths",
+        "label": "Compatibility paths",
+        "focus": ["b-user", "b-policy", "b-auth", "b-litellm"],
+        "note": "CCGC admissions and CCGC API keys continue through ccgc_litellm_auth for compatibility and custom policy."
       },
       {
-        "id": "migration",
-        "label": "Migration target",
-        "focus": ["recommendation-banner", "b-ccgc", "b-admission", "b-litellm"],
-        "note": "Keep CCGC temporarily: CLI SSO is beta; validate newer documented features on 1.108.0 before simplification."
+        "id": "activation-gate",
+        "label": "Activation gate",
+        "focus": ["status-banner", "gate-banner", "a-litellm", "b-auth"],
+        "note": "This target is implemented in source, not claimed deployed; production requires LiteLLM enterprise licensing and live parity verification."
       }
     ]
   },
@@ -38,192 +38,217 @@
     {
       "id": "a-user",
       "type": "frontend",
-      "label": "Claude + API clients",
-      "sublabel": "lite claude, apiKeyHelper, tokens",
+      "label": "Claude employee client",
+      "sublabel": "Normal Entra inference",
       "brand": "claude",
-      "pos": [70, 45],
-      "size": [170, 82]
+      "pos": [30, 65],
+      "size": [170, 88]
+    },
+    {
+      "id": "a-entra",
+      "type": "security",
+      "label": "Microsoft Entra ID",
+      "sublabel": "Issues employee access token",
+      "pos": [230, 65],
+      "size": [175, 88]
     },
     {
       "id": "a-litellm",
       "type": "backend",
-      "label": "LiteLLM enterprise stack",
-      "sublabel": "Entra/OIDC, SCIM, keys + audit",
-      "pos": [400, 35],
-      "size": [230, 102]
+      "label": "LiteLLM native JWT auth",
+      "sublabel": "iss + aud + JWKS + CCGC.Access; oid identity",
+      "pos": [485, 45],
+      "size": [270, 128]
     },
     {
       "id": "a-github",
       "type": "external",
       "label": "GitHub Copilot",
-      "sublabel": "Token exchange + inference",
+      "sublabel": "Per-user OAuth + Claude inference",
       "brand": "github",
-      "pos": [850, 45],
-      "size": [170, 82]
+      "pos": [1035, 65],
+      "size": [175, 88]
     },
     {
-      "id": "today-banner",
+      "id": "a-control",
       "type": "security",
-      "label": "CURRENT PRODUCTION: no controls are lost",
-      "sublabel": "LiteLLM 1.108.0 (formal release) + CCGC; validate before migration",
-      "pos": [25, 165],
-      "size": [570, 66]
+      "label": "CCGC verified enrollment",
+      "sublabel": "Enroll: activate mapping · revoke: disable first",
+      "pos": [495, 200],
+      "size": [250, 76]
     },
     {
-      "id": "recommendation-banner",
+      "id": "status-banner",
       "type": "security",
-      "label": "Recommendation: pilot, then thin CCGC",
-      "sublabel": "Remove duplicate identity/key/catalog/audit/client logic; retain only policy-justified custom controls",
-      "pos": [630, 165],
-      "size": [585, 66]
+      "label": "IMPLEMENTED IN SOURCE — NOT CLAIMED DEPLOYED",
+      "sublabel": "Normal employee inference now delegates Entra JWT validation and virtual-key selection to LiteLLM",
+      "pos": [25, 300],
+      "size": [585, 60]
+    },
+    {
+      "id": "gate-banner",
+      "type": "security",
+      "label": "PRODUCTION ACTIVATION REMAINS GATED",
+      "sublabel": "Requires LiteLLM enterprise licensing and live feature/parity verification",
+      "pos": [630, 300],
+      "size": [585, 60]
     },
     {
       "id": "b-user",
       "type": "frontend",
       "label": "Claude + API clients",
-      "sublabel": "Current managed entry paths",
+      "sublabel": "Compatibility credential paths",
       "brand": "claude",
-      "pos": [25, 300],
-      "size": [155, 88]
+      "pos": [25, 400],
+      "size": [160, 88]
     },
     {
-      "id": "b-ccgc",
+      "id": "b-policy",
       "type": "security",
-      "label": "CCGC policy extension",
-      "sublabel": "GitHub match + exact correlation",
-      "pos": [225, 290],
-      "size": [195, 108]
+      "label": "CCGC policy credentials",
+      "sublabel": "Admissions + CCGC API keys",
+      "pos": [225, 400],
+      "size": [190, 88]
     },
     {
-      "id": "b-admission",
+      "id": "b-auth",
       "type": "security",
-      "label": "Custom admissions",
-      "sublabel": "Attempt + revision-bound grants",
-      "pos": [470, 300],
-      "size": [170, 88]
+      "label": "ccgc_litellm_auth",
+      "sublabel": "Compatibility/custom policy hook",
+      "pos": [465, 390],
+      "size": [205, 108]
     },
     {
       "id": "b-litellm",
       "type": "backend",
       "label": "LiteLLM enterprise stack",
-      "sublabel": "Entra/OIDC, SCIM, keys + audit",
-      "pos": [690, 290],
-      "size": [195, 108]
+      "sublabel": "Common checks + mapped virtual key",
+      "pos": [730, 390],
+      "size": [210, 108]
     },
     {
       "id": "b-github",
       "type": "external",
       "label": "GitHub Copilot",
-      "sublabel": "Token exchange + inference",
+      "sublabel": "Per-user OAuth + Claude inference",
       "brand": "github",
-      "pos": [1030, 300],
-      "size": [160, 88]
+      "pos": [1030, 400],
+      "size": [180, 88]
     }
   ],
   "boundaries": [
     {
       "kind": "security-group",
-      "label": "OPTION A — LITELLM NATIVE ENTERPRISE STACK",
-      "wraps": ["a-user", "a-litellm", "a-github"],
-      "pad": 22
+      "label": "OPTION A — IMPLEMENTED TARGET PATH (SOURCE; ACTIVATION GATED)",
+      "wraps": ["a-user", "a-entra", "a-litellm", "a-github", "a-control"],
+      "pad": 20
     },
     {
       "kind": "security-group",
-      "label": "OPTION B — CURRENT PRODUCTION: LITELLM + CCGC EXTENSION",
-      "wraps": ["b-user", "b-ccgc", "b-admission", "b-litellm", "b-github"],
-      "pad": 20
+      "label": "OPTION B — COMPATIBILITY + CUSTOM POLICY PATHS",
+      "wraps": ["b-user", "b-policy", "b-auth", "b-litellm", "b-github"],
+      "pad": 18
     }
   ],
   "connections": [
     {
-      "id": "a-entry",
+      "id": "a-login",
       "from": "a-user",
-      "to": "a-litellm",
-      "label": "SSO, JWT, virtual key or API token",
+      "to": "a-entra",
+      "label": "employee sign-in",
       "fromSide": "right",
       "toSide": "left",
-      "labelAt": [320, 151]
+      "labelAt": [215, 167]
+    },
+    {
+      "id": "a-native-jwt",
+      "from": "a-entra",
+      "to": "a-litellm",
+      "label": "access token used directly",
+      "fromSide": "right",
+      "toSide": "left",
+      "labelAt": [445, 187],
+      "variant": "emphasis"
     },
     {
       "id": "a-oauth",
       "from": "a-litellm",
       "to": "a-github",
-      "label": "native per-user OAuth + inference",
+      "label": "mapped user: per-user OAuth + inference",
       "fromSide": "right",
       "toSide": "left",
       "variant": "emphasis"
+    },
+    {
+      "id": "a-mapping",
+      "from": "a-control",
+      "to": "a-litellm",
+      "label": "POST mapping new/update; revoke disables first",
+      "fromSide": "top",
+      "toSide": "bottom",
+      "labelAt": [770, 187],
+      "variant": "security"
     },
     {
       "id": "b-entry",
       "from": "b-user",
-      "to": "b-ccgc",
-      "label": "current enrollment + client setup",
+      "to": "b-policy",
+      "label": "admission token or API key",
       "fromSide": "right",
       "toSide": "left",
-      "labelAt": [203, 412]
+      "labelAt": [205, 502]
     },
     {
-      "id": "b-admit",
-      "from": "b-ccgc",
-      "to": "b-admission",
-      "label": "apply custom policy",
+      "id": "b-authenticate",
+      "from": "b-policy",
+      "to": "b-auth",
+      "label": "resolve policy credential",
       "fromSide": "right",
       "toSide": "left",
-      "labelAt": [445, 412],
+      "labelAt": [440, 512],
       "variant": "emphasis"
     },
     {
-      "id": "b-native",
-      "from": "b-admission",
+      "id": "b-virtual-key",
+      "from": "b-auth",
       "to": "b-litellm",
-      "label": "exchange custom grant",
+      "label": "return existing virtual key",
       "fromSide": "right",
       "toSide": "left",
-      "labelAt": [665, 412],
+      "labelAt": [700, 512],
       "variant": "emphasis"
     },
     {
       "id": "b-token",
       "from": "b-litellm",
       "to": "b-github",
-      "label": "store/exchange GitHub token + infer",
+      "label": "per-user OAuth + inference",
       "fromSide": "right",
       "toSide": "left",
-      "labelAt": [958, 412],
+      "labelAt": [985, 512],
       "variant": "emphasis"
     }
   ],
   "cards": [
     {
       "dot": "cyan",
-      "title": "Providers + endpoints",
+      "title": "Implemented target authentication",
       "items": [
-        "SUPPORTED A/B — Copilot per-user OAuth + Anthropic Messages/Claude Code; B inherits native OAuth.",
-        "SUPPORTED A/B — Chat Completions, Responses and Embeddings.",
-        "SUPPORTED A/B — public aliases; Claude apps require claude- or anth- names.",
-        "SUPPORTED A/B — GHE.com data-residency host."
+        "IMPLEMENTED IN SOURCE / GATED A — Entra tokens go directly to LiteLLM; it validates issuer, audience, JWKS and CCGC.Access, uses oid for identity and virtual_key_claim_field, and rejects unmapped oid with 403. Verified enrollment POSTs mapping new/update; revoke disables the mapping before the CCGC binding."
       ]
     },
     {
       "dot": "emerald",
-      "title": "Enterprise controls",
+      "title": "Feature + enterprise compatibility",
       "items": [
-        "SUPPORTED (ENTERPRISE) A/B — Entra/OIDC JWT + SCIM lifecycle.",
-        "SUPPORTED (ENTERPRISE) A/B — JWT-to-key mapping + admin audit; request logs available.",
-        "SUPPORTED A/B — virtual keys, token/API clients, model mappings, access groups and catalog.",
-        "SUPPORTED A/B — expiry, budgets, rates and spend; A loses no catalog or API-client path."
+        "SUPPORTED A/B — Copilot per-user OAuth, Anthropic Messages/Claude Code, Chat, Responses, Embeddings, aliases and GHE.com; the mapped LiteLLM user owns the GitHub connection. Enterprise Entra/OIDC, SCIM, JWT mapping, virtual keys, logs/audit, groups/catalog, API clients, expiry, budgets, rates and spend remain."
       ]
     },
     {
       "dot": "rose",
-      "title": "Clients + custom policy",
+      "title": "Compatibility paths + production gate",
       "items": [
-        "PARTIAL/BETA A/B — CLI SSO + keychain + lite claude; SUPPORTED A/B — apiKeyHelper.",
-        "NOT DOCUMENTED A / CUSTOM B — Claude Desktop automation.",
-        "NOT DOCUMENTED A / CUSTOM B — expected Entra→GitHub login/account-ID match.",
-        "NATIVE EXPIRY A / CUSTOM B — attempt/revision-bound admissions + stale invalidation.",
-        "NATIVE LOGS A / CUSTOM B — exact Entra/GitHub/admission/model/request correlation.",
-        "SOURCES — docs.litellm.ai: /providers/github_copilot; /proxy/{identity_provisioning,jwt_key_mapping,cli_sso,audit_logs}."
+        "B — admissions/API keys stay in ccgc_litellm_auth; identity match, revision grants, stale invalidation, correlation and Desktop automation remain custom. CLI SSO is beta; apiKeyHelper is supported. NOT DEPLOYED: activation requires LiteLLM enterprise licensing and live parity verification; sources are repository code and LiteLLM provider/JWT/identity/CLI/audit docs."
       ]
     }
   ]

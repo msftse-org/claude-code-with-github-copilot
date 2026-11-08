@@ -63,6 +63,7 @@ class CCGCAuthenticator:
         store: IdentityStore,
         secrets: SecretResolver,
         tokens: TokenValidator,
+        native_jwt_auth: bool = False,
     ):
         if not UUID.fullmatch(tenant_id):
             raise ValueError("CCGC tenant ID is invalid")
@@ -70,6 +71,7 @@ class CCGCAuthenticator:
         self.store = store
         self.secrets = secrets
         self.tokens = tokens
+        self.native_jwt_auth = native_jwt_auth
 
     async def authenticate(self, token: str, path: str) -> str:
         if ADMISSION.fullmatch(token):
@@ -79,6 +81,10 @@ class CCGCAuthenticator:
             )
         elif API_KEY.fullmatch(token):
             binding = await self.store.api_key_binding(sha256(token.encode()).hexdigest())
+        elif token.count(".") == 2 and self.native_jwt_auth:
+            raise AuthenticationRejected(
+                "JWT authentication is delegated to LiteLLM native authentication."
+            )
         elif token.count(".") == 2:
             principal = await self.tokens.validate(token)
             binding = await self.store.principal_binding(principal)
@@ -337,15 +343,21 @@ def _runtime_authenticator() -> CCGCAuthenticator:
                 _required("CCGC_ENTRA_AUDIENCE"),
                 os.environ.get("CCGC_ENTRA_ROLE", "CCGC.Access"),
             ),
+            os.environ.get("CCGC_NATIVE_JWT_AUTH") == "true",
         )
     return _authenticator
 
 
 async def user_api_key_auth(request: Any, api_key: str) -> str:
-    """Resolve a CCGC credential to the employee's existing LiteLLM virtual key."""
+    """Resolve CCGC policy credentials while native JWT and virtual keys fall through."""
     try:
         return await _runtime_authenticator().authenticate(api_key, request.url.path)
     except AuthenticationRejected:
+        if api_key.count(".") == 2 and os.environ.get("CCGC_NATIVE_JWT_AUTH") != "true":
+            # JWT auth is configured in LiteLLM so it can be activated without
+            # replacing the image. While disabled, never let a CCGC validation
+            # failure fall through to a pre-provisioned native mapping.
+            return "sk-ccgc-native-jwt-disabled"
         # In custom-auth auto mode, LiteLLM falls back to its normal virtual-key
         # authentication. This preserves every pre-existing customer workload.
         raise

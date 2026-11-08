@@ -15,6 +15,7 @@ export interface EnterpriseProfile {
   controlPlane: string;
   gateway: string;
   authMethod: 'entra' | 'apiKey';
+  inferenceAuthentication: 'nativeEntra' | 'ccgcAdmission';
   audience?: string;
   tenantId: string;
   objectId: string;
@@ -49,6 +50,14 @@ function profile(value: ObjectValue): EnterpriseProfile {
   if (authMethod === 'entra' && !audience) {
     throw new BridgeError('INVALID_RESPONSE', 'Enterprise Entra profile has no audience.');
   }
+  const inferenceAuthentication = value.inferenceAuthentication === 'nativeEntra'
+    ? 'nativeEntra'
+    : value.inferenceAuthentication === 'ccgcAdmission' || value.inferenceAuthentication === undefined
+      ? 'ccgcAdmission'
+      : undefined;
+  if (!inferenceAuthentication || (authMethod === 'apiKey' && inferenceAuthentication === 'nativeEntra')) {
+    throw new BridgeError('INVALID_RESPONSE', 'Enterprise inference authentication mode is invalid.');
+  }
   const legacyGateway = gatewayUrl(text(value.gateway, 'gateway'));
   const controlPlane = value.controlPlane === undefined
     ? legacyGateway
@@ -57,6 +66,7 @@ function profile(value: ObjectValue): EnterpriseProfile {
     controlPlane,
     gateway: legacyGateway,
     authMethod,
+    inferenceAuthentication,
     ...(audience ? { audience } : {}),
     tenantId: text(value.tenantId, 'tenant ID'),
     objectId: text(value.objectId, 'object ID'),
@@ -157,6 +167,12 @@ export class EnterpriseClient {
 
   async token(): Promise<string> {
     const current = await this.load();
+    if (current.inferenceAuthentication === 'nativeEntra') {
+      if (current.authMethod !== 'entra') {
+        throw new BridgeError('GATEWAY_AUTH_REQUIRED', 'Native inference requires Microsoft Entra authentication.', 401);
+      }
+      return this.entra(current.audience!);
+    }
     const id = profileKey(current.controlPlane);
     if (current.grant && current.grant.expires > Date.now() + 5 * 60_000) {
       try { return await this.secrets.get(id); } catch { /* acquire a replacement below */ }

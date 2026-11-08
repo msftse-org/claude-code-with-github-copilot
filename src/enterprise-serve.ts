@@ -55,6 +55,7 @@ const server = await startEnterpriseServer({
     dispatchSigner: new DispatchSigner(dispatchSecret.value, brokerOrigin, workerUrl),
   } : {}),
   inferenceGateway: required('CCGC_LITELLM_PUBLIC_URL'),
+  nativeEntraInference: process.env.CCGC_NATIVE_ENTRA_INFERENCE === 'true',
   adminAuthenticator: new EntraAuthenticator({
     tenantId: entraTenantId,
     audience: entraAudience,
@@ -66,6 +67,7 @@ const server = await startEnterpriseServer({
     postgresUrl: required('CCGC_POSTGRES_URL'),
     tenantId: entraTenantId,
     enrollmentModels,
+    nativeEntraJwtMappings: process.env.CCGC_NATIVE_ENTRA_JWT_MAPPINGS === 'true',
     credential,
     enrollmentSecrets: {
       async set(name, value, expiresAt) {

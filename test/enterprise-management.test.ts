@@ -51,6 +51,7 @@ class FakeActions implements EnterpriseAdministrationActions {
   startEnrollment(input: ObjectValue) { return this.called('enrollment-start', input); }
   pollEnrollment(input: ObjectValue) { return this.called('enrollment-poll', input); }
   completeEnrollment(input: ObjectValue) { return this.called('enrollment-complete', input); }
+  reconcileJwtMappings() { return this.called('reconcile-jwt-mappings', {}); }
   status() { return this.called('status', {}); }
 }
 
@@ -134,6 +135,23 @@ test('broker administration routes require CCGC.Admin before executing actions',
     assert.deepEqual(actions.calls[1], {
       operation: 'create-api-key',
       input: { tenantId: principal.tenantId, objectId: principal.objectId, label: 'pilot' },
+    });
+
+    const reconciled = await fetch(
+      `http://127.0.0.1:${server.port}/ccgc/admin/jwt-mappings/reconcile`,
+      {
+        method: 'POST',
+        headers: {
+          authorization: ['Bearer', 'admin-role'].join(' '),
+          'content-type': 'application/json',
+        },
+        body: '{}',
+      },
+    );
+    assert.equal(reconciled.status, 200);
+    assert.deepEqual(actions.calls[2], {
+      operation: 'reconcile-jwt-mappings',
+      input: {},
     });
   } finally {
     await server.close();
@@ -382,6 +400,101 @@ test('administration split device flow verifies the expected employee GitHub acc
     credentialName: 'github-copilot-user',
   });
   assert.equal(requests.length, 3);
+});
+
+test('administration creates and disables the verified Entra oid mapping', async () => {
+  const requests: Array<{ url: string; body?: Record<string, unknown> }> = [];
+  let active = false;
+  const management = new EnterpriseManagement({
+    litellmUrl: 'https://litellm.internal',
+    litellmMasterKey: `sk-${'m'.repeat(32)}`,
+    postgresUrl: 'postgresql://broker@postgres.internal/postgres?sslmode=require',
+    tenantId: principal.tenantId,
+    enrollmentModels: ['claude-sonnet-5.5'],
+    fetcher: (async (input, init) => {
+      const url = String(input);
+      const body = init?.body ? JSON.parse(String(init.body)) as Record<string, unknown> : undefined;
+      requests.push({ url, body });
+      if (url.includes('/jwt/key/mapping/list')) {
+        return Response.json({
+          mappings: active ? [{
+            id: 'mapping-1',
+            jwt_claim_name: 'oid',
+            jwt_claim_value: principal.objectId,
+            jwt_issuer: `https://login.microsoftonline.com/${principal.tenantId}/v2.0`,
+            is_active: true,
+          }] : [],
+          total_pages: 1,
+        });
+      }
+      if (url.endsWith('/jwt/key/mapping/new')) active = true;
+      return Response.json({ status: 'ok' });
+    }) as typeof fetch,
+  });
+
+  await management.reconcileJwtKeyMapping(principal.objectId, `sk-${'u'.repeat(32)}`);
+  await management.disableJwtKeyMapping(principal.objectId);
+
+  assert.deepEqual(requests[1]?.body, {
+    jwt_claim_name: 'oid',
+    jwt_claim_value: principal.objectId,
+    key: `sk-${'u'.repeat(32)}`,
+    jwt_issuer: `https://login.microsoftonline.com/${principal.tenantId}/v2.0`,
+    description: `CCGC verified enrollment for ${principal.objectId}`,
+  });
+  assert.deepEqual(requests[3]?.body, {
+    id: 'mapping-1',
+    is_active: false,
+    description: `CCGC revoked enrollment for ${principal.objectId}`,
+  });
+});
+
+test('administration bulk-reconciles active bindings before native JWT activation', async () => {
+  const mapped: Array<Record<string, unknown>> = [];
+  let closed = false;
+  const management = new EnterpriseManagement({
+    litellmUrl: 'https://litellm.internal',
+    litellmMasterKey: `sk-${'m'.repeat(32)}`,
+    postgresUrl: 'postgresql://broker@postgres.internal/postgres?sslmode=require',
+    tenantId: principal.tenantId,
+    enrollmentModels: ['claude-sonnet-5.5'],
+    nativeEntraJwtMappings: true,
+    enrollmentSecrets: {
+      async set() {},
+      async get(name) {
+        assert.equal(name, 'ccgc-user-developer');
+        return JSON.stringify({ apiKey: `sk-${'u'.repeat(32)}` });
+      },
+      async remove() {},
+    },
+    fetcher: (async (input, init) => {
+      if (String(input).includes('/jwt/key/mapping/list')) {
+        return Response.json({ mappings: [], total_pages: 1 });
+      }
+      mapped.push(JSON.parse(String(init?.body)) as Record<string, unknown>);
+      return Response.json({ status: 'ok' });
+    }) as typeof fetch,
+    storeFactory: () => ({
+      pool: {
+        async query() {
+          return {
+            rows: [{
+              object_id: principal.objectId,
+              credential_secret_name: 'ccgc-user-developer',
+            }],
+          };
+        },
+      },
+      async close() { closed = true; },
+    }) as unknown as PostgresEnterpriseStore,
+  });
+
+  assert.deepEqual(await management.reconcileJwtMappings(), {
+    status: 'reconciled',
+    reconciled: 1,
+  });
+  assert.equal(mapped[0]?.jwt_claim_value, principal.objectId);
+  assert.equal(closed, true);
 });
 
 test('administration suppresses LiteLLM error bodies and rejects a different GitHub account', async () => {
