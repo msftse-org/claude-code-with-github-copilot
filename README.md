@@ -35,6 +35,12 @@ employee's own GitHub Copilot seat**.
 
 ## Architecture
 
+![Enterprise Claude Code: SSO onboarding and per-user GitHub Copilot request flow](docs/diagrams/ccgc-enterprise-overview.jpeg)
+
+> The SSO/PKCE session-login flow shown above is illustrative. The deployed
+> configuration currently uses per-user LiteLLM virtual keys, not the
+> session/refresh-token login shown in this diagram.
+
 [Open the interactive layered architecture dashboard](docs/diagrams/ccgc-layered-architecture.html)
 to switch between the employee flow, the combined user/admin view, and the
 administration-only view.
