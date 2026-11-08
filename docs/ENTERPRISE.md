@@ -6,8 +6,11 @@ employees use Claude Code with their own GitHub Copilot seats. See the
 
 ## What gets deployed
 
-`infra/main.bicep` creates resource group `rg-<prefix>-enterprise` (default
-prefix `ccgc-pilot`) in Sweden Central with:
+Terraform ([`infra/terraform`](../infra/terraform), the default) and Bicep
+([`infra/main.bicep`](../infra/main.bicep)) are two equivalent definitions of
+the same platform. Both read their settings from
+[`infra/solution.json`](../infra/solution.json) and create resource group
+`rg-<prefix>-enterprise` (default prefix `ccgc-pilot`) in Sweden Central with:
 
 | Resource | Configuration |
 |---|---|
@@ -20,6 +23,12 @@ prefix `ccgc-pilot`) in Sweden Central with:
 | Log Analytics `log-<prefix>-enterprise` | Container Apps and Key Vault audit logs, 30-day retention |
 | Managed identity `id-<prefix>-litellm` | Key Vault Secrets User for the app's secret references |
 
+Terraform keeps its state in resource group `rg-<prefix>-tfstate`: a
+zone-redundant storage account that accepts only Microsoft Entra ID
+authentication (shared keys disabled), with blob versioning and 30-day soft
+delete. Secrets are write-only arguments, so Terraform state and plans never
+contain them.
+
 There is no container registry, broker, or custom authentication. LiteLLM
 stores its models in PostgreSQL (`STORE_MODEL_IN_DB=True`). The per-user
 Copilot provider needs a placeholder token file to start. It is mounted from a
@@ -31,8 +40,11 @@ for two compute nodes, and at least two `D4` workload profile nodes.
 ## Prerequisites
 
 - Azure CLI signed in with Owner, or Contributor plus User Access
-  Administrator, on the subscription (the deployment assigns a Key Vault role)
-- Bicep CLI `0.48.1` or newer (`az bicep install --version v0.48.1`)
+  Administrator, on the subscription (the deployment assigns a Key Vault role,
+  and the Terraform engine grants you Storage Blob Data Contributor on its
+  state storage account)
+- Terraform `1.11` or newer for the default engine, or Bicep CLI `0.48.1` or
+  newer (`az bicep install --version v0.48.1`) for `--engine bicep`
 - Node.js 24 and a checkout of this repository
 - GitHub CLI signed in as an administrator of the repository that runs the
   employee-access workflow
@@ -54,8 +66,10 @@ The confirmed run:
    password manager. **The salt key encrypts every stored GitHub connection
    and must never change for an existing database.** The script refuses to
    create new secrets for an existing resource group.
-2. Deploys the template with the secrets passed in a temporary `0600`
-   parameters file, never on the command line.
+2. With Terraform, creates the state storage if needed and runs
+   `terraform apply` in a temporary copy of `infra/terraform`. With
+   `--engine bicep`, runs `az deployment sub create` instead. Either way, the
+   secrets are passed in a temporary `0600` file, never on the command line.
 3. Waits for `/health/readiness` to report the database connected.
 4. Registers the per-user credential `github-copilot-user` and the Claude
    model routes, then waits until every replica advertises them.
@@ -64,12 +78,49 @@ The confirmed run:
    needed. Use `--skip-github` to configure it yourself, or `--github-repo
    owner/repo` to target another repository.
 
+The preview runs `terraform plan` (or `az deployment sub what-if` with
+`--engine bicep`). Before anything is deployed, it plans against empty local
+state and creates nothing, not even the state storage.
+
 Re-running is safe and is how you apply template or model changes. Useful
-options: `--prefix`, `--location`, `--models claude-sonnet-5.5,...`,
-`--secrets-file`, and `--name-seed`.
+options: `--engine bicep`, `--prefix`, `--location`,
+`--models claude-sonnet-5.5,...`, `--secrets-file`, and `--name-seed`.
 
 On a first deployment, the app's Key Vault references can fail while the new
 role assignment propagates. Run the same command again.
+
+## Terraform and Bicep
+
+Both definitions deploy the same resources, names, and settings:
+
+- Values that change, such as the LiteLLM image, sizes, and network ranges,
+  live only in `infra/solution.json`. Change a resource in both definitions
+  in the same commit.
+- Terraform uses only the `azapi` provider, with the same ARM resource types
+  and API versions as Bicep. Generated names (Bicep `uniqueString`,
+  Terraform `provider::azapi::unique_string`) and the Key Vault role
+  assignment name are identical.
+- `npm test` fails if resource types, API versions, defaults, or outputs
+  drift (`test/iac-parity.test.ts`). `terraform test` checks Terraform's names
+  against the names Azure assigned to a Bicep deployment.
+
+Use one engine per deployment. Terraform refuses a resource group that exists
+without Terraform state, for example one deployed with Bicep: keep using
+`--engine bicep` for it, or import its resources into Terraform state first.
+
+Terraform protects the resource group, PostgreSQL server, and Key Vault with
+`prevent_destroy`. If creating one of them fails, Terraform marks it tainted
+and the next apply stops with `Instance cannot be destroyed` instead of
+replacing it. Inspect the resource, then untaint it, using the state location
+that `deploy.mjs` prints:
+
+```bash
+export TF_DATA_DIR="$(mktemp -d)"
+terraform -chdir=infra/terraform init -backend-config=storage_account_name=<state-account> \
+  -backend-config=container_name=tfstate -backend-config=key=<prefix>.tfstate \
+  -backend-config=tenant_id=<tenant-id>
+terraform -chdir=infra/terraform untaint azapi_resource.postgres
+```
 
 ## Enroll and revoke employees
 
@@ -119,7 +170,10 @@ from the secrets file.
 ## Rebuild from scratch
 
 1. Revoke employees if needed, then delete the resource group:
-   `az group delete --name rg-<prefix>-enterprise --yes`.
+   `az group delete --name rg-<prefix>-enterprise --yes`. Terraform's
+   `prevent_destroy` blocks `terraform destroy` on purpose. Keep
+   `rg-<prefix>-tfstate`: the next Terraform run drops the deleted resources
+   from its state.
 2. The Key Vault stays soft-deleted for 90 days with purge protection, which
    reserves its name. Deploy with a new `--name-seed` to get new Key Vault and
    PostgreSQL names.
@@ -133,6 +187,9 @@ from the secrets file.
 |---|---|
 | Readiness never reports the database connected | `az postgres flexible-server show` must report `Ready`; external automation can stop the server (`az postgres flexible-server start`). Then check `az containerapp logs show -n ca-<prefix>-litellm -g rg-<prefix>-enterprise`. |
 | Revision fails with a Key Vault reference error | The role assignment was still propagating. Re-run the deploy. |
+| Terraform reports that a resource `already exists` and must be imported | The resource exists outside Terraform state, for example from a Bicep deployment. Use `--engine bicep` or import it. |
+| Terraform reports `Instance cannot be destroyed` | A protected resource is tainted after a failed create. See [Terraform and Bicep](#terraform-and-bicep). |
+| `Cannot read Terraform state` | Your Storage Blob Data Contributor role on the state account has not propagated yet, or you lack it. Wait and re-run. |
 | Enrollment or inference fails with a GitHub error | Confirm the employee has a Copilot seat and that any GitHub organization IP allow list includes the egress IP. |
 | `model_not_supported` from GitHub | The model is not enabled for that Copilot account. There is no fallback. |
 | Employee setup reports a settings conflict | The script backs up Claude settings and replaces only the managed keys after explicit confirmation. |

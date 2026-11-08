@@ -13,3 +13,10 @@ dist/
 .copilot-azure/
 .azure/
 infra/*.json.generated
+.terraform/
+*.tfstate
+*.tfstate.*
+.terraform.tfstate.lock.info
+*.tfplan
+*.tfvars
+*_override.tf

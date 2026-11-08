@@ -11,13 +11,7 @@ param location string = 'swedencentral'
 @description('Seed for globally unique names. Change it only to rebuild while a deleted Key Vault name is still reserved by purge protection.')
 @minLength(1)
 @maxLength(16)
-param nameSeed string = 'litellm'
-
-@description('Official LiteLLM image, pinned by digest.')
-param litellmImage string = 'ghcr.io/berriai/litellm:v1.108.3@sha256:f14d0a035d84d1a8bc98538faf5999e456641fd4cfa191822fd4be1934c1f4f6'
-
-@description('PostgreSQL administrator login used only by LiteLLM.')
-param postgresAdminLogin string = 'litellmadmin'
+param nameSeed string = 'litellm2'
 
 @secure()
 @minLength(16)
@@ -31,16 +25,13 @@ param litellmMasterKey string
 @minLength(16)
 param litellmSaltKey string
 
-var tags = {
-  project: 'claude-code-with-github-copilot'
-  environment: 'enterprise'
-  managedBy: 'bicep'
-}
+// Shared with infra/terraform so both deployments create the same solution.
+var settings = loadJsonContent('solution.json')
 
 resource group 'Microsoft.Resources/resourceGroups@2024-11-01' = {
   name: 'rg-${prefix}-enterprise'
   location: location
-  tags: tags
+  tags: settings.tags
 }
 
 module litellm 'modules/litellm.bicep' = {
@@ -50,9 +41,6 @@ module litellm 'modules/litellm.bicep' = {
     prefix: prefix
     location: location
     nameSeed: nameSeed
-    tags: tags
-    litellmImage: litellmImage
-    postgresAdminLogin: postgresAdminLogin
     postgresAdminPassword: postgresAdminPassword
     litellmMasterKey: litellmMasterKey
     litellmSaltKey: litellmSaltKey

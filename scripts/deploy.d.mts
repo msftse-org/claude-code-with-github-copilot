@@ -4,6 +4,7 @@ export const USAGE: string;
 
 export interface DeployOptions {
   subscription: string;
+  engine: 'terraform' | 'bicep';
   prefix: string;
   location: string;
   nameSeed: string;
@@ -23,7 +24,7 @@ export interface Secrets {
 export type CommandRunner = (
   command: string,
   args: string[],
-  options?: { input?: string; inherit?: boolean },
+  options?: { input?: string; inherit?: boolean; env?: Record<string, string> },
 ) => Promise<string>;
 
 export interface DeployDependencies {

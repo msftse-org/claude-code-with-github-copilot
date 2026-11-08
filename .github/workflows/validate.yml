@@ -37,3 +37,11 @@ jobs:
       - run: az bicep install --version v0.48.1
       - run: az bicep build --file infra/main.bicep --stdout > "$RUNNER_TEMP/main.json"
       - run: az bicep lint --file infra/main.bicep
+      - uses: hashicorp/setup-terraform@v4
+        with:
+          terraform_version: 1.14.3
+          terraform_wrapper: false
+      - run: terraform fmt -check -recursive infra/terraform
+      - run: terraform -chdir=infra/terraform init -backend=false -input=false
+      - run: terraform -chdir=infra/terraform validate
+      - run: terraform -chdir=infra/terraform test

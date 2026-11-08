@@ -11,8 +11,8 @@
 
 - Claude clients call LiteLLM directly with a personal 90-day LiteLLM virtual key. There is no broker, admission service, API Management, or custom LiteLLM auth.
 - LiteLLM resolves each request to the key owner's own GitHub connection through the native per-user OAuth credential `github-copilot-user` (`github_copilot_auth_type: per_user_oauth`). A key must never reach another user's Copilot connection.
-- `infra/main.bicep` (subscription scope) and `infra/modules/litellm.bicep` deploy the official, digest-pinned LiteLLM image on Azure Container Apps with private PostgreSQL, a private Key Vault, and NAT egress.
-- `scripts/deploy.mjs` previews or deploys the infrastructure, then `scripts/litellm-bootstrap.mjs` registers the per-user credential and the Claude model routes.
+- `infra/terraform` (azapi provider only, the default) and `infra/main.bicep` with `infra/modules/litellm.bicep` are two equivalent definitions that deploy the official, digest-pinned LiteLLM image on Azure Container Apps with private PostgreSQL, a private Key Vault, and NAT egress. Both read `infra/solution.json`. Change them together: same ARM types, API versions, names, and bodies. `test/iac-parity.test.ts` and `terraform test` enforce parity.
+- `scripts/deploy.mjs` previews or deploys the infrastructure with Terraform (state in `rg-<prefix>-tfstate`, Entra ID auth only) or `--engine bicep`, then `scripts/litellm-bootstrap.mjs` registers the per-user credential and the Claude model routes. Terraform secrets are write-only variables passed in a private 0600 file.
 - `.github/workflows/ccgc-employee-access.yml` runs `scripts/enterprise-actions-access.mjs` to enroll (user plus 90-day key) or revoke an employee. It uses the `ccgc-admin` environment, which holds `LITELLM_URL` and the `LITELLM_MASTER_KEY` secret.
 - `scripts/ccgc-enterprise-macos.sh` is the standalone employee setup. It stores the key in macOS Keychain, starts the GitHub device flow through LiteLLM, verifies the connection and model routes, and configures Claude Code.
 
@@ -26,6 +26,7 @@ npm test                      # synthetic tests
 node --test test/deploy.test.ts
 node scripts/deploy.mjs --help
 az bicep build --file infra/main.bicep --stdout >/dev/null && az bicep lint --file infra/main.bicep
+terraform fmt -check -recursive infra/terraform && terraform -chdir=infra/terraform init -backend=false && terraform -chdir=infra/terraform validate && terraform -chdir=infra/terraform test
 bash -n scripts/ccgc-enterprise-macos.sh
 ```
 

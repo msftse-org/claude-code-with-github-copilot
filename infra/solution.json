@@ -1,0 +1,37 @@
+{
+  "tags": {
+    "project": "claude-code-with-github-copilot",
+    "environment": "enterprise"
+  },
+  "litellm": {
+    "image": "ghcr.io/berriai/litellm:v1.108.3@sha256:f14d0a035d84d1a8bc98538faf5999e456641fd4cfa191822fd4be1934c1f4f6",
+    "cpu": 2,
+    "memory": "4Gi",
+    "minReplicas": 2,
+    "maxReplicas": 10,
+    "concurrentRequests": "32",
+    "copilotPlaceholderToken": "{\"token\":\"ccgc-invalid-per-user-router-bootstrap\",\"expires_at\":4102444800,\"endpoints\":{\"api\":\"https://api.githubcopilot.com\"}}"
+  },
+  "workloadProfile": {
+    "type": "D4",
+    "minimumCount": 2,
+    "maximumCount": 6
+  },
+  "postgres": {
+    "adminLogin": "litellmadmin",
+    "skuName": "Standard_D2ads_v5",
+    "skuTier": "GeneralPurpose",
+    "version": "16",
+    "highAvailability": "ZoneRedundant",
+    "storageSizeGB": 128,
+    "storageTier": "P10",
+    "backupRetentionDays": 14
+  },
+  "network": {
+    "addressSpace": "10.80.0.0/16",
+    "containerAppsSubnet": "10.80.0.0/23",
+    "postgresSubnet": "10.80.2.0/27",
+    "privateEndpointSubnet": "10.80.2.32/27"
+  },
+  "logRetentionDays": 30
+}

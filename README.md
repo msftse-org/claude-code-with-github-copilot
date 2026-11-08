@@ -55,9 +55,10 @@ flowchart LR
 
 | Path | Purpose |
 |---|---|
-| [`infra/main.bicep`](infra/main.bicep) | Subscription-scope entry point: resource group and LiteLLM platform |
-| [`infra/modules/litellm.bicep`](infra/modules/litellm.bicep) | Container Apps, PostgreSQL, Key Vault, VNet, NAT, private DNS, Log Analytics |
-| [`scripts/deploy.mjs`](scripts/deploy.mjs) | Administrator deploy: what-if preview, deployment, readiness, bootstrap, GitHub environment |
+| [`infra/solution.json`](infra/solution.json) | Settings shared by both infrastructure definitions: LiteLLM image, sizes, network ranges, tags |
+| [`infra/terraform/`](infra/terraform) | Terraform (`azapi`) definition of the platform; the default deploy engine |
+| [`infra/main.bicep`](infra/main.bicep) and [`infra/modules/litellm.bicep`](infra/modules/litellm.bicep) | Equivalent Bicep definition: Container Apps, PostgreSQL, Key Vault, VNet, NAT, private DNS, Log Analytics |
+| [`scripts/deploy.mjs`](scripts/deploy.mjs) | Administrator deploy: Terraform state storage, plan or what-if preview, deployment, readiness, bootstrap, GitHub environment |
 | [`scripts/litellm-bootstrap.mjs`](scripts/litellm-bootstrap.mjs) | Idempotently registers the per-user Copilot credential and Claude model routes |
 | [`.github/workflows/ccgc-employee-access.yml`](.github/workflows/ccgc-employee-access.yml) and [`scripts/enterprise-actions-access.mjs`](scripts/enterprise-actions-access.mjs) | Employee enrollment and revocation |
 | [`scripts/ccgc-enterprise-macos.sh`](scripts/ccgc-enterprise-macos.sh) | Standalone employee setup for macOS: `enroll`, `doctor`, `models`, `configure`, and `token` (Claude's key helper) |
@@ -72,12 +73,16 @@ flowchart LR
   key from Enterprise IT. No checkout, Node.js, or LiteLLM password is
   needed.
 
-Development checks (Node.js 24, Azure CLI with Bicep):
+Development checks (Node.js 24, Terraform 1.11 or newer, Azure CLI with Bicep):
 
 ```bash
 npm ci
 npm run check
 npm test
+terraform fmt -check -recursive infra/terraform
+terraform -chdir=infra/terraform init -backend=false
+terraform -chdir=infra/terraform validate
+terraform -chdir=infra/terraform test
 az bicep build --file infra/main.bicep --stdout >/dev/null
 az bicep lint --file infra/main.bicep
 ```

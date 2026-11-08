@@ -1,26 +1,33 @@
 import assert from 'node:assert/strict';
-import { mkdtemp, readFile, rm, stat } from 'node:fs/promises';
+import { mkdtemp, readdir, readFile, rm, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import test from 'node:test';
-import { deploy, parseOptions } from '../scripts/deploy.mjs';
+import { deploy, generateSecrets, parseOptions } from '../scripts/deploy.mjs';
 import type { BootstrapOptions } from '../scripts/litellm-bootstrap.mjs';
 
 const subscription = '00000000-0000-4000-8000-000000000001';
+const tenant = '00000000-0000-4000-8000-000000000002';
+const storageBlobDataContributor = 'ba92f5b4-2d11-453d-a403-e96b0029c9fe';
 
 interface Command {
   command: string;
   args: string[];
   input?: string;
+  env?: Record<string, string>;
+  workspace?: string[];
+  varFile?: string;
+  variables?: Record<string, string>;
+  varFileMode?: number;
   parameterFile?: string;
   parameters?: { parameters: Record<string, { value: string }> };
   parameterMode?: number;
 }
 
-function fakeCli({ groupExists = false } = {}) {
+function fakeCli({ groupExists = false, stateStorageExists = false, terraformState = '' } = {}) {
   const commands: Command[] = [];
-  const run = async (command: string, args: string[], options: { input?: string } = {}) => {
-    const entry: Command = { command, args, input: options.input };
+  const run = async (command: string, args: string[], options: { input?: string; env?: Record<string, string> } = {}) => {
+    const entry: Command = { command, args, input: options.input, env: options.env };
     commands.push(entry);
     const parameterArgument = args.find(arg => arg.startsWith('@'));
     if (parameterArgument) {
@@ -28,9 +35,35 @@ function fakeCli({ groupExists = false } = {}) {
       entry.parameters = JSON.parse(await readFile(entry.parameterFile, 'utf8'));
       entry.parameterMode = (await stat(entry.parameterFile)).mode & 0o777;
     }
+    const chdir = args.find(arg => arg.startsWith('-chdir='));
+    if (chdir) entry.workspace = await readdir(chdir.slice('-chdir='.length));
+    const varFile = args.find(arg => arg.startsWith('-var-file='));
+    if (varFile) {
+      entry.varFile = varFile.slice('-var-file='.length);
+      entry.variables = JSON.parse(await readFile(entry.varFile, 'utf8'));
+      entry.varFileMode = (await stat(entry.varFile)).mode & 0o777;
+    }
     const line = `${command} ${args.join(' ')}`;
-    if (line.startsWith('az account show')) return JSON.stringify({ id: subscription, name: 'Test subscription' });
+    if (line.startsWith('az account show')) {
+      return JSON.stringify({ id: subscription, name: 'Test subscription', tenantId: tenant, user: { name: 'admin@example.com', type: 'user' } });
+    }
+    if (line.startsWith('az group exists --name rg-ccgc-pilot-tfstate')) return String(stateStorageExists);
     if (line.startsWith('az group exists')) return String(groupExists);
+    if (line.startsWith('az storage account list')) return stateStorageExists ? '1' : '0';
+    if (line.startsWith('az storage account create')) return '/subscriptions/example/providers/Microsoft.Storage/storageAccounts/state';
+    if (line.startsWith('az storage container-rm list') || line.startsWith('az role assignment list')) return '0';
+    if (line.startsWith('az ad signed-in-user show')) return 'deployer-object-id';
+    if (/^az (group create|storage account blob-service-properties update|storage container-rm create|role assignment create|storage blob list) /.test(line)) return '';
+    if (line === 'terraform version -json') return JSON.stringify({ terraform_version: '1.14.3' });
+    if (command === 'terraform' && args[1] === 'state') return terraformState;
+    if (command === 'terraform' && args[1] === 'output') {
+      return JSON.stringify({
+        litellm_url: { value: 'https://litellm.example' },
+        egress_ip: { value: '203.0.113.10' },
+        resource_group_name: { value: 'rg-ccgc-pilot-enterprise' },
+      });
+    }
+    if (command === 'terraform' && ['init', 'plan', 'apply'].includes(args[1]!)) return '';
     if (line.startsWith('az deployment sub what-if')) return '';
     if (line.startsWith('az deployment sub create')) {
       return JSON.stringify({
@@ -46,6 +79,14 @@ function fakeCli({ groupExists = false } = {}) {
   return { commands, run };
 }
 
+function terraform(commands: Command[], subcommand: string) {
+  return commands.find(entry => entry.command === 'terraform' && entry.args[1] === subcommand);
+}
+
+function argumentAfter(entry: Command | undefined, flag: string) {
+  return entry?.args[entry.args.indexOf(flag) + 1];
+}
+
 function options(directory: string, extra: string[] = []) {
   const parsed = parseOptions(['--subscription', subscription, '--secrets-file', join(directory, 'secrets.json'), ...extra]);
   assert.ok(!('help' in parsed));
@@ -56,24 +97,61 @@ async function secretValues(directory: string): Promise<string[]> {
   return Object.values(JSON.parse(await readFile(join(directory, 'secrets.json'), 'utf8')) as Record<string, string>);
 }
 
-test('deploy previews by default and keeps generated secrets out of command arguments', async () => {
+function assertNoSecretArguments(commands: Command[], secrets: string[]) {
+  for (const secret of secrets) {
+    for (const entry of commands) assert.equal(entry.args.join(' ').includes(secret), false);
+  }
+}
+
+test('Terraform preview plans against empty local state and passes secrets only in a private, deleted file', async () => {
   const directory = await mkdtemp(join(tmpdir(), 'ccgc-deploy-test-'));
   try {
     const cli = fakeCli();
     const result = await deploy(options(directory), { run: cli.run, log: () => {} });
     assert.equal(result.deployed, false);
+    const init = terraform(cli.commands, 'init');
+    const plan = terraform(cli.commands, 'plan');
+    assert.ok(init && plan);
+    assert.ok(init.workspace?.includes('local_backend_override.tf') && init.workspace.includes('.terraform.lock.hcl'));
+    assert.equal(init.args.some(arg => arg.startsWith('-backend-config')), false);
+    assert.ok(plan.args.includes('-var=name_seed=litellm2') && plan.args.includes(`-var=tenant_id=${tenant}`));
+    assert.equal(terraform(cli.commands, 'apply'), undefined);
+    assert.equal(cli.commands.some(entry => entry.command === 'az' && entry.args.includes('create')), false);
+    const secrets = JSON.parse(await readFile(join(directory, 'secrets.json'), 'utf8')) as Record<string, string>;
+    assert.deepEqual(plan.variables, {
+      postgres_admin_password: secrets.postgresAdminPassword,
+      litellm_master_key: secrets.litellmMasterKey,
+      litellm_salt_key: secrets.litellmSaltKey,
+    });
+    assert.equal(plan.varFileMode, 0o600);
+    await assert.rejects(stat(plan.varFile!), { code: 'ENOENT' });
+    for (const entry of cli.commands) {
+      assert.equal(Object.values(entry.env ?? {}).some(value => Object.values(secrets).includes(value)), false);
+    }
+    assertNoSecretArguments(cli.commands, Object.values(secrets));
+    assert.equal((await stat(join(directory, 'secrets.json'))).mode & 0o777, 0o600);
+    await assert.rejects(stat(dirname(init.args[0]!.slice('-chdir='.length))), { code: 'ENOENT' });
+  } finally { await rm(directory, { recursive: true, force: true }); }
+});
+
+test('Bicep preview keeps generated secrets in a private, deleted parameter file', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'ccgc-deploy-test-'));
+  try {
+    const cli = fakeCli();
+    const result = await deploy(options(directory, ['--engine', 'bicep']), { run: cli.run, log: () => {} });
+    assert.equal(result.deployed, false);
     const preview = cli.commands.find(entry => entry.args.slice(0, 3).join(' ') === 'deployment sub what-if');
     assert.ok(preview?.parameters && preview.parameterFile);
-    assert.equal(cli.commands.some(entry => entry.args.includes('create')), false);
-    assert.equal((await stat(join(directory, 'secrets.json'))).mode & 0o777, 0o600);
+    assert.equal(cli.commands.some(entry => entry.command === 'terraform' || entry.args.includes('create')), false);
     assert.equal(preview.parameterMode, 0o600);
     await assert.rejects(stat(preview.parameterFile), { code: 'ENOENT' });
     const secrets = await secretValues(directory);
+    assert.equal(preview.parameters.parameters.nameSeed!.value, 'litellm2');
     assert.match(preview.parameters.parameters.litellmMasterKey!.value, /^sk-[A-Za-z0-9_-]{43}$/);
     for (const secret of secrets) {
       assert.ok(Object.values(preview.parameters.parameters).some(parameter => parameter.value === secret));
-      for (const entry of cli.commands) assert.equal(entry.args.join(' ').includes(secret), false);
     }
+    assertNoSecretArguments(cli.commands, secrets);
   } finally { await rm(directory, { recursive: true, force: true }); }
 });
 
@@ -82,12 +160,25 @@ test('deploy refuses to invent new secrets for an existing resource group', asyn
   try {
     const cli = fakeCli({ groupExists: true });
     await assert.rejects(deploy(options(directory), { run: cli.run, log: () => {} }), /resource group already exists/);
-    assert.equal(cli.commands.some(entry => entry.args[0] === 'deployment'), false);
+    assert.equal(cli.commands.some(entry => entry.command === 'terraform' || entry.args[0] === 'deployment'), false);
     await assert.rejects(stat(join(directory, 'secrets.json')), { code: 'ENOENT' });
   } finally { await rm(directory, { recursive: true, force: true }); }
 });
 
-test('confirmed deploy bootstraps LiteLLM and gives GitHub the master key only on stdin', async () => {
+test('Terraform refuses a resource group that was deployed without Terraform state', async () => {
+  for (const [state, extra] of [[{ stateStorageExists: false }, []], [{ stateStorageExists: true }, ['--confirm-deploy']]] as const) {
+    const directory = await mkdtemp(join(tmpdir(), 'ccgc-deploy-test-'));
+    try {
+      await writeFile(join(directory, 'secrets.json'), JSON.stringify(generateSecrets()), { mode: 0o600 });
+      const cli = fakeCli({ groupExists: true, ...state });
+      await assert.rejects(deploy(options(directory, [...extra]), { run: cli.run, log: () => {}, sleep: async () => {} }),
+        /deployed without Terraform/);
+      assert.equal(terraform(cli.commands, 'plan') ?? terraform(cli.commands, 'apply'), undefined);
+    } finally { await rm(directory, { recursive: true, force: true }); }
+  }
+});
+
+test('confirmed Terraform deploy stores state in Azure, bootstraps LiteLLM, and gives GitHub the master key only on stdin', async () => {
   const directory = await mkdtemp(join(tmpdir(), 'ccgc-deploy-test-'));
   try {
     const cli = fakeCli();
@@ -105,6 +196,24 @@ test('confirmed deploy bootstraps LiteLLM and gives GitHub the master key only o
     const masterKey = JSON.parse(await readFile(join(directory, 'secrets.json'), 'utf8')).litellmMasterKey as string;
     assert.equal(result.deployed, true);
     assert.equal(result.litellmUrl, 'https://litellm.example');
+
+    const storage = cli.commands.find(entry => entry.args.slice(0, 3).join(' ') === 'storage account create');
+    const account = argumentAfter(storage, '--name')!;
+    assert.match(account, /^[a-z0-9]{3,24}$/);
+    assert.equal(argumentAfter(storage, '--allow-shared-key-access'), 'false');
+    const grant = cli.commands.find(entry => entry.args.slice(0, 3).join(' ') === 'role assignment create');
+    assert.deepEqual([argumentAfter(grant, '--assignee-object-id'), argumentAfter(grant, '--role')],
+      ['deployer-object-id', storageBlobDataContributor]);
+    const init = terraform(cli.commands, 'init');
+    assert.deepEqual(init?.args.filter(arg => arg.startsWith('-backend-config=')), [
+      `-backend-config=storage_account_name=${account}`,
+      '-backend-config=container_name=tfstate',
+      '-backend-config=key=ccgc-pilot.tfstate',
+      `-backend-config=tenant_id=${tenant}`,
+    ]);
+    assert.equal(init?.workspace?.includes('local_backend_override.tf'), false);
+    assert.equal(terraform(cli.commands, 'apply')?.variables?.litellm_master_key, masterKey);
+
     assert.equal(bootstraps.length, 1);
     assert.equal(bootstraps[0]!.litellmUrl, 'https://litellm.example');
     assert.equal(bootstraps[0]!.masterKey, masterKey);
@@ -114,6 +223,6 @@ test('confirmed deploy bootstraps LiteLLM and gives GitHub the master key only o
     assert.deepEqual(secret?.args.slice(3), ['--env', 'ccgc-admin', '--repo', 'example/repository']);
     const variable = cli.commands.find(entry => entry.args.slice(0, 3).join(' ') === 'variable set LITELLM_URL');
     assert.ok(variable?.args.includes('https://litellm.example'));
-    for (const entry of cli.commands) assert.equal(entry.args.join(' ').includes(masterKey), false);
+    assertNoSecretArguments(cli.commands, await secretValues(directory));
   } finally { await rm(directory, { recursive: true, force: true }); }
 });

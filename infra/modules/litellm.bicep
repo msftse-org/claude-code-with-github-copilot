@@ -1,9 +1,6 @@
 param prefix string
 param location string
 param nameSeed string
-param tags object
-param litellmImage string
-param postgresAdminLogin string
 
 @secure()
 param postgresAdminPassword string
@@ -14,6 +11,10 @@ param litellmMasterKey string
 @secure()
 param litellmSaltKey string
 
+// Shared with infra/terraform so both deployments create the same solution.
+var settings = loadJsonContent('../solution.json')
+var tags = settings.tags
+var postgresAdminLogin = settings.postgres.adminLogin
 var compact = replace(prefix, '-', '')
 var unique = toLower(uniqueString(subscription().id, resourceGroup().id, prefix, nameSeed))
 var vnetName = 'vnet-${prefix}-enterprise'
@@ -25,15 +26,10 @@ var copilotTokenDir = '/var/run/ccgc/github-copilot'
 var keyVaultSecretsUser = '4633458b-17de-408a-b874-0445c86b69e6'
 
 // LiteLLM's GitHub Copilot provider resolution reads a process-wide token file even
-// though every model here uses per-user OAuth. This non-secret placeholder is never a
-// valid GitHub token; requests use each employee's own Copilot connection instead.
-var copilotPlaceholderToken = string({
-  token: 'ccgc-invalid-per-user-router-bootstrap'
-  expires_at: 4102444800
-  endpoints: {
-    api: 'https://api.githubcopilot.com'
-  }
-})
+// though every model here uses per-user OAuth. The placeholder in solution.json is
+// public and never a valid GitHub token; requests use each employee's own Copilot
+// connection instead.
+var copilotPlaceholderToken = settings.litellm.copilotPlaceholderToken
 
 resource identity 'Microsoft.ManagedIdentity/userAssignedIdentities@2024-11-30' = {
   name: 'id-${prefix}-litellm'
@@ -46,7 +42,7 @@ resource workspace 'Microsoft.OperationalInsights/workspaces@2023-09-01' = {
   location: location
   tags: tags
   properties: {
-    retentionInDays: 30
+    retentionInDays: settings.logRetentionDays
     sku: {
       name: 'PerGB2018'
     }
@@ -126,14 +122,14 @@ resource vnet 'Microsoft.Network/virtualNetworks@2024-07-01' = {
   properties: {
     addressSpace: {
       addressPrefixes: [
-        '10.80.0.0/16'
+        settings.network.addressSpace
       ]
     }
     subnets: [
       {
         name: 'snet-container-apps'
         properties: {
-          addressPrefix: '10.80.0.0/23'
+          addressPrefix: settings.network.containerAppsSubnet
           delegations: [
             {
               name: 'container-apps'
@@ -154,7 +150,7 @@ resource vnet 'Microsoft.Network/virtualNetworks@2024-07-01' = {
       {
         name: 'snet-postgres'
         properties: {
-          addressPrefix: '10.80.2.0/27'
+          addressPrefix: settings.network.postgresSubnet
           delegations: [
             {
               name: 'postgres'
@@ -176,7 +172,7 @@ resource vnet 'Microsoft.Network/virtualNetworks@2024-07-01' = {
       {
         name: 'snet-private-endpoints'
         properties: {
-          addressPrefix: '10.80.2.32/27'
+          addressPrefix: settings.network.privateEndpointSubnet
           networkSecurityGroup: {
             id: workloadNsg.id
           }
@@ -225,11 +221,11 @@ resource postgres 'Microsoft.DBforPostgreSQL/flexibleServers@2024-08-01' = {
   location: location
   tags: tags
   sku: {
-    name: 'Standard_D2ads_v5'
-    tier: 'GeneralPurpose'
+    name: settings.postgres.skuName
+    tier: settings.postgres.skuTier
   }
   properties: {
-    version: '16'
+    version: settings.postgres.version
     administratorLogin: postgresAdminLogin
     administratorLoginPassword: postgresAdminPassword
     authConfig: {
@@ -237,14 +233,14 @@ resource postgres 'Microsoft.DBforPostgreSQL/flexibleServers@2024-08-01' = {
       passwordAuth: 'Enabled'
     }
     backup: {
-      backupRetentionDays: 14
+      backupRetentionDays: settings.postgres.backupRetentionDays
       geoRedundantBackup: 'Disabled'
     }
     dataEncryption: {
       type: 'SystemManaged'
     }
     highAvailability: {
-      mode: 'ZoneRedundant'
+      mode: settings.postgres.highAvailability
     }
     network: {
       delegatedSubnetResourceId: postgresSubnet.id
@@ -252,9 +248,9 @@ resource postgres 'Microsoft.DBforPostgreSQL/flexibleServers@2024-08-01' = {
       publicNetworkAccess: 'Disabled'
     }
     storage: {
-      storageSizeGB: 128
+      storageSizeGB: settings.postgres.storageSizeGB
       autoGrow: 'Enabled'
-      tier: 'P10'
+      tier: settings.postgres.storageTier
     }
   }
   dependsOn: [
@@ -420,10 +416,10 @@ resource environment 'Microsoft.App/managedEnvironments@2025-01-01' = {
         workloadProfileType: 'Consumption'
       }
       {
-        name: 'D4'
-        workloadProfileType: 'D4'
-        minimumCount: 2
-        maximumCount: 6
+        name: settings.workloadProfile.type
+        workloadProfileType: settings.workloadProfile.type
+        minimumCount: settings.workloadProfile.minimumCount
+        maximumCount: settings.workloadProfile.maximumCount
       }
     ]
     zoneRedundant: true
@@ -462,7 +458,7 @@ resource litellm 'Microsoft.App/containerApps@2025-01-01' = {
   }
   properties: {
     environmentId: environment.id
-    workloadProfileName: 'D4'
+    workloadProfileName: settings.workloadProfile.type
     configuration: {
       activeRevisionsMode: 'Single'
       ingress: {
@@ -499,7 +495,7 @@ resource litellm 'Microsoft.App/containerApps@2025-01-01' = {
       containers: [
         {
           name: 'litellm'
-          image: litellmImage
+          image: settings.litellm.image
           env: [
             {
               name: 'DATABASE_URL'
@@ -567,8 +563,8 @@ resource litellm 'Microsoft.App/containerApps@2025-01-01' = {
             }
           ]
           resources: {
-            cpu: json('2.0')
-            memory: '4Gi'
+            cpu: settings.litellm.cpu
+            memory: settings.litellm.memory
           }
         }
       ]
@@ -585,14 +581,14 @@ resource litellm 'Microsoft.App/containerApps@2025-01-01' = {
         }
       ]
       scale: {
-        minReplicas: 2
-        maxReplicas: 10
+        minReplicas: settings.litellm.minReplicas
+        maxReplicas: settings.litellm.maxReplicas
         rules: [
           {
             name: 'http'
             http: {
               metadata: {
-                concurrentRequests: '32'
+                concurrentRequests: settings.litellm.concurrentRequests
               }
             }
           }
