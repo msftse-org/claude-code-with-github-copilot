@@ -702,7 +702,7 @@ func clientModel(model string) string {
 	if model == "claude-haiku-4.5" {
 		return "claude-haiku-4-5-20251001"
 	}
-	return strings.ReplaceAll(model, ".", "-")
+	return model
 }
 
 func shellQuote(value string) string {

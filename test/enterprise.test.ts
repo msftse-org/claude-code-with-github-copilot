@@ -711,6 +711,7 @@ test('enterprise client retains Entra admission compatibility during migration',
     assert.equal(configured.applied, true);
     const settings = JSON.parse(await readFile(join(home, '.claude', 'settings.json'), 'utf8')) as Record<string, unknown>;
     assert.equal((settings.env as Record<string, string>).ANTHROPIC_BASE_URL, 'https://litellm.example');
+    assert.equal((settings.env as Record<string, string>).ANTHROPIC_DEFAULT_MODEL, 'claude-sonnet-5.5');
     assert.equal((settings.env as Record<string, string>).CLAUDE_CODE_DISABLE_BACKGROUND_TASKS, undefined);
     assert.equal((settings.env as Record<string, string>).CLAUDE_CODE_DISABLE_AUTO_MEMORY, undefined);
     assert.equal((settings.env as Record<string, string>).CLAUDE_CODE_DISABLE_CRON, undefined);

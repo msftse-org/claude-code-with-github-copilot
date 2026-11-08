@@ -66,6 +66,7 @@ func TestDirectKeyProfileIsValidWithoutEnterpriseIdentity(t *testing.T) {
 		AuthMethod: "litellmKey",
 		Models:     []string{"claude-sonnet-5.5"},
 	}
+
 	if err := writeProfile(expected); err != nil {
 		t.Fatal(err)
 	}
@@ -75,6 +76,12 @@ func TestDirectKeyProfileIsValidWithoutEnterpriseIdentity(t *testing.T) {
 	}
 	if actual.Gateway != expected.Gateway || actual.AuthMethod != expected.AuthMethod {
 		t.Fatalf("unexpected direct-key profile: %#v", actual)
+	}
+}
+
+func TestClientModelPreservesGatewayModelID(t *testing.T) {
+	if actual := clientModel("claude-sonnet-5.5"); actual != "claude-sonnet-5.5" {
+		t.Fatalf("changed canonical gateway model ID to %q", actual)
 	}
 }
 

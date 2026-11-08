@@ -246,7 +246,7 @@ export function enterpriseHelperCommand(): string {
 export function enterpriseSettingsPatch(value: EnterpriseProfile): ObjectValue {
   const defaultModel = value.models[0] === 'claude-haiku-4.5'
     ? 'claude-haiku-4-5-20251001'
-    : value.models[0]!.replaceAll('.', '-');
+    : value.models[0]!;
   return {
     env: {
       ANTHROPIC_BASE_URL: value.gateway,
