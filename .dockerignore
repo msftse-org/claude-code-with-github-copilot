@@ -12,3 +12,8 @@
 !server/Dockerfile
 !server/Dockerfile.enterprise
 !server/Dockerfile.enterprise-worker
+!server/Dockerfile.enterprise-litellm
+!server/litellm.enterprise.yaml
+!server/ccgc_litellm_auth.py
+!server/litellm-github-copilot-bootstrap/
+!server/litellm-github-copilot-bootstrap/api-key.json

@@ -225,12 +225,21 @@ npm run enterprise:entra -- \
   --display-name 'CCGC Enterprise API' \
   --pilot-group-object-id 00000000-0000-0000-0000-000000000000 \
   --admin-group-object-id 11111111-1111-1111-1111-111111111111 \
+  --admin-portal-redirect-uri https://PUBLIC_CONTROL_PLANE_FQDN/ccgc/admin \
   --confirm-entra-changes
 ```
 
 Copy `infra/enterprise/main.parameters.example.json` to a private path and
 replace every identity and secret placeholder, then run `chmod 600` on it. Do
 not commit that file. The deployment is deliberately two-stage:
+
+The Entra script requires the final HTTPS control-plane `/ccgc/admin` redirect
+URI. For a new environment using Azure's generated domain, first create the
+single-tenant app registration and use its `api://<application-client-id>`
+audience in the foundation parameters. After the foundation creates the
+Container Apps environment, derive the control-plane hostname from its
+`defaultDomain`, then finish the same app's Entra configuration before deploying
+the runtime. Do not configure a placeholder redirect URI.
 
 ```bash
 # What-if only; review before applying.
@@ -278,6 +287,13 @@ deployment:
    approved secret-handling workflow.
 5. Run subscription `what-if`, verify create-only changes, review Container Apps
    and PostgreSQL cost, and obtain explicit deployment approval.
+
+If public IP provisioning reports `SubscriptionNotRegisteredForFeature` for
+`Microsoft.Network/AllowBringYourOwnPublicIpAddress`, obtain explicit approval
+to register that exact subscription feature. Wait for `Registered`, re-register
+`Microsoft.Network` to propagate it, and review `what-if` before retrying the
+unchanged deployment. A pending feature approval is not permission to change
+the region, topology, or subscription controls.
 
 ```bash
 npm run enterprise:pilot -- foundation \
@@ -467,6 +483,7 @@ npm run enterprise:entra -- \
   --display-name 'CCGC Enterprise API' \
   --pilot-group-object-id "$EMPLOYEE_GROUP_ID" \
   --admin-group-object-id "$ADMIN_GROUP_ID" \
+  --admin-portal-redirect-uri https://PUBLIC_CONTROL_PLANE_FQDN/ccgc/admin \
   --confirm-entra-changes
 ```
 
