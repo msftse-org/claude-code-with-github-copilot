@@ -70,10 +70,10 @@ temporarily only to preserve existing enrollment and admission clients during
 the migration window; it does not proxy inference.
 
 > [!IMPORTANT]
-> The direct-key source changes are implemented and locally validated, but the
-> revised architecture has not yet been deployed. Production still runs the
-> compatibility admission path until the zero-delete migration deployment and
-> live direct-key test matrix pass.
+> The zero-delete direct-key migration is deployed. Direct virtual-key model
+> discovery, Anthropic Messages, Chat Completions, Responses, Claude Code CLI,
+> key lifecycle controls, and user isolation have passed. The compatibility
+> broker remains deployed temporarily for rollback.
 
 > [!WARNING]
 > The Copilot connector is unofficial and is not endorsed by GitHub or
@@ -156,17 +156,17 @@ The managed macOS enrollment entry point is the tracked
 
 | Capability | Direct LiteLLM key | CCGC admission compatibility |
 |---|---|---|
-| `/v1/models` | Implemented; live migration validation pending | Deployed and previously validated |
-| Anthropic `/v1/messages` | LiteLLM-native; live migration validation pending | Deployed and previously validated |
-| Chat Completions | LiteLLM-native; live migration validation pending | Same LiteLLM backend |
-| Responses | LiteLLM-native where configured; live validation pending | Same LiteLLM backend |
-| Embeddings | LiteLLM-native where configured; live validation pending | Same LiteLLM backend |
-| Claude Code CLI | Client support implemented; live validation pending | Deployed and previously validated |
-| Claude Desktop Code tab | Shared Claude settings; live validation pending | Deployed and previously validated |
+| `/v1/models` | **Live pass** | Deployed and previously validated |
+| Anthropic `/v1/messages` | **Live pass** | Deployed and previously validated |
+| Chat Completions | **Live pass** | Same LiteLLM backend |
+| Responses | **Live pass** | Same LiteLLM backend |
+| Embeddings | Endpoint available; no approved embedding model is configured in the pilot | Same LiteLLM backend |
+| Claude Code CLI | **Live pass with Claude Code 2.1.308** | Deployed and previously validated |
+| Claude Desktop Code tab | Uses the same validated `~/.claude/settings.json`; interactive GUI retest remains pending | Deployed and previously validated |
 | Per-user GitHub OAuth | Same LiteLLM user must own key and connection | Same downstream connection after CCGC resolution |
-| Models, teams, budgets, rates, spend | Native LiteLLM | Native LiteLLM |
-| Rotation and revocation | Native LiteLLM key controls | CCGC credential/admission plus LiteLLM key controls |
-| Two-user isolation | Must pass before migration promotion | Previously validated on compatibility architecture |
+| Models, teams, budgets, rates, spend | Model restriction returned 403; TPM limit returned 429; spend was recorded; budget enforcement returned 422 after the accounting window | Native LiteLLM |
+| Rotation and revocation | Replacement key passed; revoked key returned 401 | CCGC credential/admission plus LiteLLM key controls |
+| User isolation | Unconnected second user returned 401 and could not use another user's OAuth connection | Previously validated on compatibility architecture |
 
 ### Validated features
 
@@ -509,19 +509,19 @@ cache policy.
 
 ## Deployment status and remaining gates
 
-The Sweden Central pilot currently runs LiteLLM `1.108.0` with the CCGC
-admission compatibility path. PostgreSQL is healthy and LiteLLM reports its
-database connected. The direct LiteLLM-key client implementation in this
-revision is locally validated but **not yet deployed**.
+The Sweden Central pilot runs LiteLLM `1.108.0` with direct per-user virtual
+keys and the CCGC admission path retained temporarily for rollback. PostgreSQL
+is healthy and LiteLLM reports its database connected.
 
 - [LiteLLM UI](https://ca-ccgc-pilot-litellm.bluefield-2d967d14.swedencentral.azurecontainerapps.io/ui)
 - [LiteLLM gateway](https://ca-ccgc-pilot-litellm.bluefield-2d967d14.swedencentral.azurecontainerapps.io)
 - [Temporary compatibility broker](https://ca-ccgc-pilot-broker.bluefield-2d967d14.swedencentral.azurecontainerapps.io)
 
-The next deployment must be a zero-delete migration update. Direct-key model
-discovery, per-user OAuth, all required API protocols, Claude Code/Desktop,
-two-user isolation, policy enforcement, rotation, revocation, and compatibility
-rollback must pass before broker retirement.
+The migration deployment used immutable images from commit `a8c00fe`, created
+no resources, deleted no resources, and produced broker revision `0000022` and
+LiteLLM revision `0000009`. Broker retirement remains deferred until the
+Claude Desktop GUI retest, broader two-user test, traffic observation, and a
+separate destructive what-if are complete.
 
 ### Remaining production gates
 

@@ -141,7 +141,10 @@ GOOS=windows GOARCH=amd64 go build ./cmd/ccgc-enterprise
 az bicep build --file infra/enterprise/main.bicep --stdout
 ```
 
-Live deployment validation must additionally prove UI administration,
-per-user OAuth connection, every required API surface, two-user isolation,
-policy enforcement, rotation, revocation, and legacy rollback before the
-broker is removed.
+The Sweden Central migration deployment has live proof for LiteLLM UI
+availability, direct-key model discovery, Anthropic Messages, Chat
+Completions, Responses, Claude Code CLI, model restriction, TPM limits, spend
+accounting, delayed budget enforcement, replacement-key rotation, revocation,
+and fail-closed inference for an unconnected second user. Claude Desktop GUI,
+broader two-user concurrency, traffic observation, and legacy rollback remain
+required before the broker is removed.
