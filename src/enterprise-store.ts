@@ -38,8 +38,14 @@ export interface EnterpriseEnrollment {
   models: string[];
   flowHandle?: string;
   flowExpiresAt?: string;
-  status: 'pending' | 'authorizing' | 'finalizing' | 'completed';
+  status: 'pending' | 'authorizing' | 'finalizing' | 'completed' | 'revoked';
   expiresAt: string;
+}
+
+export interface GitHubAccountRevocation {
+  objectIds: string[];
+  secretNames: string[];
+  revokedEnrollments: number;
 }
 
 export interface EnterpriseStore {
@@ -65,10 +71,8 @@ export interface EnterpriseStore {
     models: string[];
     ttlSeconds: number;
   }): Promise<{ id: string; expiresAt: string }>;
-  reusableEnrollmentUser(tenantId: string, githubAccountId: number): Promise<{
-    objectId: string;
-    pendingSecretName: string;
-  } | null>;
+  enrollmentUser(tenantId: string, githubAccountId: number): Promise<string | null>;
+  revokeGitHubAccount(tenantId: string, githubAccountId: number): Promise<GitHubAccountRevocation>;
   enrollment(codeHash: string): Promise<EnterpriseEnrollment>;
   setEnrollmentFlow(id: string, flowHandle: string, expiresIn: number): Promise<void>;
   beginEnrollmentCompletion(id: string): Promise<boolean>;
@@ -172,7 +176,7 @@ CREATE INDEX IF NOT EXISTS enterprise_enrollments_expiry
   ON enterprise_enrollments (expires_at) WHERE consumed_at IS NULL;
 ALTER TABLE enterprise_enrollments DROP CONSTRAINT IF EXISTS enterprise_enrollments_status_check;
 ALTER TABLE enterprise_enrollments ADD CONSTRAINT enterprise_enrollments_status_check
-  CHECK (status IN ('pending', 'authorizing', 'finalizing', 'completed'));
+  CHECK (status IN ('pending', 'authorizing', 'finalizing', 'completed', 'revoked'));
 CREATE TABLE IF NOT EXISTS enterprise_admissions (
   id uuid PRIMARY KEY,
   tenant_id uuid NOT NULL,
@@ -445,7 +449,7 @@ export class PostgresEnterpriseStore implements EnterpriseStore {
     if (!/^[a-f0-9]{64}$/.test(input.codeHash)
       || !/^[0-9a-f-]{36}$/i.test(input.tenantId)
       || !/^[0-9a-f-]{36}$/i.test(input.objectId)
-      || !input.userEmail.includes('@')
+      || (input.userEmail !== '' && (input.userEmail.length > 254 || !/^[^\s@]+@[^\s@]+$/.test(input.userEmail)))
       || !/^[A-Za-z0-9._-]{1,64}$/.test(input.userAlias)
       || !Number.isSafeInteger(input.githubAccountId) || input.githubAccountId <= 0
       || !/^[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})$/.test(input.githubLogin)
@@ -523,30 +527,69 @@ export class PostgresEnterpriseStore implements EnterpriseStore {
     };
   }
 
-  async reusableEnrollmentUser(tenantId: string, githubAccountId: number): Promise<{
-    objectId: string;
-    pendingSecretName: string;
-  } | null> {
+  async enrollmentUser(tenantId: string, githubAccountId: number): Promise<string | null> {
     if (!/^[0-9a-f-]{36}$/i.test(tenantId)
       || !Number.isSafeInteger(githubAccountId) || githubAccountId <= 0) {
-      throw new BridgeError('INVALID_REQUEST', 'Reusable enrollment identity is invalid.');
+      throw new BridgeError('INVALID_REQUEST', 'Enrollment identity is invalid.');
     }
     const result = await this.pool.query(
-      `SELECT object_id, pending_secret_name
+      `SELECT object_id
        FROM enterprise_enrollments
-       WHERE tenant_id = $1
-         AND github_account_id = $2
-         AND consumed_at IS NULL
-         AND status IN ('pending', 'authorizing')
+       WHERE tenant_id = $1 AND github_account_id = $2
        ORDER BY created_at DESC
        LIMIT 1`,
       [tenantId.toLowerCase(), githubAccountId],
     );
-    if (result.rowCount !== 1) return null;
-    return {
-      objectId: String(result.rows[0].object_id),
-      pendingSecretName: String(result.rows[0].pending_secret_name),
-    };
+    return result.rowCount === 1 ? String(result.rows[0].object_id) : null;
+  }
+
+  async revokeGitHubAccount(tenantId: string, githubAccountId: number): Promise<GitHubAccountRevocation> {
+    if (!/^[0-9a-f-]{36}$/i.test(tenantId)
+      || !Number.isSafeInteger(githubAccountId) || githubAccountId <= 0) {
+      throw new BridgeError('INVALID_REQUEST', 'GitHub account revocation input is invalid.');
+    }
+    const client = await this.pool.connect();
+    try {
+      await client.query('BEGIN');
+      const revoked = await client.query(
+        `WITH updated AS (
+           UPDATE enterprise_enrollments
+           SET status = 'revoked', consumed_at = COALESCE(consumed_at, now())
+           WHERE tenant_id = $1 AND github_account_id = $2 AND status <> 'revoked'
+           RETURNING id, tenant_id, object_id, pending_secret_name, output_secret_name
+         ), audited AS (
+           INSERT INTO enterprise_audit_outbox (event_type, tenant_id, object_id, subject_id, metadata)
+           SELECT 'enrollment.access_revoked', tenant_id, object_id, id,
+                  jsonb_build_object('githubAccountId', $2::bigint)
+           FROM updated
+         )
+         SELECT pending_secret_name, output_secret_name FROM updated`,
+        [tenantId.toLowerCase(), githubAccountId],
+      );
+      const principals = await client.query(
+        `SELECT DISTINCT object_id
+         FROM enterprise_enrollments
+         WHERE tenant_id = $1 AND github_account_id = $2
+         ORDER BY object_id`,
+        [tenantId.toLowerCase(), githubAccountId],
+      );
+      await client.query('COMMIT');
+      const secretNames = new Set<string>();
+      for (const row of revoked.rows as Array<Record<string, unknown>>) {
+        if (row.pending_secret_name) secretNames.add(String(row.pending_secret_name));
+        if (row.output_secret_name) secretNames.add(String(row.output_secret_name));
+      }
+      return {
+        objectIds: principals.rows.map(row => String(row.object_id)),
+        secretNames: [...secretNames],
+        revokedEnrollments: revoked.rowCount ?? 0,
+      };
+    } catch (error) {
+      await rollback(client);
+      throw error;
+    } finally {
+      client.release();
+    }
   }
 
   async setEnrollmentFlow(id: string, flowHandle: string, expiresIn: number): Promise<void> {
@@ -790,7 +833,11 @@ export class PostgresEnterpriseStore implements EnterpriseStore {
            WHERE tenant_id = $1
              AND consumed_at IS NULL
              AND expires_at > now()
-             AND status IN ('pending', 'authorizing')
+             AND status IN ('pending', 'authorizing', 'finalizing')
+           UNION
+           SELECT object_id
+           FROM enterprise_enrollments
+           WHERE tenant_id = $1 AND status = 'completed'
          ) principals
          ORDER BY object_id`,
         [tenantId.toLowerCase()],

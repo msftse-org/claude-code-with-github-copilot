@@ -71,9 +71,10 @@ key.
 
 LiteLLM UI is the target user and administrator control panel for users,
 virtual keys, teams, models, budgets, rates, spend, rotation, revocation, and
-per-user GitHub connections. The separate CCGC control plane remains deployed
-temporarily only to preserve existing enrollment and admission clients during
-the migration window; it does not proxy inference.
+per-user GitHub connections. The CCGC broker issues one-time enrollment codes
+and personal LiteLLM keys through the administrator GitHub Actions workflow,
+and retains the legacy admission path for rollback; it does not proxy
+inference.
 
 > [!IMPORTANT]
 > The zero-delete direct-key migration is deployed. Direct virtual-key model
@@ -124,8 +125,8 @@ entitlement. The difference is request authentication and user selection.
 
 | Component | Purpose |
 |---|---|
-| Azure Container Apps | Runs LiteLLM and temporarily retains the CCGC broker during the non-destructive migration. |
-| Microsoft Entra ID | Continues to protect legacy CCGC administration; it is not used to authenticate target inference requests. |
+| Azure Container Apps | Runs LiteLLM and the CCGC broker, which issues enrollment codes and personal keys and retains the admission path for rollback. |
+| Microsoft Entra ID | Protects CCGC administration (`CCGC.Admin`, including the GitHub Actions workload identity); employees do not sign in to it and it is not used for inference. |
 | Azure Database for PostgreSQL | Stores LiteLLM users, virtual keys, policy, spend, and encrypted per-user GitHub connections; the `ccgc` schema remains temporarily for rollback. |
 | Azure Key Vault | Retains migration-only CCGC records and managed LiteLLM administration secrets until reviewed cleanup. |
 | Azure Container Registry | Stores approved immutable control-plane and managed LiteLLM images. |
@@ -146,40 +147,48 @@ Each employee needs:
 - `~/.claude/settings.json` pointing Claude Code to the central LiteLLM gateway
 - A private, non-secret profile containing the gateway and discovered models
 
-Use the guided TypeScript setup with Node.js 24, repository dependencies, and
-the enterprise broker URL and Entra audience:
+Each employee also needs their own Copilot-entitled GitHub account and a
+one-time `CCGC-…` enrollment code from Enterprise IT (see
+[Employee enrollment with GitHub Actions](#employee-enrollment-with-github-actions)).
+No Entra sign-in, LiteLLM account, password, or invitation is required.
+
+With Node.js 24 and the repository dependencies installed (`npm ci`), run:
 
 ```bash
 npm run enterprise:client -- setup \
   --gateway https://BROKER_FQDN \
-  --audience api://APP-ID \
   --apply
 ```
+
+1. Paste the enrollment code when prompted. Input is hidden.
+2. Setup prints the GitHub account that must approve and opens
+   `https://github.com/login/device` with a short device code.
+3. Approve as that GitHub account. If another account approves, the broker
+   disconnects it and setup fails.
+4. Setup stores a personal 90-day LiteLLM virtual key in macOS Keychain,
+   writes the profile and `~/.claude/settings.json`, and writes a secret-free
+   Desktop import file.
 
 The relocatable [`ccgc-enterprise` launcher](scripts/ccgc-enterprise-launcher.sh)
 can also be installed in Downloads and run with the same `setup` arguments.
 It requires the repository and Node.js 24; it is not a standalone binary.
 
-Setup authenticates the employee through Microsoft Entra and asks the broker
-to create or resolve a LiteLLM internal-user record using the verified Entra
-object ID. The broker uses its server-side administrator credential to issue a
-key restricted to the approved Claude models; no LiteLLM invitation, password,
-dashboard login, or employee-supplied key is needed. LiteLLM still requires
-this non-interactive internal record to associate the key with the employee's
-native GitHub device authorization. GitHub supplies the username after
-approval. The key is stored only in macOS Keychain, CLI settings are configured
-with `--apply`, and setup writes a secret-free Desktop import file.
-Setup keys expire after 90 days; rerun setup before expiry to refresh the local
-key. Older server keys remain active until expiry or administrator revocation.
-A failed setup revokes only the new key and leaves the prior local profile.
+The broker creates a non-invited LiteLLM internal user keyed by the GitHub
+account ID because LiteLLM's per-user GitHub OAuth connection belongs to a
+LiteLLM user. The employee never signs in to it. The key is restricted to the
+approved Claude models and inference/model-info routes. Completing setup
+deletes every older key for that user, so each employee has exactly one active
+key. Rerunning setup with the same code within its hour returns the same key.
 
-Employees need the `CCGC.Access` Entra app role and their own Copilot-entitled
-GitHub account. `--no-browser` leaves GitHub approval to a browser opened
-manually. Multiple configured GitHub credentials require explicit
-`--credential NAME`; no account is selected arbitrarily. Existing connections
-are confirmed, not automatically replaced. If setup fails after provisioning,
-the broker revokes the newly issued key; the previous local profile remains.
-Restart existing Claude sessions after switching identities.
+**Renewal and new machines.** Keys expire after 90 days. Ask Enterprise IT for
+a new code and rerun setup; the existing GitHub connection is reused, so no
+second device approval is normally needed, and the old key is revoked.
+Restart existing Claude sessions afterwards.
+
+`--no-browser` leaves GitHub approval to a browser opened manually. Multiple
+configured GitHub credentials require explicit `--credential NAME`; no
+account is selected arbitrarily. A failed setup leaves the previous local
+profile unchanged.
 
 **LiteLLM dashboard access is not part of employee setup.** The internal
 service identity has no employee password or dashboard session, so it will not
@@ -190,11 +199,12 @@ read or replace browser cookies.
 Advanced `login-litellm-key` remains available for an explicitly supplied
 personal key; it validates ownership and discovery but does not initiate
 GitHub OAuth. The native client's `login-key` remains a manual-key path, not
-the new guided setup. GitHub tokens stay in LiteLLM PostgreSQL.
+the guided setup. GitHub tokens stay in LiteLLM PostgreSQL.
 See [enterprise setup](docs/ENTERPRISE.md) for the current flow.
 [Mac managed enrollment](docs/mac/README.md) and
 [`scripts/ccgc-enterprise-macos.sh`](scripts/ccgc-enterprise-macos.sh) describe
-the older CCGC admission path, retained for migration only.
+the older CCGC admission path, retained for migration only; their `enroll`
+command is rejected by the current enrollment routes.
 
 ### Claude Desktop uses separate gateway settings
 
@@ -435,12 +445,63 @@ pending enrollment, and LiteLLM internal user to the deployment-approved Claude
 catalog, revoking stale admissions when a binding changes. No public bootstrap
 endpoint or manual database command exists.
 
-For API-key employees, the normal onboarding path is a single-use self-service
-enrollment. The administrator enters only the employee email and GitHub
-username. The control plane supplies the deployment tenant and complete approved model
-catalog, resolves the canonical GitHub login and immutable account ID
-server-side, and never returns the employee's 30-day API key to the
-administrator:
+### Employee enrollment with GitHub Actions
+
+Enterprise IT enrolls and offboards employees with the
+[**CCGC employee access**](.github/workflows/ccgc-employee-access.yml)
+workflow. It runs only from the Actions tab in the protected `ccgc-admin`
+environment, signs in to Entra through GitHub OIDC (no stored secret), and
+calls the broker with an app-only token carrying `CCGC.Admin`.
+
+**One-time setup** (after `scripts/enterprise-entra.mjs` created the broker API):
+
+```bash
+npm run enterprise:actions-identity -- \
+  --repository msftse-org/claude-code-with-github-copilot \
+  --broker-url https://PUBLIC_CONTROL_PLANE_FQDN \
+  --configure-github \
+  --confirm-entra-changes
+```
+
+The idempotent script creates the **CCGC Employee Access Automation** app
+registration with a federated credential for
+`repo:OWNER/REPO:environment:ccgc-admin`, assigns it `CCGC.Admin` (no client
+secret and no Azure RBAC), creates the `ccgc-admin` environment restricted to
+`main`, and sets the `AZURE_CLIENT_ID`, `AZURE_TENANT_ID`,
+`CCGC_ADMIN_AUDIENCE`, and `CCGC_BROKER_URL` environment variables. Granting an
+application role requires an Entra administrator for the broker API.
+
+**Enroll or renew an employee:**
+
+1. Open **Actions → CCGC employee access → Run workflow**.
+2. Choose `enroll`, enter the employee's GitHub username, and optionally their
+   work email (stored only as LiteLLM metadata).
+3. Open the finished run's summary, copy the `CCGC-…` code and the employee
+   instructions, and send them privately.
+
+The broker resolves the GitHub username to its immutable account ID and
+creates or reuses that employee's LiteLLM internal user. The code expires
+after one hour, is consumed by the employee's setup, and works only when that
+GitHub account approves the device flow. It appears only in the run summary,
+never in the job log. Repository readers can see run summaries; delete the run
+if that exposure is not acceptable.
+
+**Offboard an employee:** run the workflow with `revoke` and the GitHub
+username. The broker revokes all enrollments for the account, disconnects its
+Copilot connection from LiteLLM, and deletes the LiteLLM user with all of its
+keys. Claude stops working on the employee's next request.
+
+Anyone with write access to the repository can dispatch the workflow on
+`main`. Keep the repository private and write access limited to Enterprise IT,
+or add required reviewers to the `ccgc-admin` environment.
+
+Existing employees do **not** rerun setup for routine control-plane,
+LiteLLM, model-catalog, image, or Claude Code updates. Rerun setup with a new
+code only for key renewal, a new workstation or user profile, or after an
+offboarding and re-enrollment.
+
+The equivalent administrator CLI, for break-glass use with a signed-in
+`CCGC.Admin` user, is:
 
 ```bash
 cp docs/examples/enterprise-create-enrollment.example.json \
@@ -454,41 +515,18 @@ npm run enterprise:manage -- create-enrollment \
   --output /private/path/enrollment.json
 ```
 
-The administrator gives the employee only the control-plane URL and the `CCGC-...`
-code from the private output. The code expires after one hour and is consumed
-after one successful setup.
+### Legacy managed macOS script
 
-For the validated macOS pilot path, the employee downloads the repository's
-managed enrollment script and runs:
-
-```bash
-gh api \
-  -H 'Accept: application/vnd.github.raw+json' \
-  repos/msftse-org/claude-code-with-github-copilot/contents/scripts/ccgc-enterprise-macos.sh \
-  > "$HOME/Downloads/ccgc-enterprise-macos.sh"
-chmod 600 "$HOME/Downloads/ccgc-enterprise-macos.sh"
-
-/bin/bash "$HOME/Downloads/ccgc-enterprise-macos.sh" enroll \
-  --gateway https://PUBLIC_CONTROL_PLANE_FQDN \
-  --code CCGC-ONE-TIME-CODE
-```
-
-The script opens GitHub device authorization, requires the exact approved
-GitHub login and immutable account ID, verifies the employee binding, stores
-the 30-day key directly in macOS Keychain, writes the
-non-secret profile, configures Claude Code, and acknowledges consumption of the
-one-time enrollment. The administrator never transfers or sees the key.
-
-Enrollment installs a private copy at
-`~/.local/share/ccgc/enterprise/ccgc-enterprise-macos.sh` because Claude uses
-the script's `token` command as its `apiKeyHelper`. This configures the
-terminal CLI; Desktop needs its separate third-party gateway configuration. Run
-the script's `doctor` command after enrollment, a Claude client update, or
-before sending sanitized diagnostics to Enterprise IT:
+Employees enrolled before this flow used the managed bash script and a 30-day
+broker key. Its `enroll` command is no longer accepted for new enrollments;
+use guided setup instead. Existing installations keep working until migrated,
+and the script's `doctor` command remains available:
 
 ```bash
 /bin/bash "$HOME/.local/share/ccgc/enterprise/ccgc-enterprise-macos.sh" doctor
 ```
+
+### Client validation history
 
 Earlier checks of shared CLI settings did not establish Desktop's provider
 routing. On 2026-11-08, Desktop `4.23118.0` was explicitly switched to Gateway
@@ -501,25 +539,19 @@ Later inspection established that this was another employee's stored key,
 not a verified identity of the current Mac operator. These historical passes
 must not be described as proof that the operator's own Copilot account works.
 
-Existing employees do **not** repeat `enroll` for routine control-plane,
-LiteLLM, model-catalog, image, or Claude Code updates. Those updates preserve
-the immutable employee binding and local credential by default. Use `doctor`
-to verify the installation, `models` to inspect the reconciled catalog, and
-`configure` only to repair or reapply local Claude settings. Repeat enrollment
-only for a new workstation/user profile, an expired or revoked employee
-credential, a deliberately revoked/rebound identity, or an Enterprise IT
-migration notice that includes a new one-time code.
-
 The Go implementation under [`cmd/ccgc-enterprise/`](cmd/ccgc-enterprise)
-remains the optional cross-platform binary path. The current validated employee
-runbook uses the managed macOS script. Distribute it through an approved
-organization channel; do not bypass Gatekeeper or MDM policy.
+remains an optional manual-key binary path; it does not implement guided
+enrollment. Distribute any binary through an approved organization channel;
+do not bypass Gatekeeper or MDM policy.
+
+### Administrator panel
 
 The broker also serves a dependency-free administrator panel at
-`/ccgc/admin`. It provides readiness checks, preferred enrollment creation,
-copyable employee instructions, employee-binding revocation, and API-key
-revocation. It also lists bindings, API-key metadata, and recent enrollments
-through the paginated access-query contract. The panel never requests or
+`/ccgc/admin`. It provides readiness checks, enrollment creation with
+copyable employee instructions, legacy employee-binding revocation, and API-key
+revocation. Offboard current employees with the workflow's `revoke` action.
+It also lists bindings, API-key metadata, and recent enrollments through the
+paginated access-query contract. The panel never requests or
 displays LiteLLM keys and retains Entra tokens and one-time enrollment codes
 only in page memory. Browser sign-in uses the dependency-free Entra
 authorization-code-with-PKCE adapter documented in
@@ -527,7 +559,7 @@ authorization-code-with-PKCE adapter documented in
 `CCGC.Admin` for every administration API request.
 
 The older administrator-driven create/connect/link flow remains available for
-Entra employees and recovery operations:
+legacy Entra employees and recovery operations:
 
 ### Manual administrator connection
 
@@ -589,6 +621,18 @@ deployment must define the approved Entra credential source and local token
 cache policy.
 
 ## Security properties
+
+- One immutable GitHub account ID maps to one LiteLLM internal user, one
+  per-user Copilot connection, and one active 90-day virtual key.
+- Enrollment codes are random, single-use, hashed server-side, valid for one
+  hour, and accepted only when the named GitHub account approves the device
+  flow; a different approver is disconnected.
+- Employee keys are restricted to approved models and inference/model-info
+  routes, and stored locally only in macOS Keychain.
+- The enrollment workflow uses GitHub OIDC federation without stored secrets
+  and an app-only `CCGC.Admin` token scoped to the broker API.
+
+For the legacy admission path:
 
 - One immutable Entra principal maps to one immutable GitHub account.
 - Every employee uses their own Copilot seat.

@@ -10,16 +10,20 @@ OpenAI-compatible clients send that virtual key directly to LiteLLM.
 
 ## Target request path
 
-1. The employee runs guided setup and authenticates to the broker using the
-   existing Entra `CCGC.Access` app role. The request contains no caller-chosen
-   LiteLLM user ID, email, or model list.
-2. The broker derives the LiteLLM identity from the verified Entra object ID,
-   creates or resolves a non-invited `internal_user` record, and issues a key
-   scoped to the deployment's approved Claude models. The employee does not
-   need a LiteLLM password, dashboard login, or invitation.
-3. The employee approves LiteLLM's native per-user GitHub device flow. LiteLLM
-   associates the resulting GitHub identity with the service-managed internal
-   user; the broker's administrator credential never leaves the server.
+1. An administrator runs the **CCGC employee access** GitHub Actions workflow
+   with the employee's GitHub username. The broker resolves the immutable
+   GitHub account ID, creates or reuses a non-invited LiteLLM `internal_user`
+   for that account, and returns a one-time `CCGC-…` code that expires after
+   one hour. The administrator sends the code to the employee privately.
+2. The employee runs guided setup and pastes the code. The broker starts
+   LiteLLM's native per-user GitHub Copilot device flow for that LiteLLM user;
+   the employee approves it with their own Copilot-entitled GitHub account.
+   If a different GitHub account approves, the broker disconnects it and
+   rejects the enrollment.
+3. The broker issues a personal 90-day LiteLLM virtual key restricted to the
+   approved Claude models and inference/model-info routes. The employee needs
+   no Entra sign-in, LiteLLM password, dashboard login, or invitation, and the
+   broker's LiteLLM administrator credential never leaves the server.
 4. The managed client stores the virtual key only in the operating-system
    credential store. The non-secret profile contains the LiteLLM URL and
    discovered Claude model IDs.
@@ -71,56 +75,54 @@ is authenticated and how the LiteLLM user is selected.
 ```bash
 npm run enterprise:client -- setup \
   --gateway https://BROKER_FQDN \
-  --audience api://APP-ID \
   --apply
 ```
 
-The client uses `DefaultAzureCredential` to obtain an Entra token for the
-configured broker audience. The broker accepts only a validated Entra principal
-with `CCGC.Access`; legacy CCGC API keys are rejected on the setup routes.
-LiteLLM's internal user record is necessary because its GitHub OAuth connection
-is per LiteLLM user, but the employee receives no LiteLLM password, invitation,
-or dashboard access. The key is returned over the authenticated HTTPS channel
-and stored only in Keychain.
-Setup keys expire after 90 days. Employees should rerun setup before expiry;
-the existing GitHub connection is confirmed and a new key replaces the local
-one only after owner/connection verification. Older keys remain active until
-their own expiry or administrator revocation.
+Setup prompts for the one-time enrollment code (input is hidden, so the code
+never appears in shell history), prints the GitHub account that must approve,
+and opens `https://github.com/login/device`. The enrollment routes are
+unauthenticated; the 144-bit single-use code is the only bearer, and it is
+useless without approving GitHub as the enrolled account. No Entra token,
+LiteLLM key, or GitHub token is ever supplied by the client.
 
-The client discovers the credential referenced by exact GitHub Copilot Claude
-routes, then uses `/credentials/{name}/user_connection/start` and `/poll`.
-GitHub supplies the login after approval. No GitHub token is downloaded to the
-client. Pending/slowdown/expiry/denial/no-seat outcomes are handled without
-fallback. If setup is cancelled or fails, the broker verifies key ownership and
-revokes only the newly issued key; the previous local profile remains intact.
+After GitHub approval the broker mints the employee key with LiteLLM's
+`/key/generate`: `duration: 90d`, the approved model list, and
+`allowed_routes` limited to `llm_api_routes`, `info_routes`, and
+`/credentials/user_connections`. The client verifies that the key owner,
+GitHub login, credential name, and Claude models match the enrollment, stores
+the key only in Keychain, writes the profile and CLI settings, and then
+acknowledges the enrollment. Acknowledgement consumes the code and deletes
+every other key owned by that LiteLLM user, so each employee has exactly one
+active key. If acknowledgement fails, rerunning setup with the same code
+within the hour returns the same key and retries the cleanup.
 
-An existing connection is displayed for confirmation, never automatically
-disconnected or replaced. User creation omits email, disables invitations and
-automatic key creation, assigns only `internal_user`, and applies the
-configured model allowlist. The generated key's owner and connection are
-rechecked before the active private profile changes. Keychain entries are
-isolated by gateway, user and key, so failed replacement cannot overwrite
-another employee's key.
+Renewal and workstation replacement use the same path: the administrator runs
+the workflow again, the existing LiteLLM user and GitHub connection are
+reused, and the new setup rotates the key. The temporary enrollment key used
+for the device flow is limited to the two GitHub connection routes and
+expires after two hours.
 
-`--no-browser` suppresses browser launching; `--credential NAME` resolves
-multiple configured per-user credentials explicitly. Existing personal keys
-can still use the separate `login-litellm-key` command, but are not accepted as
-the guided Entra setup credential. Human GitHub approval cannot be bypassed.
+The LiteLLM user is keyed by the immutable GitHub account ID, not by email or
+Entra object ID. User creation sends no email, disables invitations and
+automatic key creation, and assigns only `internal_user`. An optional email
+recorded by the administrator is stored as metadata only. The employee's
+browser **Your connections** view does not show this identity because it has
+no dashboard login; setup verifies the connection through LiteLLM's API.
+
+`--no-browser` suppresses browser launching; `--credential NAME` selects an
+explicit per-user credential. Setup never starts a second device flow: if the
+enrolled connection is missing or belongs to another GitHub account, setup
+fails without changing the previous local profile. Human GitHub approval
+cannot be bypassed. The legacy bash `enroll` command and the Go binary use the
+older broker-key protocol and are rejected by the current enrollment routes.
 
 Setup writes `~/.local/share/ccgc/enterprise/desktop-gateway.json`. Apply it
 through Desktop's supported third-party configuration UI; an existing Gateway
 configuration using this helper only needs a relaunch. CLI configuration and
-Desktop configuration remain separate. The employee's browser **Your
-connections** view does not show the internal service identity because it has
-no dashboard login; setup verifies the connection through LiteLLM's API and
-does not reuse or modify browser sessions.
-
-The LiteLLM user record is an internal service identity keyed by Entra object
-ID, not an employee-managed dashboard account. Inference still uses only a
-LiteLLM virtual key, not the dashboard session or Entra JWT. Older TypeScript
-direct-key profiles without verified owner metadata require fresh setup or
-explicit own-key login; they are not silently migrated by trusting the key
-already present on a machine.
+Desktop configuration remain separate. Older TypeScript direct-key profiles
+without verified owner metadata require fresh setup or explicit own-key login;
+they are not silently migrated by trusting the key already present on a
+machine.
 
 For advanced manual-key installation without GitHub OAuth automation:
 
@@ -129,6 +131,62 @@ npm run enterprise:client -- login-litellm-key \
   --gateway https://LITELLM_FQDN \
   --api-key-file /private/path/litellm-key.json
 ```
+
+### Administrator workflow (GitHub Actions)
+
+[`.github/workflows/ccgc-employee-access.yml`](../.github/workflows/ccgc-employee-access.yml)
+is the supported way to enroll and offboard employees. It runs only from the
+Actions tab (`workflow_dispatch`) in the protected `ccgc-admin` environment,
+signs in to Entra through GitHub OIDC (no stored secret), and calls the broker
+with an app-only token that carries the `CCGC.Admin` role.
+
+| Input | Meaning |
+|---|---|
+| `action` | `enroll` creates a one-time code; `revoke` offboards the account |
+| `github_username` | Employee's GitHub username; it must have a Copilot seat |
+| `email` | Optional work email stored as LiteLLM metadata (enroll only) |
+
+**One-time setup.** After `scripts/enterprise-entra.mjs` has created the
+broker API, run:
+
+```bash
+npm run enterprise:actions-identity -- \
+  --repository msftse-org/claude-code-with-github-copilot \
+  --broker-url https://BROKER_FQDN \
+  --configure-github \
+  --confirm-entra-changes
+```
+
+The script is idempotent. It allows `CCGC.Admin` to be assigned to
+applications, creates the **CCGC Employee Access Automation** app registration
+and service principal, adds a federated credential for
+`repo:OWNER/REPO:environment:ccgc-admin`, and assigns that service principal
+`CCGC.Admin`. The identity has no client secret and no Azure RBAC role. With
+`--configure-github` it also creates the `ccgc-admin` environment, restricts
+it to the `main` branch, and sets the `AZURE_CLIENT_ID`, `AZURE_TENANT_ID`,
+`CCGC_ADMIN_AUDIENCE`, and `CCGC_BROKER_URL` environment variables. Assigning
+an application role requires an Entra administrator who can grant consent for
+the broker API. If the organization customizes the GitHub OIDC subject claim,
+adjust the federated credential subject to match.
+
+**Enroll or renew.** Run the workflow with `action=enroll`. The run summary
+contains the code, its expiry, and copyable employee instructions; the code is
+never written to the job log. Anyone who can read the repository's Actions
+runs can see the summary, which is acceptable only because the code is
+single-use, expires after one hour, and requires GitHub approval by the named
+account. Delete the run if that exposure is not acceptable.
+
+**Offboard.** Run the workflow with `action=revoke`. The broker marks every
+enrollment for the GitHub account revoked, disconnects the account's Copilot
+connection from LiteLLM, and deletes the LiteLLM user with all of its keys.
+Claude stops working on the employee's next request. Removing the person from
+GitHub or their Copilot seat also stops inference at GitHub, but run `revoke`
+so that no LiteLLM user or key remains.
+
+Anyone with write access to the repository can dispatch the workflow on
+`main`. Keep the repository private and its write access limited to enterprise
+IT; add required reviewers to the `ccgc-admin` environment if a second person
+must approve each run.
 
 ### Native macOS/Windows client
 
@@ -187,6 +245,9 @@ pass. It must not be presented as part of the final request architecture.
 | `src/enterprise-client.ts` | TypeScript direct-key login, credential storage, token helper, and Claude configuration |
 | `src/enterprise-setup.ts` | Fresh personal login, native GitHub OAuth and isolated key installation |
 | `src/enterprise-cli.ts` | Guided `setup`, manual login and Desktop export commands |
+| `src/enterprise-management.ts` | Broker enrollment codes, per-user key issuance, and GitHub-account offboarding |
+| `.github/workflows/ccgc-employee-access.yml` | Administrator enroll/revoke workflow using GitHub OIDC |
+| `scripts/enterprise-actions-identity.mjs` | Creates the workflow's Entra identity, `CCGC.Admin` grant, and GitHub environment |
 | `scripts/ccgc-enterprise-launcher.sh` | Relocatable launcher suitable for Downloads |
 | `cmd/ccgc-enterprise/` | Native `login-key` implementation for managed endpoints |
 | `server/litellm.enterprise.yaml` | LiteLLM model and temporary compatibility-auth configuration |
@@ -225,6 +286,7 @@ the broker is removed. Desktop Chat/Cowork workflows were not verified in
 this rollout.
 
 Guided onboarding has synthetic coverage for ownership isolation, native
-OAuth outcomes, URL validation, cancellation, model-route isolation and
-failed-installation cleanup. That coverage is not live proof of a new user's
-Copilot seat or Desktop/CLI workflow.
+OAuth outcomes, URL validation, cancellation, model-route isolation,
+enrollment-code exchange, wrong-GitHub-account rejection, key rotation on
+acknowledgement, and GitHub-account offboarding. That coverage is not live
+proof of a new user's Copilot seat or Desktop/CLI workflow.

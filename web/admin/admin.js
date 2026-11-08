@@ -420,13 +420,13 @@
       `Broker: ${global.location.origin}`,
       `One-time code: ${code}`,
       '',
-      'Save the tracked scripts/ccgc-enterprise-macos.sh file on your Mac, then run:',
-      `bash ccgc-enterprise-macos.sh enroll --gateway ${global.location.origin} --code ${code}`,
-      'bash ccgc-enterprise-macos.sh models',
+      'On your Mac, run the ccgc-enterprise launcher and paste the code when prompted:',
+      `ccgc-enterprise setup --gateway ${global.location.origin} --apply`,
       'claude',
       '',
-      'Complete GitHub authorization with the GitHub account named by your administrator.',
-      'After enrollment, do not run enroll again for routine updates; run the installed helper doctor first.',
+      'Approve the GitHub device code with the GitHub account named by your administrator.',
+      'The code works once and expires after one hour. Your personal key lasts 90 days;',
+      'ask your administrator for a new code to renew it. Never share the code or key.',
     ].join('\n');
   }
 

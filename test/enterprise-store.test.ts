@@ -69,40 +69,61 @@ test('enrollment completion accepts an already-connected pending enrollment', as
   }
 });
 
-test('expired pending enrollment users remain reusable for the same immutable GitHub account', async () => {
+test('enrollments reuse the latest LiteLLM user for an immutable GitHub account and revocation retires every enrollment', async () => {
   const store = new PostgresEnterpriseStore(
     'postgresql://managed-identity@example.postgres.database.azure.com:5432/postgres?sslmode=verify-full',
     { getToken: async () => ({ token: 'managed-identity-token' }) },
     false,
     false,
   );
-  let query = '';
-  let values: unknown[] | undefined;
-  const original = store.pool.query.bind(store.pool);
-  store.pool.query = (async (text: string, parameters?: unknown[]) => {
-    query = text;
-    values = parameters;
-    return {
-      rowCount: 1,
-      rows: [{
-        object_id: '55555555-5555-4555-8555-555555555555',
-        pending_secret_name: 'ccgc-enrollment-pending-expired',
-      }],
-    };
+  const tenantId = '11111111-1111-4111-8111-111111111111';
+  const queries: Array<{ text: string; values?: unknown[] }> = [];
+  const originalQuery = store.pool.query.bind(store.pool);
+  const originalConnect = store.pool.connect.bind(store.pool);
+  store.pool.query = (async (text: string, values?: unknown[]) => {
+    queries.push({ text, values });
+    return { rowCount: 1, rows: [{ object_id: '55555555-5555-4555-8555-555555555555' }] };
   }) as typeof store.pool.query;
+  let released = false;
+  store.pool.connect = (async () => ({
+    query: async (text: string, values?: unknown[]) => {
+      queries.push({ text, values });
+      if (text.includes('UPDATE enterprise_enrollments')) {
+        return { rowCount: 2, rows: [
+          { pending_secret_name: 'ccgc-enrollment-pending-a', output_secret_name: 'ccgc-enrollment-output-a' },
+          { pending_secret_name: 'ccgc-enrollment-pending-b', output_secret_name: null },
+        ] };
+      }
+      if (text.includes('SELECT DISTINCT object_id')) {
+        return { rowCount: 2, rows: [
+          { object_id: '55555555-5555-4555-8555-555555555555' },
+          { object_id: '66666666-6666-4666-8666-666666666666' },
+        ] };
+      }
+      return { rowCount: 0, rows: [] };
+    },
+    release: () => { released = true; },
+  })) as unknown as typeof store.pool.connect;
   try {
-    assert.deepEqual(
-      await store.reusableEnrollmentUser('11111111-1111-4111-8111-111111111111', 97739755),
-      {
-        objectId: '55555555-5555-4555-8555-555555555555',
-        pendingSecretName: 'ccgc-enrollment-pending-expired',
-      },
-    );
-    assert.match(query, /status IN \('pending', 'authorizing'\)/);
-    assert.doesNotMatch(query, /expires_at > now\(\)/);
-    assert.deepEqual(values, ['11111111-1111-4111-8111-111111111111', 97739755]);
+    assert.equal(await store.enrollmentUser(tenantId.toUpperCase(), 97739755), '55555555-5555-4555-8555-555555555555');
+    assert.doesNotMatch(queries[0]!.text, /status/);
+    assert.match(queries[0]!.text, /ORDER BY created_at DESC/);
+    assert.deepEqual(queries[0]!.values, [tenantId, 97739755]);
+    await assert.rejects(store.enrollmentUser(tenantId, 0), { code: 'INVALID_REQUEST' });
+
+    assert.deepEqual(await store.revokeGitHubAccount(tenantId, 97739755), {
+      objectIds: ['55555555-5555-4555-8555-555555555555', '66666666-6666-4666-8666-666666666666'],
+      secretNames: ['ccgc-enrollment-pending-a', 'ccgc-enrollment-output-a', 'ccgc-enrollment-pending-b'],
+      revokedEnrollments: 2,
+    });
+    const statements = queries.slice(1).map(query => query.text.trim().split(/\s+/)[0]);
+    assert.deepEqual(statements, ['BEGIN', 'WITH', 'SELECT', 'COMMIT']);
+    assert.match(queries[2]!.text, /status = 'revoked'/);
+    assert.match(queries[2]!.text, /enrollment\.access_revoked/);
+    assert.equal(released, true);
   } finally {
-    store.pool.query = original;
+    store.pool.query = originalQuery;
+    store.pool.connect = originalConnect;
     await store.close();
   }
 });

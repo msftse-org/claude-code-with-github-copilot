@@ -140,8 +140,8 @@ const roles = [
   },
   {
     id: adminRoleId,
-    allowedMemberTypes: ['User'],
-    description: 'Allows an assigned enterprise IT administrator to operate the CCGC control plane.',
+    allowedMemberTypes: ['User', 'Application'],
+    description: 'Allows an assigned enterprise IT administrator or approved automation identity to operate the CCGC control plane.',
     displayName: 'CCGC Administrator',
     isEnabled: true,
     value: 'CCGC.Admin',

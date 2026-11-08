@@ -109,8 +109,7 @@ Usage:
   $PROGRAM wrapper-help
 
 Enterprise commands are forwarded unchanged:
-  setup --gateway BROKER_URL --audience APP_ID [--apply] [--no-browser]
-        [--credential NAME]
+  setup --gateway BROKER_URL [--apply] [--no-browser] [--credential NAME]
   login --gateway URL --audience AUDIENCE
   login-api-key --gateway URL --api-key-file PRIVATE_JSON
   login-litellm-key --gateway URL --api-key-file PRIVATE_JSON
@@ -125,9 +124,9 @@ Environment overrides:
   CCGC_ENTERPRISE_ENTRYPOINT Alternative executable or TypeScript entrypoint
 
 Security:
-  setup signs in through Entra and provisions a service-managed LiteLLM identity.
-  Employees need no LiteLLM password, invitation, or dashboard login.
-  GitHub identity is discovered after native device authorization.
+  setup asks for the one-time enrollment code from your administrator and one
+  GitHub device approval. The approving GitHub account must match the enrollment.
+  Employees need no Entra sign-in or LiteLLM password, invitation, or dashboard login.
   Existing cached keys are never reused by setup. Older unverified profiles must sign in again.
   API key files should be mode 600 and must not be passed as literal arguments.
   The token command prints a credential and should only be used as apiKeyHelper.

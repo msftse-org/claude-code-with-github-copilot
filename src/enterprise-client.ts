@@ -1,6 +1,6 @@
 import { createHash, randomUUID } from 'node:crypto';
+import { setTimeout as delay } from 'node:timers/promises';
 import { DefaultAzureCredential } from '@azure/identity';
-import { decodeJwt } from 'jose';
 import { constants } from 'node:fs';
 import { lstat, mkdir, open, rename, unlink } from 'node:fs/promises';
 import { homedir } from 'node:os';
@@ -138,6 +138,55 @@ export async function responseJson(response: Response): Promise<ObjectValue> {
   return parseJson(Buffer.concat(chunks).toString('utf8'));
 }
 
+const GITHUB_LOGIN = /^[A-Za-z0-9](?:[A-Za-z0-9-]{0,37}[A-Za-z0-9])?$/;
+
+export interface EnrollmentDevice {
+  verificationUri: string;
+  userCode: string;
+  expiresIn: number;
+  githubLogin: string;
+}
+
+export interface EnrollmentResult {
+  controlPlane: string;
+  inferenceGateway: string;
+  apiKey: string;
+  apiKeyExpiresAt: string;
+  userId: string;
+  githubLogin: string;
+  credentialName: string;
+  models: string[];
+}
+
+async function brokerJson(response: Response): Promise<ObjectValue> {
+  if (response.ok) return responseJson(response);
+  let message = '';
+  try {
+    const reader = response.body?.getReader();
+    const chunks: Uint8Array[] = [];
+    let size = 0;
+    while (reader && size <= 64 * 1024) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      size += value.byteLength;
+      chunks.push(value);
+    }
+    await reader?.cancel();
+    if (size <= 64 * 1024) {
+      message = text(object(object(parseJson(Buffer.concat(chunks).toString('utf8'))).error).message, 'broker error');
+    }
+  } catch { /* fall through to the generic status error */ }
+  const match = /^([A-Z][A-Z0-9_]{1,63}): ([^\u0000-\u001f\u007f]{1,300})$/.exec(message);
+  if (!match) {
+    throw new BridgeError(
+      response.status === 401 ? 'GATEWAY_AUTH_REQUIRED' : response.status === 403 ? 'ACCESS_DENIED' : 'GATEWAY_UNAVAILABLE',
+      `Enterprise broker returned HTTP ${response.status}; no fallback was attempted.`,
+      response.status,
+    );
+  }
+  throw new BridgeError(match[1]!, match[2]!, response.status);
+}
+
 export class EnterpriseClient {
   readonly home: string;
   readonly statePath: string;
@@ -165,67 +214,99 @@ export class EnterpriseClient {
     return access.token;
   }
 
-  async provisionLiteLLMUser(broker: string, audience: string): Promise<{
-    controlPlane: string;
-    inferenceGateway: string;
-    tenantId: string;
-    objectId: string;
-    userId: string;
-    userAlias: string;
-    apiKey: string;
-    models: string[];
-  }> {
-    const controlPlane = gatewayUrl(broker);
-    const access = await this.entra(audience);
-    let claims: ReturnType<typeof decodeJwt>;
-    try { claims = decodeJwt(access); }
-    catch { throw new BridgeError('GATEWAY_AUTH_REQUIRED', 'Entra returned an invalid access token.', 401); }
-    const tenantId = typeof claims.tid === 'string' ? claims.tid.toLowerCase() : '';
-    const objectId = typeof claims.oid === 'string' ? claims.oid.toLowerCase() : '';
-    if (!/^[0-9a-f-]{36}$/i.test(tenantId) || !/^[0-9a-f-]{36}$/i.test(objectId)) {
-      throw new BridgeError('GATEWAY_AUTH_REQUIRED', 'Entra token has no valid employee identity.', 401);
+  async enrollWithCode(broker: string, code: string, callbacks: {
+    authorizeDevice(device: EnrollmentDevice): Promise<void>;
+    signal?: AbortSignal;
+  }): Promise<EnrollmentResult> {
+    if (!/^CCGC-[A-Za-z0-9_-]{24}$/.test(code)) {
+      throw new BridgeError('INVALID_REQUEST', 'The enrollment code format is invalid. Copy the full CCGC-… code from your administrator.');
     }
-    const result = await responseJson(await this.fetcher(`${controlPlane}/ccgc/enterprise/setup/provision`, {
+    const controlPlane = gatewayUrl(broker);
+    const signal = AbortSignal.any([AbortSignal.timeout(30 * 60_000), ...(callbacks.signal ? [callbacks.signal] : [])]);
+    const timed = () => AbortSignal.any([signal, AbortSignal.timeout(60_000)]);
+    const post = async (path: string, body: ObjectValue): Promise<ObjectValue> => brokerJson(await this.fetcher(`${controlPlane}${path}`, {
       method: 'POST',
-      headers: { authorization: ['Bearer', access].join(' '), 'content-type': 'application/json' },
-      body: '{}',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(body),
       redirect: 'error',
-      signal: AbortSignal.timeout(30_000),
+      signal: timed(),
     }));
-    const returnedTenant = text(result.tenantId, 'tenant ID').toLowerCase();
-    const returnedObject = text(result.objectId, 'object ID').toLowerCase();
-    const userId = text(result.userId, 'LiteLLM user ID').toLowerCase();
+    const config = await brokerJson(await this.fetcher(`${controlPlane}/ccgc/enterprise/config`, {
+      redirect: 'error',
+      signal: timed(),
+    }));
+    const inferenceGateway = gatewayUrl(text(config.inferenceGateway, 'inference gateway'));
+    let result = await post('/ccgc/enroll/start', { code, credentialType: 'litellm' });
+    let expectedLogin: string | undefined;
+    let interval = 5;
+    let deadline = Date.now() + 10 * 60_000;
+    if (result.status === 'authorization_required') {
+      const verificationUri = text(result.verificationUri, 'GitHub verification URL');
+      const userCode = text(result.userCode, 'GitHub verification code');
+      const expiresIn = positive(result.expiresIn, 'GitHub authorization expiry');
+      interval = positive(result.interval, 'GitHub polling interval');
+      expectedLogin = text(result.githubLogin, 'enrolled GitHub login');
+      if (verificationUri !== 'https://github.com/login/device' || !/^[A-Z0-9-]{4,32}$/.test(userCode)
+        || expiresIn > 1800 || interval > 60 || !GITHUB_LOGIN.test(expectedLogin)) {
+        throw new BridgeError('INVALID_RESPONSE', 'The broker returned an unexpected GitHub authorization request.');
+      }
+      deadline = Date.now() + expiresIn * 1000;
+      await callbacks.authorizeDevice({ verificationUri, userCode, expiresIn, githubLogin: expectedLogin });
+    }
+    while (result.status !== 'completed') {
+      if (result.status === 'denied' || result.status === 'expired' || result.status === 'no_copilot_seat') {
+        throw new BridgeError(
+          'GITHUB_CONNECTION_REQUIRED',
+          result.status === 'no_copilot_seat'
+            ? 'The approving GitHub account has no GitHub Copilot seat. Ask your administrator to assign one, then rerun setup with the same code.'
+            : `GitHub authorization ended with ${result.status}. Rerun setup with the same code while it is still valid.`,
+          401,
+        );
+      }
+      if (!['authorization_required', 'pending', 'slow_down'].includes(String(result.status))) {
+        throw new BridgeError('INVALID_RESPONSE', 'The broker returned an unexpected enrollment status.');
+      }
+      if (result.status === 'slow_down') interval += 5;
+      if (typeof result.interval === 'number') interval = Math.max(interval, positive(result.interval, 'GitHub polling interval'));
+      if (interval > 60 || Date.now() + interval * 1000 >= deadline) {
+        throw new BridgeError('OAUTH_EXPIRED', 'GitHub authorization expired. Rerun setup with the same code while it is still valid.');
+      }
+      await delay(interval * 1000, undefined, { signal });
+      result = await post('/ccgc/enroll/poll', { code, credentialType: 'litellm' });
+    }
     const apiKey = text(result.apiKey, 'LiteLLM virtual key');
+    const apiKeyExpiresAt = text(result.apiKeyExpiresAt, 'LiteLLM virtual key expiry');
+    const userId = text(result.litellmUserId, 'LiteLLM user ID').toLowerCase();
+    const githubLogin = text(result.githubLogin, 'GitHub login');
+    const credentialName = text(result.litellmCredentialName, 'LiteLLM credential name');
     const models = Array.isArray(result.models) ? result.models.map(value => text(value, 'model ID')) : [];
-    if (returnedTenant !== tenantId || returnedObject !== objectId || userId !== objectId
-      || !/^sk-[A-Za-z0-9._-]{16,}$/.test(apiKey) || !models.length
-      || models.some(model => !/^claude-[a-z0-9.-]+$/.test(model))) {
-      throw new BridgeError('IDENTITY_CONFLICT', 'The broker provisioned an unexpected employee identity or model scope.', 403);
+    if (!/^sk-[A-Za-z0-9._-]{16,}$/.test(apiKey) || !Number.isFinite(Date.parse(apiKeyExpiresAt))
+      || !/^[0-9a-f-]{36}$/.test(userId) || !GITHUB_LOGIN.test(githubLogin)
+      || (expectedLogin !== undefined && githubLogin.toLowerCase() !== expectedLogin.toLowerCase())
+      || !/^[A-Za-z0-9._-]{1,128}$/.test(credentialName)
+      || !models.length || models.some(model => !/^claude-[a-z0-9.-]+$/.test(model))) {
+      throw new BridgeError('IDENTITY_CONFLICT', 'The broker returned an unexpected enrollment result.', 403);
     }
     return {
       controlPlane,
-      inferenceGateway: gatewayUrl(text(result.inferenceGateway, 'inference gateway')),
-      tenantId,
-      objectId,
-      userId,
-      userAlias: text(result.userAlias, 'LiteLLM internal identity'),
+      inferenceGateway,
       apiKey,
+      apiKeyExpiresAt: new Date(apiKeyExpiresAt).toISOString(),
+      userId,
+      githubLogin,
+      credentialName,
       models: [...new Set(models)],
     };
   }
 
-  async revokeLiteLLMSetupKey(broker: string, audience: string, apiKey: string): Promise<void> {
+  async acknowledgeEnrollment(broker: string, code: string): Promise<void> {
     const controlPlane = gatewayUrl(broker);
-    const access = await this.entra(audience);
-    await responseJson(await this.fetcher(`${controlPlane}/ccgc/enterprise/setup/revoke`, {
+    await brokerJson(await this.fetcher(`${controlPlane}/ccgc/enroll/complete`, {
       method: 'POST',
-      headers: {
-        authorization: ['Bearer', access].join(' '),
-        'content-type': 'application/json',
-      },
-      body: JSON.stringify({ apiKey }),
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ code }),
       redirect: 'error',
-      signal: AbortSignal.timeout(30_000),
+      signal: AbortSignal.timeout(60_000),
     }));
   }
 

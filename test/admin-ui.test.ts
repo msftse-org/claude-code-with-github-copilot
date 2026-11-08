@@ -57,12 +57,11 @@ test('employee enrollment submits only the minimal backend handoff', () => {
   assert.doesNotMatch(handler, /tenantId|userAlias|githubAccountId|additionalModels|allModels|models:/u);
 });
 
-test('employee instructions use the tracked macOS enrollment script', () => {
-  assert.match(adminSource, /bash ccgc-enterprise-macos\.sh enroll --gateway/u);
-  assert.match(adminSource, /bash ccgc-enterprise-macos\.sh models/u);
-  assert.match(adminSource, /do not run enroll again for routine updates/u);
-  assert.match(adminHtml, /keeps the existing enrollment/u);
-  assert.doesNotMatch(adminSource, /\.\/ccgc-enterprise enroll/u);
+test('employee instructions use code-based ccgc-enterprise setup without putting the code on the command line', () => {
+  assert.match(adminSource, /ccgc-enterprise setup --gateway \$\{global\.location\.origin\} --apply/u);
+  assert.match(adminSource, /paste the code when prompted/u);
+  assert.doesNotMatch(adminSource, /--code \$\{code\}|ccgc-enterprise-macos\.sh enroll/u);
+  assert.match(adminHtml, /keep the existing enrollment/u);
 });
 
 test('browser auth exchanges a validated PKCE callback without persisting tokens', async () => {

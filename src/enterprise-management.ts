@@ -3,13 +3,17 @@ import { createHash, randomBytes, randomUUID } from 'node:crypto';
 import { DefaultAzureCredential } from '@azure/identity';
 import { promisify } from 'node:util';
 import { fileURLToPath } from 'node:url';
-import type { EnterprisePrincipal } from './enterprise-auth.ts';
 import { BridgeError, object, parseJson, positive, text, type ObjectValue } from './protocol.ts';
-import { PostgresEnterpriseStore } from './enterprise-store.ts';
+import { PostgresEnterpriseStore, type EnterpriseEnrollment } from './enterprise-store.ts';
 
 const exec = promisify(execFile);
 const API_KEY_TTL_SECONDS = 30 * 24 * 60 * 60;
 const ENROLLMENT_TTL_SECONDS = 60 * 60;
+const ENROLLMENT_CREDENTIAL = 'github-copilot-user';
+const EMPLOYEE_KEY_DURATION = '90d';
+const PENDING_KEY_DURATION = '2h';
+const EMPLOYEE_KEY_ROUTES = ['llm_api_routes', 'info_routes', '/credentials/user_connections'];
+const PENDING_KEY_ROUTES = ['/credentials/user_connections', `/credentials/${ENROLLMENT_CREDENTIAL}/user_connection`];
 
 export interface EnrollmentSecrets {
   set(name: string, value: string, expiresAt: Date): Promise<void>;
@@ -104,99 +108,6 @@ export class EnterpriseManagement {
     return parseJson(raw);
   }
 
-  private assertEntraPrincipal(principal: EnterprisePrincipal): void {
-    if (principal.authentication !== 'entra'
-      || principal.tenantId.toLowerCase() !== this.tenantId
-      || !/^[0-9a-f-]{36}$/i.test(principal.objectId)) {
-      throw new BridgeError('ACCESS_DENIED', 'Employee setup requires an approved Entra principal.', 403);
-    }
-  }
-
-  private async provisionedUser(userId: string, userAlias: string): Promise<ObjectValue | undefined> {
-    const response = await this.request(
-      `/user/info?user_id=${encodeURIComponent(userId)}`,
-      this.litellmMasterKey,
-      undefined,
-      true,
-    );
-    if (!response) return undefined;
-    const user = object(response.user_info ?? response);
-    if (user.user_id !== userId || user.user_alias !== userAlias || user.user_role !== 'internal_user') {
-      throw new BridgeError('IDENTITY_CONFLICT', 'The Entra identity conflicts with an existing LiteLLM user.', 409);
-    }
-    return user;
-  }
-
-  async provisionEmployee(principal: EnterprisePrincipal): Promise<ObjectValue> {
-    this.assertEntraPrincipal(principal);
-    const userId = principal.objectId.toLowerCase();
-    const userAlias = `ccgc-${userId}`;
-    let user = await this.provisionedUser(userId, userAlias);
-    if (!user) {
-      try {
-        await this.request('/user/new', this.litellmMasterKey, {
-          method: 'POST',
-          body: JSON.stringify({
-            user_id: userId,
-            user_alias: userAlias,
-            user_role: 'internal_user',
-            models: this.enrollmentModels,
-            auto_create_key: false,
-            send_invite_email: false,
-          }),
-        });
-      } catch (error) {
-        user = await this.provisionedUser(userId, userAlias);
-        if (!user) throw error;
-      }
-      user ??= await this.provisionedUser(userId, userAlias);
-      if (!user) throw new BridgeError('INVALID_RESPONSE', 'LiteLLM did not create the Entra-linked internal user.', 502);
-    }
-    await this.request('/user/update', this.litellmMasterKey, {
-      method: 'POST',
-      body: JSON.stringify({ user_id: userId, models: this.enrollmentModels }),
-    });
-    const created = await this.request('/key/generate', this.litellmMasterKey, {
-      method: 'POST',
-      body: JSON.stringify({
-        user_id: userId,
-        key_alias: 'ccgc-claude',
-        models: this.enrollmentModels,
-        duration: '90d',
-      }),
-    });
-    const apiKey = text(created.key, 'LiteLLM user key');
-    if (!/^sk-[A-Za-z0-9._-]{16,}$/.test(apiKey)) {
-      throw new BridgeError('INVALID_RESPONSE', 'LiteLLM returned an invalid user key.', 502);
-    }
-    return {
-      status: 'ready',
-      tenantId: principal.tenantId,
-      objectId: userId,
-      userId,
-      userAlias,
-      apiKey,
-      models: this.enrollmentModels,
-    };
-  }
-
-  async revokeEmployeeSetupKey(principal: EnterprisePrincipal, input: ObjectValue): Promise<ObjectValue> {
-    this.assertEntraPrincipal(principal);
-    const apiKey = text(input.apiKey, 'LiteLLM setup key');
-    if (!/^sk-[A-Za-z0-9._-]{16,}$/.test(apiKey)) {
-      throw new BridgeError('INVALID_REQUEST', 'LiteLLM setup key is invalid.');
-    }
-    const keyInfo = object((await this.request('/key/info', apiKey)).info);
-    if (keyInfo.user_id !== principal.objectId.toLowerCase() || keyInfo.key_alias !== 'ccgc-claude') {
-      throw new BridgeError('ACCESS_DENIED', 'Only this Entra principal’s CCGC setup key can be revoked.', 403);
-    }
-    await this.request('/key/delete', this.litellmMasterKey, {
-      method: 'POST',
-      body: JSON.stringify({ keys: [apiKey] }),
-    });
-    return { status: 'revoked' };
-  }
-
   private async adminCommand(command: 'link' | 'revoke', input: ObjectValue): Promise<ObjectValue> {
     const flag = command === 'link' ? '--confirm-same-user' : '--confirm-revoke';
     const script = fileURLToPath(new URL('./enterprise-admin.ts', import.meta.url));
@@ -265,75 +176,147 @@ export class EnterpriseManagement {
     return { login, accountId };
   }
 
-  private async enrollmentOutput(code: string): Promise<ObjectValue> {
-    const store = this.store();
-    try {
-      const enrollment = await store.enrollment(this.enrollmentCode(code));
-      if (enrollment.status !== 'completed' || !enrollment.outputSecretName) {
-        return { status: enrollment.status };
+  private async generateKey(body: ObjectValue): Promise<{ key: string; expiresAt: string }> {
+    const generated = await this.request('/key/generate', this.litellmMasterKey, {
+      method: 'POST',
+      body: JSON.stringify(body),
+    });
+    const key = text(generated.key, 'LiteLLM key');
+    const expiresAt = typeof generated.expires === 'string' ? Date.parse(generated.expires) : Number.NaN;
+    if (!/^sk-[A-Za-z0-9._-]{16,}$/.test(key) || !Number.isFinite(expiresAt)) {
+      throw new BridgeError('INVALID_RESPONSE', 'LiteLLM returned an invalid virtual key.', 502);
+    }
+    return { key, expiresAt: new Date(expiresAt).toISOString() };
+  }
+
+  private async employeeUser(userId: string): Promise<ObjectValue | undefined> {
+    const info = await this.request(
+      `/user/info?user_id=${encodeURIComponent(userId)}`,
+      this.litellmMasterKey,
+      undefined,
+      true,
+    );
+    if (!info || info.user_info === null || info.user_info === undefined) return undefined;
+    const user = object(info.user_info);
+    if (user.user_role !== 'internal_user') {
+      throw new BridgeError('IDENTITY_CONFLICT', 'The LiteLLM user is not a CCGC internal user.', 409);
+    }
+    return user;
+  }
+
+  private async ensureEmployeeUser(
+    userId: string,
+    github: { login: string; accountId: number },
+    userEmail: string,
+    models: string[],
+  ): Promise<void> {
+    if (await this.employeeUser(userId)) {
+      await this.request('/user/update', this.litellmMasterKey, {
+        method: 'POST',
+        body: JSON.stringify({ user_id: userId, user_alias: github.login, models }),
+      });
+      return;
+    }
+    await this.request('/user/new', this.litellmMasterKey, {
+      method: 'POST',
+      body: JSON.stringify({
+        user_id: userId,
+        user_alias: github.login,
+        user_role: 'internal_user',
+        models,
+        auto_create_key: false,
+        send_invite_email: false,
+        metadata: {
+          ccgc_managed: true,
+          github_login: github.login,
+          github_account_id: github.accountId,
+          ...(userEmail ? { ccgc_email: userEmail } : {}),
+        },
+      }),
+    });
+  }
+
+  private async userKeys(userId: string): Promise<Array<{ token: string; alias: string }>> {
+    const keys: Array<{ token: string; alias: string }> = [];
+    for (let page = 1; page <= 20; page++) {
+      const listed = await this.request(
+        `/key/list?user_id=${encodeURIComponent(userId)}&page=${page}&size=100&return_full_object=true`,
+        this.litellmMasterKey,
+      );
+      for (const value of Array.isArray(listed.keys) ? listed.keys : []) {
+        const key = object(value);
+        const token = text(key.token, 'LiteLLM key identifier');
+        if (token.length > 512) throw new BridgeError('INVALID_RESPONSE', 'LiteLLM returned an invalid key identifier.', 502);
+        keys.push({ token, alias: typeof key.key_alias === 'string' ? key.key_alias : '' });
       }
-      const output = object(parseJson(await this.secrets().get(enrollment.outputSecretName)));
-      return {
-        status: 'completed',
-        apiKey: text(output.apiKey, 'enterprise API key'),
-        apiKeyId: text(output.apiKeyId, 'enterprise API-key ID'),
-        apiKeyExpiresAt: text(output.apiKeyExpiresAt, 'enterprise API-key expiry'),
-        tenantId: enrollment.tenantId,
-        objectId: enrollment.objectId,
-        githubLogin: enrollment.githubLogin,
-        githubAccountId: enrollment.githubAccountId,
-        models: enrollment.models,
-      };
-    } finally {
-      await store.close();
+      const totalPages = listed.total_pages === null || listed.total_pages === undefined ? 1 : Number(listed.total_pages);
+      if (!Number.isInteger(totalPages) || totalPages < 0 || totalPages > 20) {
+        throw new BridgeError('INVALID_RESPONSE', 'LiteLLM returned invalid key pagination.', 502);
+      }
+      if (page >= totalPages) break;
+    }
+    return keys;
+  }
+
+  private async disconnectGitHub(apiKey: string): Promise<void> {
+    await this.request(`/credentials/${ENROLLMENT_CREDENTIAL}/user_connection`, apiKey, { method: 'DELETE' });
+  }
+
+  private requireLiteLLMClient(input: ObjectValue): void {
+    if (input.credentialType !== 'litellm') {
+      throw new BridgeError(
+        'CLIENT_UPGRADE_REQUIRED',
+        'Update the repository and run ccgc-enterprise setup; this client cannot use LiteLLM enrollment.',
+        400,
+      );
     }
   }
 
-  private async finishEnrollment(code: string): Promise<ObjectValue> {
-    const codeHash = this.enrollmentCode(code);
-    const store = this.store();
-    try {
-      const enrollment = await store.enrollment(codeHash);
-      if (enrollment.status === 'completed') return this.enrollmentOutput(code);
-      const litellmApiKey = await this.secrets().get(enrollment.pendingSecretName);
-      await this.link({
-        tenantId: enrollment.tenantId,
-        objectId: enrollment.objectId,
-        githubAccountId: enrollment.githubAccountId,
-        githubLogin: enrollment.githubLogin,
-        credentialSecretName: enrollment.credentialSecretName,
-        litellmCredentialName: 'github-copilot-user',
-        litellmApiKey,
-        models: enrollment.models,
-        evidence: `Self-service enrollment verified GitHub account ${enrollment.githubLogin}.`,
-      });
-      const issued = await store.issueApiKey(
-        enrollment.tenantId,
-        enrollment.objectId,
-        `${enrollment.userAlias}-self-enrollment`,
-        API_KEY_TTL_SECONDS,
-      );
-      const outputSecretName = `ccgc-enrollment-output-${enrollment.id.replaceAll('-', '')}`;
-      await this.secrets().set(outputSecretName, JSON.stringify({
-        apiKey: issued.apiKey,
-        apiKeyId: issued.id,
-        apiKeyExpiresAt: issued.expiresAt,
-      }), new Date(enrollment.expiresAt));
-      await store.completeEnrollment(enrollment.id, outputSecretName);
-      return {
-        status: 'completed',
-        apiKey: issued.apiKey,
-        apiKeyId: issued.id,
-        apiKeyExpiresAt: issued.expiresAt,
-        tenantId: enrollment.tenantId,
-        objectId: enrollment.objectId,
-        githubLogin: enrollment.githubLogin,
-        githubAccountId: enrollment.githubAccountId,
-        models: enrollment.models,
+  private async enrollmentOutput(
+    enrollment: EnterpriseEnrollment,
+    output?: { apiKey: string; apiKeyExpiresAt: string },
+  ): Promise<ObjectValue> {
+    if (enrollment.status !== 'completed' && !output) return { status: 'pending', interval: 5 };
+    if (!output) {
+      if (!enrollment.outputSecretName) throw new BridgeError('GATEWAY_AUTH_REQUIRED', 'Enrollment output is unavailable.', 401);
+      const stored = object(parseJson(await this.secrets().get(enrollment.outputSecretName)));
+      output = {
+        apiKey: text(stored.apiKey, 'LiteLLM virtual key'),
+        apiKeyExpiresAt: text(stored.apiKeyExpiresAt, 'LiteLLM virtual key expiry'),
       };
-    } finally {
-      await store.close();
     }
+    return {
+      status: 'completed',
+      apiKey: output.apiKey,
+      apiKeyExpiresAt: output.apiKeyExpiresAt,
+      litellmUserId: enrollment.objectId,
+      litellmCredentialName: ENROLLMENT_CREDENTIAL,
+      githubLogin: enrollment.githubLogin,
+      githubAccountId: enrollment.githubAccountId,
+      models: enrollment.models,
+    };
+  }
+
+  private async finishEnrollment(store: PostgresEnterpriseStore, enrollment: EnterpriseEnrollment): Promise<ObjectValue> {
+    const keyAlias = `ccgc-claude-${randomUUID()}`;
+    const issued = await this.generateKey({
+      user_id: enrollment.objectId,
+      key_alias: keyAlias,
+      models: enrollment.models,
+      duration: EMPLOYEE_KEY_DURATION,
+      allowed_routes: EMPLOYEE_KEY_ROUTES,
+      metadata: {
+        ccgc_purpose: 'claude-code',
+        ccgc_enrollment_id: enrollment.id,
+        github_login: enrollment.githubLogin,
+        github_account_id: enrollment.githubAccountId,
+      },
+    });
+    const output = { apiKey: issued.key, apiKeyExpiresAt: issued.expiresAt };
+    const outputSecretName = `ccgc-enrollment-output-${enrollment.id.replaceAll('-', '')}`;
+    await this.secrets().set(outputSecretName, JSON.stringify({ ...output, keyAlias }), new Date(enrollment.expiresAt));
+    await store.completeEnrollment(enrollment.id, outputSecretName);
+    return this.enrollmentOutput({ ...enrollment, status: 'completed', outputSecretName }, output);
   }
 
   async createUser(input: ObjectValue): Promise<ObjectValue> {
@@ -543,174 +526,224 @@ export class EnterpriseManagement {
     }
   }
 
-    async createEnrollment(input: ObjectValue): Promise<ObjectValue> {
-      const userEmail = text(input.userEmail, 'employee email');
-      const requestedGithubLogin = text(input.githubLogin, 'GitHub login');
-      const existingObjectId = input.objectId === undefined ? undefined : text(input.objectId, 'existing user ID').toLowerCase();
-      const existingApiKey = input.litellmApiKey === undefined ? undefined : text(input.litellmApiKey, 'existing LiteLLM user key');
-      if (!userEmail.includes('@')) {
-        throw new BridgeError('INVALID_REQUEST', 'Self-service enrollment input is invalid.');
-      }
-      if ((existingObjectId === undefined) !== (existingApiKey === undefined)
-        || (existingObjectId !== undefined && !/^[0-9a-f-]{36}$/i.test(existingObjectId))
-        || (existingApiKey !== undefined && !/^sk-[A-Za-z0-9._-]{16,}$/.test(existingApiKey))) {
-        throw new BridgeError('INVALID_REQUEST', 'Existing LiteLLM recovery requires a valid user ID and user key together.');
-      }
-      const github = await this.githubAccount(requestedGithubLogin);
-      if (input.githubAccountId !== undefined
-        && positive(input.githubAccountId, 'GitHub account ID') !== github.accountId) {
-        throw new BridgeError('IDENTITY_CONFLICT', 'The supplied GitHub account ID does not match the username.', 409);
-      }
-      if (input.tenantId !== undefined
-        && text(input.tenantId, 'tenant ID').toLowerCase() !== this.tenantId) {
-        throw new BridgeError('IDENTITY_CONFLICT', 'The supplied tenant does not match this deployment.', 409);
-      }
-      const tenantId = this.tenantId;
-      const userAlias = github.login;
-      const githubLogin = github.login;
-      const githubAccountId = github.accountId;
-      const models = this.enrollmentModels;
-      let objectId = existingObjectId;
-      let litellmApiKey = existingApiKey;
-      if (!objectId || !litellmApiKey) {
-        const recoveryStore = this.store();
-        try {
-          const reusable = await recoveryStore.reusableEnrollmentUser(tenantId, githubAccountId);
-          if (reusable) {
-            objectId = reusable.objectId;
-            litellmApiKey = await this.secrets().get(reusable.pendingSecretName);
-            await this.request('/user/update', this.litellmMasterKey, {
-              method: 'POST',
-              body: JSON.stringify({ user_id: objectId, models }),
-            });
-          }
-        } finally {
-          await recoveryStore.close();
-        }
-      }
-      objectId ??= randomUUID();
-      litellmApiKey ??= text(
-        (await this.createUser({ userId: objectId, userEmail, userAlias, models })).litellmApiKey,
-        'LiteLLM user key',
-      );
+  async createEnrollment(input: ObjectValue): Promise<ObjectValue> {
+    const requestedGithubLogin = text(input.githubLogin, 'GitHub login');
+    const userEmail = input.userEmail === undefined || input.userEmail === ''
+      ? ''
+      : text(input.userEmail, 'employee email').trim();
+    if (userEmail && (userEmail.length > 254 || !/^[^\s@]+@[^\s@]+$/.test(userEmail))) {
+      throw new BridgeError('INVALID_REQUEST', 'Employee email is invalid.');
+    }
+    if (input.objectId !== undefined || input.litellmApiKey !== undefined) {
+      throw new BridgeError('INVALID_REQUEST', 'Enrollment no longer accepts existing LiteLLM user IDs or keys.');
+    }
+    const github = await this.githubAccount(requestedGithubLogin);
+    if (input.githubAccountId !== undefined
+      && positive(input.githubAccountId, 'GitHub account ID') !== github.accountId) {
+      throw new BridgeError('IDENTITY_CONFLICT', 'The supplied GitHub account ID does not match the username.', 409);
+    }
+    if (input.tenantId !== undefined
+      && text(input.tenantId, 'tenant ID').toLowerCase() !== this.tenantId) {
+      throw new BridgeError('IDENTITY_CONFLICT', 'The supplied tenant does not match this deployment.', 409);
+    }
+    const models = this.enrollmentModels;
+    const store = this.store();
+    let pendingKey: string | undefined;
+    let pendingSecretName: string | undefined;
+    try {
+      const objectId = await store.enrollmentUser(this.tenantId, github.accountId) ?? randomUUID();
+      await this.ensureEmployeeUser(objectId, github, userEmail, models);
+      pendingKey = (await this.generateKey({
+        user_id: objectId,
+        key_alias: `ccgc-enroll-${randomUUID()}`,
+        models,
+        duration: PENDING_KEY_DURATION,
+        allowed_routes: PENDING_KEY_ROUTES,
+        metadata: { ccgc_purpose: 'enrollment', github_login: github.login, github_account_id: github.accountId },
+      })).key;
       const code = `CCGC-${randomBytes(18).toString('base64url')}`;
-      const pendingSecretName = `ccgc-enrollment-pending-${randomUUID().replaceAll('-', '')}`;
-      const credentialSecretName = `ccgc-user-${objectId.replaceAll('-', '')}`;
       const expiresAt = new Date(Date.now() + ENROLLMENT_TTL_SECONDS * 1000);
-      await this.secrets().set(pendingSecretName, litellmApiKey, expiresAt);
-      const store = this.store();
-      try {
-        const enrollment = await store.createEnrollment({
-          codeHash: this.enrollmentCode(code),
-          tenantId,
-          objectId,
-          userEmail,
-          userAlias,
-          githubAccountId,
-          githubLogin,
-          credentialSecretName,
-          pendingSecretName,
-          models,
-          ttlSeconds: ENROLLMENT_TTL_SECONDS,
-        });
-        return {
-          status: 'created',
-          code,
-          expiresAt: enrollment.expiresAt,
-          objectId,
-          githubLogin,
-          githubAccountId,
-        };
-      } catch (error) {
-        try {
-          await this.secrets().remove(pendingSecretName);
-        } catch (cleanupError) {
-          throw new AggregateError(
-            [error, cleanupError],
-            'Enrollment creation failed and its temporary secret could not be removed.',
-          );
-        }
-        throw error;
-      } finally {
-        await store.close();
+      pendingSecretName = `ccgc-enrollment-pending-${randomUUID().replaceAll('-', '')}`;
+      await this.secrets().set(pendingSecretName, pendingKey, expiresAt);
+      const enrollment = await store.createEnrollment({
+        codeHash: this.enrollmentCode(code),
+        tenantId: this.tenantId,
+        objectId,
+        userEmail,
+        userAlias: github.login,
+        githubAccountId: github.accountId,
+        githubLogin: github.login,
+        credentialSecretName: `ccgc-user-${objectId.replaceAll('-', '')}`,
+        pendingSecretName,
+        models,
+        ttlSeconds: ENROLLMENT_TTL_SECONDS,
+      });
+      return {
+        status: 'created',
+        code,
+        expiresAt: enrollment.expiresAt,
+        objectId,
+        githubLogin: github.login,
+        githubAccountId: github.accountId,
+      };
+    } catch (error) {
+      const cleanup = await Promise.allSettled([
+        pendingSecretName ? this.secrets().remove(pendingSecretName) : Promise.resolve(),
+        pendingKey
+          ? this.request('/key/delete', this.litellmMasterKey, { method: 'POST', body: JSON.stringify({ keys: [pendingKey] }) })
+          : Promise.resolve(),
+      ]);
+      const failures = cleanup.flatMap(result => result.status === 'rejected' ? [result.reason] : []);
+      if (failures.length) {
+        throw new AggregateError([error, ...failures], 'Enrollment creation failed and its temporary key could not be removed.');
       }
+      throw error;
+    } finally {
+      await store.close();
     }
+  }
 
-    async startEnrollment(input: ObjectValue): Promise<ObjectValue> {
-      const code = text(input.code, 'enrollment code');
-      const codeHash = this.enrollmentCode(code);
-      const store = this.store();
-      try {
-        const enrollment = await store.enrollment(codeHash);
-        if (enrollment.status === 'completed') return this.enrollmentOutput(code);
-        const litellmApiKey = await this.secrets().get(enrollment.pendingSecretName);
-        const started = await this.startConnection({
-          litellmApiKey,
-          litellmCredentialName: 'github-copilot-user',
-          githubLogin: enrollment.githubLogin,
-        });
-        if (started.status === 'connected') {
-          if (!await store.beginEnrollmentCompletion(enrollment.id)) return this.enrollmentOutput(code);
-          return this.finishEnrollment(code);
-        }
-        await store.setEnrollmentFlow(
-          enrollment.id,
-          text(started.flowHandle, 'flow handle'),
-          positive(started.expiresIn, 'device flow expiry'),
-        );
-        return {
-          status: 'authorization_required',
-          verificationUri: started.verificationUri,
-          userCode: started.userCode,
-          expiresIn: started.expiresIn,
-          interval: started.interval,
-          githubLogin: enrollment.githubLogin,
-        };
-      } finally {
-        await store.close();
+  async startEnrollment(input: ObjectValue): Promise<ObjectValue> {
+    const code = text(input.code, 'enrollment code');
+    this.requireLiteLLMClient(input);
+    const store = this.store();
+    try {
+      const enrollment = await store.enrollment(this.enrollmentCode(code));
+      if (enrollment.status === 'completed' || enrollment.status === 'finalizing') {
+        return this.enrollmentOutput(enrollment);
       }
+      const pendingKey = await this.secrets().get(enrollment.pendingSecretName);
+      const flow = await this.request(
+        `/credentials/${ENROLLMENT_CREDENTIAL}/user_connection/start`,
+        pendingKey,
+        { method: 'POST' },
+      );
+      const verificationUri = text(flow.verification_uri, 'verification URI');
+      const userCode = text(flow.user_code, 'device code');
+      const flowHandle = text(flow.flow_handle, 'flow handle');
+      const expiresIn = positive(flow.expires_in, 'device flow expiry');
+      const interval = positive(flow.interval, 'device flow interval');
+      if (verificationUri !== 'https://github.com/login/device' || expiresIn > 1800 || interval > 60) {
+        throw new BridgeError('ENDPOINT_REJECTED', 'Unexpected GitHub device-flow contract.', 502);
+      }
+      await store.setEnrollmentFlow(enrollment.id, flowHandle, expiresIn);
+      return {
+        status: 'authorization_required',
+        verificationUri,
+        userCode,
+        expiresIn,
+        interval,
+        githubLogin: enrollment.githubLogin,
+      };
+    } finally {
+      await store.close();
     }
+  }
 
-    async pollEnrollment(input: ObjectValue): Promise<ObjectValue> {
-      const code = text(input.code, 'enrollment code');
-      const store = this.store();
+  async pollEnrollment(input: ObjectValue): Promise<ObjectValue> {
+    const code = text(input.code, 'enrollment code');
+    this.requireLiteLLMClient(input);
+    const store = this.store();
+    try {
+      const enrollment = await store.enrollment(this.enrollmentCode(code));
+      if (enrollment.status === 'completed' || enrollment.status === 'finalizing') {
+        return this.enrollmentOutput(enrollment);
+      }
+      if (!enrollment.flowHandle || !enrollment.flowExpiresAt || Date.parse(enrollment.flowExpiresAt) <= Date.now()) {
+        throw new BridgeError('GATEWAY_AUTH_REQUIRED', 'Enrollment authorization flow expired; restart enrollment.', 401);
+      }
+      const pendingKey = await this.secrets().get(enrollment.pendingSecretName);
+      let result: ObjectValue;
       try {
-        const enrollment = await store.enrollment(this.enrollmentCode(code));
-        if (enrollment.status === 'completed') return this.enrollmentOutput(code);
-        if (!enrollment.flowHandle || !enrollment.flowExpiresAt || Date.parse(enrollment.flowExpiresAt) <= Date.now()) {
-          throw new BridgeError('GATEWAY_AUTH_REQUIRED', 'Enrollment authorization flow expired; restart enrollment.', 401);
-        }
-        const litellmApiKey = await this.secrets().get(enrollment.pendingSecretName);
-        const result = await this.pollConnection({
-          litellmApiKey,
-          litellmCredentialName: 'github-copilot-user',
+        result = await this.pollConnection({
+          litellmApiKey: pendingKey,
+          litellmCredentialName: ENROLLMENT_CREDENTIAL,
           githubLogin: enrollment.githubLogin,
           flowHandle: enrollment.flowHandle,
         });
-        if (result.status !== 'connected') return result;
-        if (!await store.beginEnrollmentCompletion(enrollment.id)) return this.enrollmentOutput(code);
-        return this.finishEnrollment(code);
-      } finally {
-        await store.close();
-      }
-    }
-
-    async completeEnrollment(input: ObjectValue): Promise<ObjectValue> {
-      const code = text(input.code, 'enrollment code');
-      const store = this.store();
-      try {
-        const enrollment = await store.enrollment(this.enrollmentCode(code));
-        if (enrollment.status !== 'completed' || !enrollment.outputSecretName) {
-          throw new BridgeError('GATEWAY_AUTH_REQUIRED', 'Enrollment is not ready to complete.', 401);
+      } catch (error) {
+        if (error instanceof BridgeError && error.code === 'IDENTITY_CONFLICT') {
+          await this.disconnectGitHub(pendingKey).catch(() => undefined);
         }
-        await this.secrets().remove(enrollment.outputSecretName);
-        await this.secrets().remove(enrollment.pendingSecretName);
-        await store.consumeEnrollment(enrollment.id);
-        return { status: 'completed' };
-      } finally {
-        await store.close();
+        throw error;
       }
+      if (result.status !== 'connected') return result;
+      if (!await store.beginEnrollmentCompletion(enrollment.id)) {
+        return this.enrollmentOutput(await store.enrollment(this.enrollmentCode(code)));
+      }
+      return await this.finishEnrollment(store, enrollment);
+    } finally {
+      await store.close();
     }
+  }
+
+  async completeEnrollment(input: ObjectValue): Promise<ObjectValue> {
+    const code = text(input.code, 'enrollment code');
+    const store = this.store();
+    try {
+      const enrollment = await store.enrollment(this.enrollmentCode(code));
+      if (enrollment.status !== 'completed' || !enrollment.outputSecretName) {
+        throw new BridgeError('GATEWAY_AUTH_REQUIRED', 'Enrollment is not ready to complete.', 401);
+      }
+      const output = object(parseJson(await this.secrets().get(enrollment.outputSecretName)));
+      const keyAlias = text(output.keyAlias, 'LiteLLM virtual key alias');
+      const replaced = (await this.userKeys(enrollment.objectId))
+        .filter(key => key.alias !== keyAlias)
+        .map(key => key.token);
+      if (replaced.length) {
+        await this.request('/key/delete', this.litellmMasterKey, {
+          method: 'POST',
+          body: JSON.stringify({ keys: replaced }),
+        });
+      }
+      await this.secrets().remove(enrollment.outputSecretName);
+      await this.secrets().remove(enrollment.pendingSecretName);
+      await store.consumeEnrollment(enrollment.id);
+      return { status: 'completed', replacedKeys: replaced.length };
+    } finally {
+      await store.close();
+    }
+  }
+
+  async revokeGitHubUser(input: ObjectValue): Promise<ObjectValue> {
+    const github = await this.githubAccount(text(input.githubLogin, 'GitHub login'));
+    const store = this.store();
+    try {
+      const revoked = await store.revokeGitHubAccount(this.tenantId, github.accountId);
+      if (!revoked.objectIds.length) {
+        throw new BridgeError('NOT_FOUND', 'No CCGC enrollment exists for that GitHub account.', 404);
+      }
+      const users: string[] = [];
+      for (const userId of revoked.objectIds) {
+        if (!await this.employeeUser(userId)) continue;
+        const cleanupKey = await this.generateKey({
+          user_id: userId,
+          key_alias: `ccgc-offboard-${randomUUID()}`,
+          duration: '10m',
+          allowed_routes: [`/credentials/${ENROLLMENT_CREDENTIAL}/user_connection`],
+          metadata: { ccgc_purpose: 'offboarding' },
+        });
+        await this.disconnectGitHub(cleanupKey.key);
+        users.push(userId);
+      }
+      if (users.length) {
+        await this.request('/user/delete', this.litellmMasterKey, {
+          method: 'POST',
+          body: JSON.stringify({ user_ids: users }),
+        });
+      }
+      await Promise.allSettled(revoked.secretNames.map(name => this.secrets().remove(name)));
+      return {
+        status: 'revoked',
+        githubLogin: github.login,
+        githubAccountId: github.accountId,
+        deletedLiteLLMUsers: users.length,
+        revokedEnrollments: revoked.revokedEnrollments,
+      };
+    } finally {
+      await store.close();
+    }
+  }
 
   async status(): Promise<ObjectValue> {
     await this.request('/health/readiness', this.litellmMasterKey);

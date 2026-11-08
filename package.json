@@ -20,6 +20,7 @@
     "enterprise:client": "node src/enterprise-cli.ts",
     "enterprise:manage": "node src/enterprise-management-cli.ts",
     "enterprise:operator": "node src/enterprise-operator-cli.ts",
+    "enterprise:actions-identity": "node scripts/enterprise-actions-identity.mjs",
     "enterprise:entra": "node scripts/enterprise-entra.mjs",
     "enterprise:pilot": "node scripts/enterprise-pilot.mjs",
     "check": "tsc --noEmit",

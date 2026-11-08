@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
-import { bearerToken, type EnterpriseAuthenticator, type EnterprisePrincipal } from './enterprise-auth.ts';
+import { bearerToken, type EnterpriseAuthenticator } from './enterprise-auth.ts';
 import { BridgeError, envelope, object, parseJson, safeError, text, type ObjectValue } from './protocol.ts';
 import type { EnterpriseStore } from './enterprise-store.ts';
 import type { WorkerResolver } from './enterprise-worker.ts';
@@ -13,8 +13,6 @@ const MAX_ADMIN_BODY = 64 * 1024;
 const DEFAULT_DISPATCH_TIMEOUT_MS = 4 * 60_000;
 
 export interface EnterpriseAdministrationActions {
-  provisionEmployee(principal: EnterprisePrincipal): Promise<ObjectValue>;
-  revokeEmployeeSetupKey(principal: EnterprisePrincipal, input: ObjectValue): Promise<ObjectValue>;
   createUser(input: ObjectValue): Promise<ObjectValue>;
   startConnection(input: ObjectValue): Promise<ObjectValue>;
   pollConnection(input: ObjectValue): Promise<ObjectValue>;
@@ -27,6 +25,7 @@ export interface EnterpriseAdministrationActions {
   startEnrollment(input: ObjectValue): Promise<ObjectValue>;
   pollEnrollment(input: ObjectValue): Promise<ObjectValue>;
   completeEnrollment(input: ObjectValue): Promise<ObjectValue>;
+  revokeGitHubUser(input: ObjectValue): Promise<ObjectValue>;
   status(): Promise<ObjectValue>;
 }
 
@@ -36,7 +35,6 @@ export interface EnterpriseServerOptions {
   workers?: WorkerResolver;
   dispatchSigner?: DispatchSigner;
   inferenceGateway?: string;
-  setupAuthenticator?: EnterpriseAuthenticator;
   adminAuthenticator?: EnterpriseAuthenticator;
   adminActions?: EnterpriseAdministrationActions;
   adminBrowserOrigin?: string;
@@ -155,32 +153,6 @@ export async function startEnterpriseServer(options: EnterpriseServerOptions) {
       send(response, 200, { inferenceGateway });
       return;
     }
-    if (url.pathname.startsWith('/ccgc/enterprise/setup/') && request.method === 'POST') {
-      if (!options.setupAuthenticator || !options.adminActions || !inferenceGateway) {
-        throw new BridgeError('ROUTE_UNSUPPORTED', 'Employee self-service setup is unavailable.', 404);
-      }
-      const principal = await options.setupAuthenticator.authenticate(bearerToken(request.headers.authorization));
-      if (principal.authentication !== 'entra') {
-        throw new BridgeError('ACCESS_DENIED', 'Employee setup requires Entra authentication.', 403);
-      }
-      const input = object(parseJson((await requestBody(request, MAX_ADMIN_BODY)).toString('utf8')));
-      let result: ObjectValue;
-      if (url.pathname === '/ccgc/enterprise/setup/provision') {
-        if (Object.keys(input).length !== 0) {
-          throw new BridgeError('INVALID_REQUEST', 'Employee setup does not accept caller-supplied identity or model fields.');
-        }
-        result = await options.adminActions.provisionEmployee(principal);
-      } else if (url.pathname === '/ccgc/enterprise/setup/revoke') {
-        if (Object.keys(input).length !== 1 || typeof input.apiKey !== 'string') {
-          throw new BridgeError('INVALID_REQUEST', 'A setup key is required for cleanup.');
-        }
-        result = await options.adminActions.revokeEmployeeSetupKey(principal, input);
-      } else {
-        throw new BridgeError('ROUTE_UNSUPPORTED', 'Unsupported employee setup route.', 404);
-      }
-      send(response, 200, { ...result, inferenceGateway });
-      return;
-    }
     if (url.pathname.startsWith('/ccgc/admin/')) {
       if (!options.adminAuthenticator || !options.adminActions || request.method !== 'POST') {
         throw new BridgeError('ROUTE_UNSUPPORTED', 'Unsupported administration route.', 404);
@@ -195,6 +167,7 @@ export async function startEnterpriseServer(options: EnterpriseServerOptions) {
         '/ccgc/admin/api-keys/revoke': input => options.adminActions!.revokeApiKey(input),
         '/ccgc/admin/access/query': input => options.adminActions!.listAccess(input),
         '/ccgc/admin/enrollments': input => options.adminActions!.createEnrollment(input),
+        '/ccgc/admin/github-users/revoke': input => options.adminActions!.revokeGitHubUser(input),
         '/ccgc/admin/status': () => options.adminActions!.status(),
       };
       const route = routes[url.pathname];

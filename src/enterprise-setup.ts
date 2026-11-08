@@ -7,6 +7,7 @@ export interface SetupCallbacks {
   confirmIdentity(identity: LiteLLMIdentity & { githubLogin?: string }): Promise<boolean>;
   authorizeDevice(device: { verificationUri: string; userCode: string; expiresIn: number }): Promise<void>;
   credentialName?: string;
+  verifiedGithubLogin?: string;
   signal?: AbortSignal;
 }
 
@@ -70,6 +71,14 @@ export async function setupEnterprise(
   if (!connection) throw new BridgeError('INVALID_RESPONSE', 'The selected model credential has no native per-user GitHub connection entry.');
   if (typeof connection.connected !== 'boolean') throw new BridgeError('INVALID_RESPONSE', 'Invalid per-user GitHub connection state.');
   let githubLogin = connection.connected === true ? text(connection.github_login, 'connected GitHub login') : undefined;
+  if (callbacks.verifiedGithubLogin !== undefined) {
+    if (!githubLogin) {
+      throw new BridgeError('GITHUB_CONNECTION_REQUIRED', 'The enrolled GitHub connection is missing. Ask your administrator for a new enrollment code.', 401);
+    }
+    if (githubLogin.toLowerCase() !== callbacks.verifiedGithubLogin.toLowerCase()) {
+      throw new BridgeError('IDENTITY_CONFLICT', 'The LiteLLM connection belongs to a different GitHub account than the enrollment.', 409);
+    }
+  }
   if (!await callbacks.confirmIdentity({ ...identity, ...(githubLogin ? { githubLogin } : {}) })) {
     throw new BridgeError('CANCELLED', 'Setup cancelled without replacing the local profile.');
   }

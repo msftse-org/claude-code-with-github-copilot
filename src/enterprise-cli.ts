@@ -4,7 +4,7 @@ import { execFile } from 'node:child_process';
 import { createInterface } from 'node:readline/promises';
 import { Writable } from 'node:stream';
 import { dirname, join } from 'node:path';
-import { EnterpriseClient, configureEnterprise, enterpriseDesktopConfig, type EnterpriseProfile } from './enterprise-client.ts';
+import { EnterpriseClient, configureEnterprise, enterpriseDesktopConfig } from './enterprise-client.ts';
 import { setupEnterprise } from './enterprise-setup.ts';
 import { BridgeError, object, parseJson, safeError, text } from './protocol.ts';
 import { readPrivate, writePrivate } from './private-state.ts';
@@ -12,7 +12,7 @@ import { gatewayUrl } from './remote.ts';
 
 const help = `ccgc enterprise - enterprise client profile
 
-  ccgc-enterprise setup --gateway https://enterprise-broker --audience api://APP-ID [--apply] [--no-browser]
+  ccgc-enterprise setup --gateway https://enterprise-broker [--apply] [--no-browser]
     [--credential NAME]
   ccgc-enterprise login --gateway https://private-gateway --audience api://APP-ID
   ccgc-enterprise login-api-key --gateway https://private-gateway --api-key-file /private/key.json
@@ -25,10 +25,12 @@ const help = `ccgc enterprise - enterprise client profile
 The token command is the Claude apiKeyHelper. Direct LiteLLM virtual keys are
 returned unchanged from macOS Keychain. Legacy Entra and CCGC API-key profiles
 continue to use bounded admissions during migration.
-setup authenticates through Microsoft Entra, provisions a non-invited internal
-LiteLLM identity and scoped key on the server, and connects GitHub through its
-native device authorization. Employees do not need a LiteLLM login or dashboard
-account. GitHub determines the username after consent.
+setup asks for the one-time enrollment code from your administrator, then one
+GitHub device approval that connects your own Copilot seat in LiteLLM. The
+approving GitHub account must match the enrollment. The broker then issues a
+personal 90-day LiteLLM virtual key that is stored only in macOS Keychain.
+Employees need no Entra sign-in, LiteLLM login, invitation, or dashboard account.
+To renew or rotate, ask your administrator for a new code and run setup again.
 --apply writes CLI settings; setup also writes a secret-free Desktop import file.
 Older direct-key profiles require setup or a fresh login-litellm-key before use.
 desktop-config prints a secret-free JSON configuration to import through
@@ -38,7 +40,6 @@ do not configure Desktop's separate third-party mode.
 
 async function guidedSetup(client: EnterpriseClient, options: {
   gateway: string;
-  audience: string;
   credentialName?: string;
   apply: boolean;
   noBrowser: boolean;
@@ -46,7 +47,7 @@ async function guidedSetup(client: EnterpriseClient, options: {
   const gateway = gatewayUrl(options.gateway);
   if (process.platform !== 'darwin') throw new BridgeError('CREDENTIAL_STORE_UNAVAILABLE', 'This setup currently requires macOS Keychain.');
   if (!process.stdin.isTTY || !process.stderr.isTTY) {
-    throw new BridgeError('INTERACTIVE_LOGIN_REQUIRED', 'Run setup in a terminal to confirm your identity and approve GitHub.');
+    throw new BridgeError('INTERACTIVE_LOGIN_REQUIRED', 'Run setup in a terminal to enter your enrollment code and approve GitHub.');
   }
   const cancellation = new AbortController();
   let hidden = false;
@@ -69,39 +70,34 @@ async function guidedSetup(client: EnterpriseClient, options: {
     }
   };
   try {
-    console.error('Authenticating with Microsoft Entra; no LiteLLM login or dashboard account is required.');
-    const provisioned = await client.provisionLiteLLMUser(gateway, options.audience);
-    console.error(`Service-managed LiteLLM identity: ${JSON.stringify(provisioned.userAlias)} (${JSON.stringify(provisioned.userId)}).`);
-    let profile: EnterpriseProfile;
-    try {
-      profile = await setupEnterprise(client, provisioned.inferenceGateway, { apiKey: provisioned.apiKey }, {
-        ...(options.credentialName ? { credentialName: options.credentialName } : {}),
-        signal: cancellation.signal,
-        async confirmIdentity(identity) {
-          console.error(`LiteLLM identity: ${JSON.stringify(identity.userAlias ?? identity.userId)} (${JSON.stringify(identity.userId)})`);
-          console.error(`GitHub connection: ${identity.githubLogin ? JSON.stringify(identity.githubLogin) : 'not connected yet'}`);
-          return /^(y|yes)$/i.test((await prompt('Is this your account and, if already connected, your GitHub identity? [y/N] ')).trim());
-        },
-        async authorizeDevice(device) {
-          console.error(`Open ${device.verificationUri} and enter ${device.userCode}. Approve only using your own Copilot-entitled GitHub account.`);
-          console.error(`Waiting for GitHub approval (up to ${device.expiresIn} seconds). Ctrl-C cancels.`);
-          if (!options.noBrowser) {
-            try { await promisify(execFile)('/usr/bin/open', [device.verificationUri], { timeout: 10_000 }); }
-            catch { console.error('Could not launch the browser. Open the verification URL above manually.'); }
-          }
-        },
-      });
-    } catch (error) {
-      try {
-        await client.revokeLiteLLMSetupKey(gateway, options.audience, provisioned.apiKey);
-      } catch {
-        throw new BridgeError(
-          'KEY_CLEANUP_REQUIRED',
-          'Setup failed and the new LiteLLM key could not be revoked. Ask an administrator to revoke the ccgc-claude key; the previous local profile was preserved.',
-        );
-      }
-      throw error;
-    }
+    const code = (await prompt('Enrollment code from your administrator (input hidden): ', true)).trim();
+    const enrolled = await client.enrollWithCode(gateway, code, {
+      signal: cancellation.signal,
+      async authorizeDevice(device) {
+        console.error(`Approve as GitHub account ${JSON.stringify(device.githubLogin)}: open ${device.verificationUri} and enter ${device.userCode}.`);
+        console.error('Another GitHub account will be rejected and disconnected.');
+        console.error(`Waiting for GitHub approval (up to ${device.expiresIn} seconds). Ctrl-C cancels.`);
+        if (!options.noBrowser) {
+          try { await promisify(execFile)('/usr/bin/open', [device.verificationUri], { timeout: 10_000 }); }
+          catch { console.error('Could not launch the browser. Open the verification URL above manually.'); }
+        }
+      },
+    });
+    console.error(`GitHub account verified: ${JSON.stringify(enrolled.githubLogin)}. Personal key expires ${enrolled.apiKeyExpiresAt}.`);
+    const profile = await setupEnterprise(client, enrolled.inferenceGateway, { apiKey: enrolled.apiKey }, {
+      credentialName: options.credentialName ?? enrolled.credentialName,
+      verifiedGithubLogin: enrolled.githubLogin,
+      signal: cancellation.signal,
+      async confirmIdentity(identity) {
+        if (identity.userId.toLowerCase() !== enrolled.userId) {
+          throw new BridgeError('IDENTITY_CONFLICT', 'The issued key belongs to a different LiteLLM user than the enrollment.', 403);
+        }
+        return true;
+      },
+      async authorizeDevice() {
+        throw new BridgeError('GITHUB_CONNECTION_REQUIRED', 'The enrolled GitHub connection is missing. Ask your administrator for a new enrollment code.', 401);
+      },
+    });
     const desktopPath = join(dirname(client.statePath), 'desktop-gateway.json');
     await writePrivate(desktopPath, enterpriseDesktopConfig(profile));
     const cli = await configureEnterprise(profile, options.apply);
@@ -114,7 +110,13 @@ async function guidedSetup(client: EnterpriseClient, options: {
       cli,
       desktopConfig: desktopPath,
     }, null, 2));
-    console.error('No LiteLLM login or dashboard access is needed; the server-managed internal identity owns the GitHub connection.');
+    try {
+      await client.acknowledgeEnrollment(gateway, code);
+    } catch (error) {
+      const failure = safeError(error);
+      console.error(`Warning: setup is complete, but the broker could not retire older keys (${failure.code}). Rerun setup with the same code within the hour, or tell your administrator.`);
+    }
+    console.error('No Entra sign-in or LiteLLM login/dashboard access is needed; your personal LiteLLM identity owns the GitHub connection.');
     console.error(`Desktop: if Gateway already uses this helper, relaunch it. Otherwise import ${desktopPath} in Developer > Configure Third-Party Inference and apply/relaunch.`);
     console.error('Restart existing Claude sessions to discard any previously cached credentials. Setup does not run inference or prove client feature parity.');
   } catch (error) {
@@ -148,12 +150,11 @@ async function main(argv = process.argv.slice(2)): Promise<void> {
   }
   const client = new EnterpriseClient();
   if (command === 'setup') {
-    if (!values.gateway || !values.audience || values['use-key'] || values['api-key-file']) {
-      throw new BridgeError('INVALID_OPTIONS', 'setup requires --gateway and --audience and does not accept a LiteLLM key.');
+    if (!values.gateway || values.audience || values['use-key'] || values['api-key-file']) {
+      throw new BridgeError('INVALID_OPTIONS', 'setup requires --gateway (the enterprise broker URL) and does not accept --audience or a LiteLLM key.');
     }
     await guidedSetup(client, {
       gateway: values.gateway,
-      audience: values.audience,
       ...(values.credential ? { credentialName: values.credential } : {}),
       apply: values.apply ?? false,
       noBrowser: values['no-browser'] ?? false,

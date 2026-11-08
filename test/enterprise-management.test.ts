@@ -36,12 +36,6 @@ class TokenAuthenticator implements EnterpriseAuthenticator {
 class FakeActions implements EnterpriseAdministrationActions {
   calls: Array<{ operation: string; input: ObjectValue }> = [];
 
-  provisionEmployee(value: EnterprisePrincipal) {
-    return this.called('provision-employee', { tenantId: value.tenantId, objectId: value.objectId });
-  }
-  revokeEmployeeSetupKey(value: EnterprisePrincipal, input: ObjectValue) {
-    return this.called('revoke-employee-setup-key', { tenantId: value.tenantId, objectId: value.objectId, ...input });
-  }
   private called(operation: string, input: ObjectValue): Promise<ObjectValue> {
     this.calls.push({ operation, input });
     return Promise.resolve({ status: 'ok', operation });
@@ -59,6 +53,7 @@ class FakeActions implements EnterpriseAdministrationActions {
   startEnrollment(input: ObjectValue) { return this.called('enrollment-start', input); }
   pollEnrollment(input: ObjectValue) { return this.called('enrollment-poll', input); }
   completeEnrollment(input: ObjectValue) { return this.called('enrollment-complete', input); }
+  revokeGitHubUser(input: ObjectValue) { return this.called('revoke-github-user', input); }
   reconcileJwtMappings() { return this.called('reconcile-jwt-mappings', {}); }
   status() { return this.called('status', {}); }
 }
@@ -71,7 +66,8 @@ function brokerDependencies() {
     issueApiKey: async () => { throw new Error('not used'); },
     revokeApiKey: async () => { throw new Error('not used'); },
     createEnrollment: async () => { throw new Error('not used'); },
-    reusableEnrollmentUser: async () => null,
+    enrollmentUser: async () => null,
+    revokeGitHubAccount: async () => { throw new Error('not used'); },
     enrollment: async () => { throw new Error('not used'); },
     setEnrollmentFlow: async () => { throw new Error('not used'); },
     beginEnrollmentCompletion: async () => { throw new Error('not used'); },
@@ -106,62 +102,6 @@ test('broker administration routes require CCGC.Admin before executing actions',
     ...brokerDependencies(),
   });
 
-  test('employee setup requires Entra and rejects caller-supplied identity fields', async () => {
-    const actions = new FakeActions();
-    const entraPrincipal = { ...principal, authentication: 'entra' as const };
-    const server = await startEnterpriseServer({
-      authenticator: new TokenAuthenticator('entra-token', entraPrincipal),
-      setupAuthenticator: new TokenAuthenticator('entra-token', entraPrincipal),
-      adminAuthenticator: new TokenAuthenticator('admin-role'),
-      adminActions: actions,
-      inferenceGateway: 'https://litellm.example',
-      ...brokerDependencies(),
-    });
-    try {
-      const request = (token: string, body: ObjectValue) => fetch(
-        `http://127.0.0.1:${server.port}/ccgc/enterprise/setup/provision`,
-        {
-          method: 'POST',
-          headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' },
-          body: JSON.stringify(body),
-        },
-      );
-      const rejectedIdentity = await request('entra-token', { objectId: '33333333-3333-3333-3333-333333333333' });
-      assert.equal(rejectedIdentity.status, 400);
-      assert.equal(actions.calls.length, 0);
-
-      const apiKeyPrincipal = { ...entraPrincipal, authentication: 'apiKey' as const };
-      const apiKeyServer = await startEnterpriseServer({
-        authenticator: new TokenAuthenticator('api-key', apiKeyPrincipal),
-        setupAuthenticator: new TokenAuthenticator('api-key', apiKeyPrincipal),
-        adminAuthenticator: new TokenAuthenticator('admin-role'),
-        adminActions: actions,
-        inferenceGateway: 'https://litellm.example',
-        ...brokerDependencies(),
-      });
-      try {
-        const rejectedApiKey = await fetch(`http://127.0.0.1:${apiKeyServer.port}/ccgc/enterprise/setup/provision`, {
-          method: 'POST',
-          headers: { authorization: 'Bearer api-key', 'content-type': 'application/json' },
-          body: '{}',
-        });
-        assert.equal(rejectedApiKey.status, 403);
-        assert.equal(actions.calls.length, 0);
-      } finally {
-        await apiKeyServer.close();
-      }
-
-      const response = await request('entra-token', {});
-      assert.equal(response.status, 200);
-      assert.equal(response.headers.get('cache-control'), 'no-store');
-      assert.deepEqual(actions.calls, [{
-        operation: 'provision-employee',
-        input: { tenantId: principal.tenantId, objectId: principal.objectId },
-      }]);
-    } finally {
-      await server.close();
-    }
-  });
   try {
     const employee = await fetch(`http://127.0.0.1:${server.port}/ccgc/admin/users`, {
       method: 'POST',
@@ -201,6 +141,24 @@ test('broker administration routes require CCGC.Admin before executing actions',
       operation: 'create-api-key',
       input: { tenantId: principal.tenantId, objectId: principal.objectId, label: 'pilot' },
     });
+
+    const revokeRequest = (token: string) => fetch(`http://127.0.0.1:${server.port}/ccgc/admin/github-users/revoke`, {
+      method: 'POST',
+      headers: { authorization: ['Bearer', token].join(' '), 'content-type': 'application/json' },
+      body: JSON.stringify({ githubLogin: 'developer' }),
+    });
+    assert.equal((await revokeRequest('employee-role')).status, 403);
+    assert.equal(actions.calls.length, 2);
+    assert.equal((await revokeRequest('admin-role')).status, 200);
+    assert.deepEqual(actions.calls[2], { operation: 'revoke-github-user', input: { githubLogin: 'developer' } });
+
+    const retiredSetup = await fetch(`http://127.0.0.1:${server.port}/ccgc/enterprise/setup/provision`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: '{}',
+    });
+    assert.equal(retiredSetup.status, 404);
+    assert.equal(actions.calls.length, 3);
 
   } finally {
     await server.close();
@@ -547,31 +505,70 @@ test('self-service enrollment validates GitHub identity and legacy identity hint
   );
 });
 
-test('self-service enrollment is retry-safe and consumes temporary secrets after acknowledgment', async () => {
-  const secrets = new Map<string, string>();
-  let enrollment: EnterpriseEnrollment | undefined;
-  let codeHash = '';
-  let consumed = false;
-  let linkCalls = 0;
+const masterKey = `sk-${'m'.repeat(32)}`;
+const pendingKey = `sk-${'p'.repeat(32)}`;
+const employeeKey = `sk-${'e'.repeat(32)}`;
+
+interface LiteLLMCall {
+  method: string;
+  path: string;
+  authorization: string | null;
+  body?: ObjectValue;
+}
+
+function recordingFetcher(handle: (call: LiteLLMCall) => Response | undefined) {
+  const calls: LiteLLMCall[] = [];
+  const fetcher = (async (input, init) => {
+    const url = new URL(String(input));
+    const path = url.origin === 'https://litellm.internal' ? `${url.pathname}${url.search}` : url.href;
+    const body = init?.body ? object(JSON.parse(String(init.body))) : undefined;
+    const call: LiteLLMCall = {
+      method: init?.method ?? 'GET',
+      path,
+      authorization: new Headers(init?.headers).get('authorization'),
+      ...(body ? { body } : {}),
+    };
+    calls.push(call);
+    if (path === 'https://api.github.com/users/developer') {
+      return Response.json({ login: 'developer', id: 12345, type: 'User' });
+    }
+    const response = handle(call);
+    if (!response) throw new Error(`unexpected ${call.method} ${path}`);
+    return response;
+  }) as typeof fetch;
+  return { calls, fetcher };
+}
+
+function memorySecrets() {
+  const values = new Map<string, string>();
+  return {
+    values,
+    secrets: {
+      set: async (name: string, value: string) => { values.set(name, value); },
+      get: async (name: string) => {
+        const value = values.get(name);
+        if (!value) throw new Error(`missing secret ${name}`);
+        return value;
+      },
+      remove: async (name: string) => { values.delete(name); },
+    },
+  };
+}
+
+function enrollmentStore(existingUser: string | null = null) {
+  const state: { enrollment?: EnterpriseEnrollment; codeHash: string; consumed: boolean } = { codeHash: '', consumed: false };
   const store = {
-    reusableEnrollmentUser: async () => null,
-    createEnrollment: async (input: {
-      codeHash: string;
-      tenantId: string;
-      objectId: string;
-      userEmail: string;
-      userAlias: string;
-      githubAccountId: number;
-      githubLogin: string;
-      credentialSecretName: string;
-      pendingSecretName: string;
-      models: string[];
-      ttlSeconds: number;
-    }) => {
+    enrollmentUser: async (tenantId: string, githubAccountId: number) => {
+      assert.equal(tenantId, principal.tenantId);
+      assert.equal(githubAccountId, 12345);
+      return existingUser;
+    },
+    createEnrollment: async (input: Parameters<EnterpriseStore['createEnrollment']>[0]) => {
       assert.equal(input.ttlSeconds, 60 * 60);
-      codeHash = input.codeHash;
-      enrollment = {
-        id: '33333333-3333-3333-3333-333333333333',
+      state.codeHash = input.codeHash;
+      state.consumed = false;
+      state.enrollment = {
+        id: '33333333-3333-4333-8333-333333333333',
         tenantId: input.tenantId,
         objectId: input.objectId,
         userEmail: input.userEmail,
@@ -584,395 +581,296 @@ test('self-service enrollment is retry-safe and consumes temporary secrets after
         status: 'pending',
         expiresAt: '2099-01-01T00:00:00.000Z',
       };
-      return { id: enrollment.id, expiresAt: enrollment.expiresAt };
+      return { id: state.enrollment.id, expiresAt: state.enrollment.expiresAt };
     },
-    enrollment: async (actualCodeHash: string) => {
-      assert.equal(actualCodeHash, codeHash);
-      if (!enrollment || consumed) throw new BridgeError('GATEWAY_AUTH_REQUIRED', 'used', 401);
-      return { ...enrollment };
+    enrollment: async (codeHash: string) => {
+      if (!state.enrollment || state.consumed || codeHash !== state.codeHash) {
+        throw new BridgeError('GATEWAY_AUTH_REQUIRED', 'used', 401);
+      }
+      return { ...state.enrollment };
     },
-    setEnrollmentFlow: async (id: string, flowHandle: string) => {
-      assert.equal(id, enrollment?.id);
-      if (!enrollment) throw new Error('missing enrollment');
-      enrollment = {
-        ...enrollment,
-        flowHandle,
-        flowExpiresAt: '2099-01-01T00:00:00.000Z',
-        status: 'authorizing',
-      };
+    setEnrollmentFlow: async (_id: string, flowHandle: string) => {
+      state.enrollment = { ...state.enrollment!, flowHandle, flowExpiresAt: '2099-01-01T00:00:00.000Z', status: 'authorizing' };
     },
-    beginEnrollmentCompletion: async (id: string) => {
-      assert.equal(id, enrollment?.id);
-      if (!enrollment || enrollment.status !== 'authorizing') return false;
-      enrollment = { ...enrollment, status: 'finalizing' };
+    beginEnrollmentCompletion: async () => {
+      if (state.enrollment?.status !== 'authorizing') return false;
+      state.enrollment = { ...state.enrollment, status: 'finalizing' };
       return true;
     },
-    issueApiKey: async () => ({
-      id: '44444444-4444-4444-4444-444444444444',
-      apiKey: `ccgc_sk_${'k'.repeat(43)}`,
-      expiresAt: '2099-01-01T00:00:00.000Z',
-    }),
-    completeEnrollment: async (id: string, outputSecretName: string) => {
-      assert.equal(id, enrollment?.id);
-      if (!enrollment || enrollment.status !== 'finalizing') throw new Error('invalid completion state');
-      enrollment = { ...enrollment, outputSecretName, status: 'completed' };
+    completeEnrollment: async (_id: string, outputSecretName: string) => {
+      assert.equal(state.enrollment?.status, 'finalizing');
+      state.enrollment = { ...state.enrollment!, outputSecretName, status: 'completed' };
     },
-    consumeEnrollment: async (id: string) => {
-      assert.equal(id, enrollment?.id);
-      consumed = true;
-    },
+    consumeEnrollment: async () => { state.consumed = true; },
     close: async () => undefined,
   };
-  const management = new EnterpriseManagement({
+  return { state, store: store as unknown as PostgresEnterpriseStore };
+}
+
+function enrollmentManagement(
+  store: PostgresEnterpriseStore,
+  secrets: ReturnType<typeof memorySecrets>['secrets'],
+  fetcher: typeof fetch,
+  models = ['claude-sonnet-5.5'],
+) {
+  return new EnterpriseManagement({
     litellmUrl: 'https://litellm.internal',
-    litellmMasterKey: `sk-${'m'.repeat(32)}`,
-    postgresUrl: 'postgresql://broker@postgres.internal/postgres?sslmode=require',
-    tenantId: principal.tenantId,
-    enrollmentModels: ['claude-sonnet-5.5'],
-    enrollmentSecrets: {
-      set: async (name, value) => { secrets.set(name, value); },
-      get: async name => {
-        const value = secrets.get(name);
-        if (!value) throw new Error(`missing secret ${name}`);
-        return value;
-      },
-      remove: async name => { secrets.delete(name); },
-    },
-    storeFactory: () => store as unknown as PostgresEnterpriseStore,
-    fetcher: (async input => {
-      const url = String(input);
-      if (url === 'https://api.github.com/users/developer') {
-        return Response.json({ login: 'developer', id: 12345, type: 'User' });
-      }
-      if (url.endsWith('/user/new')) {
-        return Response.json({ user_id: '55555555-5555-4555-8555-555555555555', key: `sk-${'u'.repeat(32)}` });
-      }
-      if (url.endsWith('/credentials/user_connections')) return Response.json({ connections: [] });
-      if (url.endsWith('/user_connection/start')) {
-        return Response.json({
-          verification_uri: 'https://github.com/login/device',
-          user_code: 'ABCD-1234',
-          flow_handle: 'opaque-flow',
-          expires_in: 900,
-          interval: 5,
-        });
-      }
-      if (url.endsWith('/user_connection/poll')) {
-        return Response.json({ status: 'connected', github_login: 'developer' });
-      }
-      throw new Error(`unexpected URL ${url}`);
-    }) as typeof fetch,
-  });
-  management.link = async input => {
-    linkCalls += 1;
-    assert.equal(input.githubLogin, 'developer');
-    return { status: 'linked' };
-  };
-
-  const created = await management.createEnrollment({
-    userEmail: 'developer@example.com',
-    githubLogin: 'developer',
-  });
-  const code = String(created.code);
-  assert.match(code, /^CCGC-[A-Za-z0-9_-]{24}$/);
-  assert.equal(JSON.stringify(store).includes(code), false);
-  assert.equal(enrollment?.tenantId, principal.tenantId);
-  assert.equal(enrollment?.userAlias, 'developer');
-  assert.equal(enrollment?.githubAccountId, 12345);
-  assert.deepEqual(enrollment?.models, ['claude-sonnet-5.5']);
-
-  const started = await management.startEnrollment({ code });
-  assert.equal(started.status, 'authorization_required');
-  const completed = await management.pollEnrollment({ code });
-  assert.equal(completed.status, 'completed');
-  assert.equal(completed.apiKey, `ccgc_sk_${'k'.repeat(43)}`);
-  assert.equal(linkCalls, 1);
-
-  const retried = await management.pollEnrollment({ code });
-  assert.deepEqual(retried, completed);
-  assert.equal(linkCalls, 1);
-
-  const acknowledged = await management.completeEnrollment({ code });
-  assert.deepEqual(acknowledged, { status: 'completed' });
-  assert.equal(consumed, true);
-  assert.equal(secrets.size, 0);
-  await assert.rejects(
-    () => management.pollEnrollment({ code }),
-    (error: unknown) => error instanceof BridgeError && error.code === 'GATEWAY_AUTH_REQUIRED',
-  );
-});
-
-test('self-service enrollment reuses an expired pending user without exposing recovery fields', async () => {
-  let createdInput: Record<string, unknown> | undefined;
-  let userCreationAttempted = false;
-  let userUpdated = false;
-  const store = {
-    reusableEnrollmentUser: async () => ({
-      objectId: '55555555-5555-4555-8555-555555555555',
-      pendingSecretName: 'ccgc-enrollment-pending-expired',
-    }),
-    createEnrollment: async (input: Record<string, unknown>) => {
-      createdInput = input;
-      return {
-        id: '33333333-3333-4333-8333-333333333333',
-        expiresAt: '2099-01-01T00:00:00.000Z',
-      };
-    },
-    close: async () => undefined,
-  };
-  const management = new EnterpriseManagement({
-    litellmUrl: 'https://litellm.internal',
-    litellmMasterKey: `sk-${'m'.repeat(32)}`,
-    postgresUrl: 'postgresql://broker@postgres.internal/postgres?sslmode=require',
-    tenantId: principal.tenantId,
-    enrollmentModels: ['claude-sonnet-5.5', 'claude-opus-5.5'],
-    enrollmentSecrets: {
-      set: async () => undefined,
-      get: async name => {
-        assert.equal(name, 'ccgc-enrollment-pending-expired');
-        return `sk-${'u'.repeat(32)}`;
-      },
-      remove: async () => undefined,
-    },
-    storeFactory: () => store as unknown as PostgresEnterpriseStore,
-    fetcher: (async (input, init) => {
-      const url = String(input);
-      if (url === 'https://api.github.com/users/marina-marenkov') {
-        return Response.json({ login: 'marina-marenkov', id: 97739755, type: 'User' });
-      }
-      if (url === 'https://litellm.internal/user/update') {
-        userUpdated = true;
-        assert.deepEqual(JSON.parse(String(init?.body)), {
-          user_id: '55555555-5555-4555-8555-555555555555',
-          models: ['claude-sonnet-5.5', 'claude-opus-5.5'],
-        });
-        return Response.json({ status: 'success' });
-      }
-      if (url.endsWith('/user/new')) userCreationAttempted = true;
-      throw new Error(`unexpected URL ${url}`);
-    }) as typeof fetch,
-  });
-
-  const result = await management.createEnrollment({
-    userEmail: 'mmarenkov@microsoft.com',
-    githubLogin: 'marina-marenkov',
-  });
-
-  assert.equal(userCreationAttempted, false);
-  assert.equal(userUpdated, true);
-  assert.equal(result.objectId, '55555555-5555-4555-8555-555555555555');
-  assert.equal(createdInput?.objectId, '55555555-5555-4555-8555-555555555555');
-  assert.deepEqual(createdInput?.models, ['claude-sonnet-5.5', 'claude-opus-5.5']);
-});
-
-test('self-service enrollment completes when GitHub is already connected', async () => {
-  const pendingSecretName = 'ccgc-enrollment-pending-11111111111141118111111111111111';
-  let enrollment: EnterpriseEnrollment = {
-    id: '33333333-3333-4333-8333-333333333333',
-    tenantId: principal.tenantId,
-    objectId: principal.objectId,
-    userEmail: 'developer@example.com',
-    userAlias: 'developer',
-    githubAccountId: 12345,
-    githubLogin: 'developer',
-    credentialSecretName: 'ccgc-user-22222222222242228222222222222222',
-    pendingSecretName,
-    models: ['claude-sonnet-4-5'],
-    status: 'pending',
-    expiresAt: '2099-01-01T00:00:00.000Z',
-  };
-  const secrets = new Map([[pendingSecretName, `sk-${'u'.repeat(32)}`]]);
-  let linkCalls = 0;
-  const management = new EnterpriseManagement({
-    litellmUrl: 'https://litellm.internal',
-    litellmMasterKey: `sk-${'m'.repeat(32)}`,
-    postgresUrl: 'postgresql://broker@postgres.internal/postgres?sslmode=require',
-    tenantId: principal.tenantId,
-    enrollmentModels: ['claude-sonnet-5.5'],
-    enrollmentSecrets: {
-      set: async (name, value) => { secrets.set(name, value); },
-      get: async name => {
-        const value = secrets.get(name);
-        if (!value) throw new Error(`missing secret ${name}`);
-        return value;
-      },
-      remove: async name => { secrets.delete(name); },
-    },
-    storeFactory: () => ({
-      enrollment: async () => ({ ...enrollment }),
-      beginEnrollmentCompletion: async () => {
-        if (enrollment.status !== 'pending' && enrollment.status !== 'authorizing') return false;
-        enrollment = { ...enrollment, status: 'finalizing' };
-        return true;
-      },
-      issueApiKey: async () => ({
-        id: '44444444-4444-4444-8444-444444444444',
-        apiKey: `ccgc_sk_${'k'.repeat(43)}`,
-        expiresAt: '2099-01-01T00:00:00.000Z',
-      }),
-      completeEnrollment: async (_id: string, outputSecretName: string) => {
-        enrollment = { ...enrollment, outputSecretName, status: 'completed' };
-      },
-      close: async () => undefined,
-    }) as unknown as PostgresEnterpriseStore,
-    fetcher: (async input => {
-      assert.ok(String(input).endsWith('/credentials/user_connections'));
-      return Response.json({
-        connections: [{
-          credential_name: 'github-copilot-user',
-          connected: true,
-          github_login: 'developer',
-        }],
-      });
-    }) as typeof fetch,
-  });
-  management.link = async () => {
-    linkCalls += 1;
-    return { status: 'linked' };
-  };
-
-  const completed = await management.startEnrollment({ code: `CCGC-${'a'.repeat(24)}` });
-  assert.equal(completed.status, 'completed');
-  assert.equal(completed.apiKey, `ccgc_sk_${'k'.repeat(43)}`);
-  assert.equal(linkCalls, 1);
-});
-
-test('self-service enrollment can recover an existing isolated LiteLLM user', async () => {
-  const storedSecrets = new Map<string, string>();
-  let createdInput: Record<string, unknown> | undefined;
-  const management = new EnterpriseManagement({
-    litellmUrl: 'https://litellm.internal',
-    litellmMasterKey: `sk-${'m'.repeat(32)}`,
-    postgresUrl: 'postgresql://broker@postgres.internal/postgres?sslmode=require',
-    tenantId: principal.tenantId,
-    enrollmentModels: ['claude-sonnet-5.5'],
-    enrollmentSecrets: {
-      set: async (name, value) => { storedSecrets.set(name, value); },
-      get: async () => { throw new Error('not used'); },
-      remove: async name => { storedSecrets.delete(name); },
-    },
-    storeFactory: () => ({
-      createEnrollment: async (input: Record<string, unknown>) => {
-        createdInput = input;
-        return { id: '33333333-3333-3333-3333-333333333333', expiresAt: '2099-01-01T00:00:00.000Z' };
-      },
-      close: async () => undefined,
-    }) as unknown as PostgresEnterpriseStore,
-    fetcher: (async input => {
-      if (String(input) === 'https://api.github.com/users/developer') {
-        return Response.json({ login: 'developer', id: 12345, type: 'User' });
-      }
-      throw new Error('existing user recovery must not create another LiteLLM user');
-    }) as typeof fetch,
-  });
-
-  const result = await management.createEnrollment({
-    tenantId: principal.tenantId,
-    objectId: principal.objectId,
-    litellmApiKey: `sk-${'u'.repeat(32)}`,
-    userEmail: 'developer@example.com',
-    userAlias: 'developer',
-    githubAccountId: 12345,
-    githubLogin: 'developer',
-    models: ['claude-sonnet-4-5'],
-  });
-
-  assert.equal(result.objectId, principal.objectId);
-  assert.equal(createdInput?.objectId, principal.objectId);
-  assert.equal(createdInput?.tenantId, principal.tenantId);
-  assert.equal(createdInput?.userAlias, 'developer');
-  assert.deepEqual(createdInput?.models, ['claude-sonnet-5.5']);
-  assert.match(String(createdInput?.pendingSecretName), /^ccgc-enrollment-pending-[0-9a-f]{32}$/);
-  assert.notEqual(createdInput?.pendingSecretName, `ccgc-enrollment-pending-${principal.objectId.replaceAll('-', '')}`);
-  assert.deepEqual([...storedSecrets.values()], [`sk-${'u'.repeat(32)}`]);
-});
-
-test('employee provisioning reuses the verified internal user and scopes issued keys to approved models', async () => {
-  const entraPrincipal = { ...principal, authentication: 'entra' as const };
-  const models = ['claude-sonnet-5.5', 'claude-haiku-4.5'];
-  const calls: Array<{ path: string; body?: ObjectValue; authorization?: string }> = [];
-  let userExists = false;
-  let issued = 0;
-  const setupKey = `sk-${'p'.repeat(32)}`;
-  let keyOwner = principal.objectId;
-  const management = new EnterpriseManagement({
-    litellmUrl: 'https://litellm.internal',
-    litellmMasterKey: `sk-${'m'.repeat(32)}`,
+    litellmMasterKey: masterKey,
     postgresUrl: 'postgresql://broker@postgres.internal/postgres?sslmode=require',
     tenantId: principal.tenantId,
     enrollmentModels: models,
-    fetcher: (async (input, init) => {
-      const url = new URL(String(input));
-      const body = init?.body ? object(JSON.parse(String(init.body))) : undefined;
-      const authorization = new Headers(init?.headers).get('authorization') ?? undefined;
-      calls.push({ path: `${url.pathname}${url.search}`, ...(body ? { body } : {}), ...(authorization ? { authorization } : {}) });
-      if (url.pathname === '/user/info') {
-        if (!userExists) return Response.json({ error: 'missing' }, { status: 404 });
-        return Response.json({ user_info: {
-          user_id: principal.objectId,
-          user_alias: `ccgc-${principal.objectId}`,
-          user_role: 'internal_user',
-        } });
-      }
-      if (url.pathname === '/user/new') {
-        assert.deepEqual(body, {
-          user_id: principal.objectId,
-          user_alias: `ccgc-${principal.objectId}`,
-          user_role: 'internal_user',
-          models,
-          auto_create_key: false,
-          send_invite_email: false,
-        });
-        assert.equal(Object.hasOwn(body, 'user_email'), false);
-        userExists = true;
-        return Response.json({ user_id: principal.objectId });
-      }
-      if (url.pathname === '/user/update') {
-        assert.deepEqual(body, { user_id: principal.objectId, models });
-        return Response.json({ status: 'success' });
-      }
-      if (url.pathname === '/key/generate') {
-        assert.deepEqual(body, {
-          user_id: principal.objectId,
-          key_alias: 'ccgc-claude',
-          models,
-          duration: '90d',
-        });
-        issued += 1;
-        return Response.json({ key: setupKey });
-      }
-      if (url.pathname === '/key/info') {
-        assert.equal(authorization, `Bearer ${setupKey}`);
-        return Response.json({ info: { user_id: keyOwner, key_alias: 'ccgc-claude' } });
-      }
-      if (url.pathname === '/key/delete') {
-        assert.deepEqual(body, { keys: [setupKey] });
-        return Response.json({ deleted_keys: ['redacted-hash'] });
-      }
-      throw new Error(`unexpected URL ${url}`);
-    }) as typeof fetch,
+    enrollmentSecrets: secrets,
+    storeFactory: () => store,
+    fetcher,
   });
+}
 
-  const first = await management.provisionEmployee(entraPrincipal);
-  const second = await management.provisionEmployee(entraPrincipal);
-  assert.equal(first.apiKey, setupKey);
-  assert.equal(second.userId, principal.objectId);
-  assert.equal(first.userAlias, `ccgc-${principal.objectId}`);
-  assert.deepEqual(first.models, models);
-  assert.equal(calls.filter(call => call.path === '/user/new').length, 1);
+const isCode = (code: string) => (error: unknown) => error instanceof BridgeError && error.code === code;
+
+test('enrollment forces one GitHub device flow and issues a scoped 90-day LiteLLM key', async () => {
+  const { state, store } = enrollmentStore();
+  const { values, secrets } = memorySecrets();
+  let userId = '';
+  let employeeAlias = '';
+  const { calls, fetcher } = recordingFetcher(call => {
+    if (call.path.startsWith('/user/info?user_id=')) return Response.json({ error: 'missing' }, { status: 404 });
+    if (call.path === '/user/new') {
+      userId = String(call.body?.user_id);
+      assert.match(userId, /^[0-9a-f-]{36}$/);
+      assert.deepEqual(call.body, {
+        user_id: userId,
+        user_alias: 'developer',
+        user_role: 'internal_user',
+        models: ['claude-sonnet-5.5'],
+        auto_create_key: false,
+        send_invite_email: false,
+        metadata: {
+          ccgc_managed: true,
+          github_login: 'developer',
+          github_account_id: 12345,
+          ccgc_email: 'developer@example.com',
+        },
+      });
+      return Response.json({ user_id: userId });
+    }
+    if (call.path === '/key/generate' && call.body?.duration === '2h') {
+      assert.equal(call.authorization, ['Bearer', masterKey].join(' '));
+      assert.equal(call.body.user_id, userId);
+      assert.match(String(call.body.key_alias), /^ccgc-enroll-[0-9a-f-]{36}$/);
+      assert.deepEqual(call.body.allowed_routes, [
+        '/credentials/user_connections',
+        '/credentials/github-copilot-user/user_connection',
+      ]);
+      return Response.json({ key: pendingKey, expires: '2099-01-01T02:00:00Z' });
+    }
+    if (call.path === '/key/generate') {
+      employeeAlias = String(call.body?.key_alias);
+      assert.match(employeeAlias, /^ccgc-claude-[0-9a-f-]{36}$/);
+      assert.equal(call.body?.user_id, userId);
+      assert.equal(call.body?.duration, '90d');
+      assert.deepEqual(call.body?.models, ['claude-sonnet-5.5']);
+      assert.deepEqual(call.body?.allowed_routes, ['llm_api_routes', 'info_routes', '/credentials/user_connections']);
+      assert.equal(Object.hasOwn(call.body ?? {}, 'key_type'), false);
+      return Response.json({ key: employeeKey, expires: '2099-04-01T00:00:00Z' });
+    }
+    if (call.path === '/credentials/github-copilot-user/user_connection/start') {
+      assert.equal(call.authorization, ['Bearer', pendingKey].join(' '));
+      return Response.json({
+        verification_uri: 'https://github.com/login/device',
+        user_code: 'ABCD-1234',
+        flow_handle: 'opaque-flow',
+        expires_in: 900,
+        interval: 5,
+      });
+    }
+    if (call.path === '/credentials/github-copilot-user/user_connection/poll') {
+      assert.equal(call.authorization, ['Bearer', pendingKey].join(' '));
+      assert.deepEqual(call.body, { flow_handle: 'opaque-flow' });
+      return Response.json({ status: 'connected', github_login: 'developer' });
+    }
+    if (call.path.startsWith('/key/list?')) {
+      assert.equal(call.path, `/key/list?user_id=${userId}&page=1&size=100&return_full_object=true`);
+      return Response.json({
+        keys: [
+          { token: 'hash-old', key_alias: 'ccgc-claude-old' },
+          { token: 'hash-pending', key_alias: 'ccgc-enroll-old' },
+          { token: 'hash-new', key_alias: employeeAlias },
+        ],
+        total_pages: 1,
+      });
+    }
+    if (call.path === '/key/delete') {
+      assert.deepEqual(call.body, { keys: ['hash-old', 'hash-pending'] });
+      return Response.json({ deleted_keys: ['hash-old', 'hash-pending'] });
+    }
+    return undefined;
+  });
+  const management = enrollmentManagement(store, secrets, fetcher);
+
+  const created = await management.createEnrollment({ userEmail: 'developer@example.com', githubLogin: 'developer' });
+  const code = String(created.code);
+  assert.match(code, /^CCGC-[A-Za-z0-9_-]{24}$/);
+  assert.equal(created.objectId, userId);
+  assert.equal(JSON.stringify(state).includes(code), false);
+  assert.deepEqual([...values.values()], [pendingKey]);
+
+  await assert.rejects(() => management.startEnrollment({ code }), isCode('CLIENT_UPGRADE_REQUIRED'));
+  const started = await management.startEnrollment({ code, credentialType: 'litellm' });
+  assert.deepEqual(started, {
+    status: 'authorization_required',
+    verificationUri: 'https://github.com/login/device',
+    userCode: 'ABCD-1234',
+    expiresIn: 900,
+    interval: 5,
+    githubLogin: 'developer',
+  });
+  assert.equal(calls.some(call => call.path === '/credentials/user_connections'), false);
+
+  const completed = await management.pollEnrollment({ code, credentialType: 'litellm' });
+  assert.deepEqual(completed, {
+    status: 'completed',
+    apiKey: employeeKey,
+    apiKeyExpiresAt: '2099-04-01T00:00:00.000Z',
+    litellmUserId: userId,
+    litellmCredentialName: 'github-copilot-user',
+    githubLogin: 'developer',
+    githubAccountId: 12345,
+    models: ['claude-sonnet-5.5'],
+  });
+  assert.deepEqual(await management.pollEnrollment({ code, credentialType: 'litellm' }), completed);
+  assert.deepEqual(await management.startEnrollment({ code, credentialType: 'litellm' }), completed);
   assert.equal(calls.filter(call => call.path === '/key/generate').length, 2);
-  assert.equal(issued, 2);
 
-  keyOwner = '33333333-3333-3333-3333-333333333333';
+  assert.deepEqual(await management.completeEnrollment({ code }), { status: 'completed', replacedKeys: 2 });
+  assert.equal(state.consumed, true);
+  assert.equal(values.size, 0);
+  await assert.rejects(() => management.pollEnrollment({ code, credentialType: 'litellm' }), isCode('GATEWAY_AUTH_REQUIRED'));
+});
+
+test('re-enrollment reuses the GitHub account’s LiteLLM user and rejects unsafe input', async () => {
+  const existing = '55555555-5555-4555-8555-555555555555';
+  let role = 'internal_user';
+  const { state, store } = enrollmentStore(existing);
+  const { secrets } = memorySecrets();
+  const { calls, fetcher } = recordingFetcher(call => {
+    if (call.path === `/user/info?user_id=${existing}`) {
+      return Response.json({ user_id: existing, user_info: { user_id: existing, user_role: role } });
+    }
+    if (call.path === '/user/update') {
+      assert.deepEqual(call.body, {
+        user_id: existing,
+        user_alias: 'developer',
+        models: ['claude-sonnet-5.5', 'claude-opus-5.5'],
+      });
+      return Response.json({ status: 'success' });
+    }
+    if (call.path === '/key/generate') return Response.json({ key: pendingKey, expires: '2099-01-01T02:00:00Z' });
+    return undefined;
+  });
+  const management = enrollmentManagement(store, secrets, fetcher, ['claude-sonnet-5.5', 'claude-opus-5.5']);
+
   await assert.rejects(
-    () => management.revokeEmployeeSetupKey(entraPrincipal, { apiKey: setupKey }),
-    (error: unknown) => error instanceof BridgeError && error.code === 'ACCESS_DENIED',
+    () => management.createEnrollment({ githubLogin: 'developer', objectId: existing, litellmApiKey: pendingKey }),
+    isCode('INVALID_REQUEST'),
   );
-  assert.equal(calls.some(call => call.path === '/key/delete'), false);
-  keyOwner = principal.objectId;
-  assert.deepEqual(await management.revokeEmployeeSetupKey(entraPrincipal, { apiKey: setupKey }), { status: 'revoked' });
   await assert.rejects(
-    () => management.provisionEmployee({ ...entraPrincipal, authentication: 'apiKey' }),
-    (error: unknown) => error instanceof BridgeError && error.code === 'ACCESS_DENIED',
+    () => management.createEnrollment({ githubLogin: 'developer', userEmail: 'not-an-email' }),
+    isCode('INVALID_REQUEST'),
   );
+  assert.equal(calls.length, 0);
+
+  const created = await management.createEnrollment({ githubLogin: 'developer' });
+  assert.equal(created.objectId, existing);
+  assert.equal(state.enrollment?.objectId, existing);
+  assert.equal(state.enrollment?.userEmail, '');
+  assert.equal(calls.some(call => call.path === '/user/new'), false);
+
+  role = 'proxy_admin';
+  const generated = calls.filter(call => call.path === '/key/generate').length;
+  await assert.rejects(() => management.createEnrollment({ githubLogin: 'developer' }), isCode('IDENTITY_CONFLICT'));
+  assert.equal(calls.filter(call => call.path === '/key/generate').length, generated);
+});
+
+test('enrollment disconnects and rejects a different approving GitHub account', async () => {
+  const { store } = enrollmentStore();
+  const { secrets } = memorySecrets();
+  const { calls, fetcher } = recordingFetcher(call => {
+    if (call.path.startsWith('/user/info?user_id=')) return Response.json({ error: 'missing' }, { status: 404 });
+    if (call.path === '/user/new') return Response.json({ user_id: call.body?.user_id });
+    if (call.path === '/key/generate') return Response.json({ key: pendingKey, expires: '2099-01-01T02:00:00Z' });
+    if (call.path.endsWith('/user_connection/start')) {
+      return Response.json({
+        verification_uri: 'https://github.com/login/device',
+        user_code: 'ABCD-1234',
+        flow_handle: 'opaque-flow',
+        expires_in: 900,
+        interval: 5,
+      });
+    }
+    if (call.path.endsWith('/user_connection/poll')) return Response.json({ status: 'connected', github_login: 'another-user' });
+    if (call.method === 'DELETE' && call.path === '/credentials/github-copilot-user/user_connection') {
+      assert.equal(call.authorization, ['Bearer', pendingKey].join(' '));
+      return Response.json({ status: 'disconnected' });
+    }
+    return undefined;
+  });
+  const management = enrollmentManagement(store, secrets, fetcher);
+  const code = String((await management.createEnrollment({ githubLogin: 'developer' })).code);
+  await management.startEnrollment({ code, credentialType: 'litellm' });
+  await assert.rejects(() => management.pollEnrollment({ code, credentialType: 'litellm' }), isCode('IDENTITY_CONFLICT'));
+  assert.equal(calls.filter(call => call.method === 'DELETE').length, 1);
+  assert.equal(calls.filter(call => call.path === '/key/generate').length, 1);
+});
+
+test('offboarding disconnects Copilot, deletes the LiteLLM user, and removes enrollment secrets', async () => {
+  const active = '55555555-5555-4555-8555-555555555555';
+  const missing = '66666666-6666-4666-8666-666666666666';
+  const cleanupKey = `sk-${'c'.repeat(32)}`;
+  let revocation = { objectIds: [active, missing], secretNames: ['ccgc-enrollment-output-x'], revokedEnrollments: 1 };
+  const { values, secrets } = memorySecrets();
+  values.set('ccgc-enrollment-output-x', '{}');
+  const store = {
+    revokeGitHubAccount: async (tenantId: string, githubAccountId: number) => {
+      assert.equal(tenantId, principal.tenantId);
+      assert.equal(githubAccountId, 12345);
+      return revocation;
+    },
+    close: async () => undefined,
+  } as unknown as PostgresEnterpriseStore;
+  const { calls, fetcher } = recordingFetcher(call => {
+    if (call.path === `/user/info?user_id=${active}`) {
+      return Response.json({ user_info: { user_id: active, user_role: 'internal_user' } });
+    }
+    if (call.path === `/user/info?user_id=${missing}`) return Response.json({ error: 'missing' }, { status: 404 });
+    if (call.path === '/key/generate') {
+      assert.equal(call.body?.user_id, active);
+      assert.equal(call.body?.duration, '10m');
+      assert.deepEqual(call.body?.allowed_routes, ['/credentials/github-copilot-user/user_connection']);
+      return Response.json({ key: cleanupKey, expires: '2099-01-01T00:10:00Z' });
+    }
+    if (call.method === 'DELETE' && call.path === '/credentials/github-copilot-user/user_connection') {
+      assert.equal(call.authorization, ['Bearer', cleanupKey].join(' '));
+      return Response.json({ status: 'disconnected' });
+    }
+    if (call.path === '/user/delete') {
+      assert.deepEqual(call.body, { user_ids: [active] });
+      return Response.json({ deleted_users: [active] });
+    }
+    return undefined;
+  });
+  const management = enrollmentManagement(store, secrets, fetcher);
+
+  assert.deepEqual(await management.revokeGitHubUser({ githubLogin: 'developer' }), {
+    status: 'revoked',
+    githubLogin: 'developer',
+    githubAccountId: 12345,
+    deletedLiteLLMUsers: 1,
+    revokedEnrollments: 1,
+  });
+  const paths = calls.map(call => call.path);
+  assert.ok(paths.indexOf('/credentials/github-copilot-user/user_connection') < paths.indexOf('/user/delete'));
+  assert.equal(values.size, 0);
+
+  revocation = { objectIds: [], secretNames: [], revokedEnrollments: 0 };
+  await assert.rejects(() => management.revokeGitHubUser({ githubLogin: 'developer' }), isCode('NOT_FOUND'));
 });

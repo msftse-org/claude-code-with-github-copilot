@@ -1,0 +1,153 @@
+name: CCGC employee access
+
+# Run from the Actions tab. "enroll" creates a one-time setup code bound to the
+# employee's GitHub account; "revoke" removes all CCGC access for that account.
+on:
+  workflow_dispatch:
+    inputs:
+      action:
+        description: enroll issues a one-time setup code; revoke removes the employee's LiteLLM user, keys, and Copilot connection
+        type: choice
+        options:
+          - enroll
+          - revoke
+        default: enroll
+        required: true
+      github_username:
+        description: Employee GitHub username (the account must have a GitHub Copilot seat)
+        type: string
+        required: true
+      email:
+        description: Optional work email recorded on the LiteLLM user (enroll only)
+        type: string
+        required: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ccgc-employee-access-${{ inputs.github_username }}
+  cancel-in-progress: false
+
+jobs:
+  access:
+    name: ${{ inputs.action }} ${{ inputs.github_username }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment: ccgc-admin
+    permissions:
+      contents: read
+      id-token: write
+    env:
+      ACTION: ${{ inputs.action }}
+      GITHUB_USERNAME: ${{ inputs.github_username }}
+      EMPLOYEE_EMAIL: ${{ inputs.email }}
+      CCGC_BROKER_URL: ${{ vars.CCGC_BROKER_URL }}
+      CCGC_ADMIN_AUDIENCE: ${{ vars.CCGC_ADMIN_AUDIENCE }}
+    steps:
+      - name: Validate request
+        run: |
+          set -euo pipefail
+          fail() { echo "::error::$1"; exit 1; }
+          [[ "$ACTION" == enroll || "$ACTION" == revoke ]] || fail 'Unsupported action.'
+          [[ "$GITHUB_USERNAME" =~ ^[A-Za-z0-9]([A-Za-z0-9-]{0,37}[A-Za-z0-9])?$ ]] \
+            || fail 'github_username is not a valid GitHub username.'
+          if [[ -n "$EMPLOYEE_EMAIL" ]]; then
+            [[ "$ACTION" == enroll ]] || fail 'email applies only to enroll.'
+            [[ ${#EMPLOYEE_EMAIL} -le 254 && "$EMPLOYEE_EMAIL" =~ ^[^[:space:]@]+@[^[:space:]@]+$ ]] \
+              || fail 'email is not a valid address.'
+          fi
+          [[ "$CCGC_BROKER_URL" =~ ^https://[A-Za-z0-9.-]+(:[0-9]+)?/?$ ]] \
+            || fail 'Set the ccgc-admin environment variable CCGC_BROKER_URL to the broker HTTPS origin.'
+          [[ "$CCGC_ADMIN_AUDIENCE" =~ ^(api://)?[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12}$ ]] \
+            || fail 'Set the ccgc-admin environment variable CCGC_ADMIN_AUDIENCE to the broker API application ID.'
+
+      - name: Sign in with GitHub OIDC
+        uses: azure/login@v2
+        with:
+          client-id: ${{ vars.AZURE_CLIENT_ID }}
+          tenant-id: ${{ vars.AZURE_TENANT_ID }}
+          allow-no-subscriptions: true
+
+      - name: Call the CCGC broker
+        run: |
+          set -euo pipefail
+          umask 077
+          fail() { echo "::error::$1"; exit 1; }
+          token="$(az account get-access-token --resource "$CCGC_ADMIN_AUDIENCE" --query accessToken --output tsv)"
+          [[ -n "$token" ]] || fail 'Entra did not return a broker access token.'
+          echo "::add-mask::$token"
+
+          if [[ "$ACTION" == enroll ]]; then
+            path=/ccgc/admin/enrollments
+            body="$(jq -cn --arg login "$GITHUB_USERNAME" --arg email "$EMPLOYEE_EMAIL" \
+              '{githubLogin: $login} + (if $email == "" then {} else {userEmail: $email} end)')"
+          else
+            path=/ccgc/admin/github-users/revoke
+            body="$(jq -cn --arg login "$GITHUB_USERNAME" '{githubLogin: $login}')"
+          fi
+
+          response="$RUNNER_TEMP/ccgc-response.json"
+          trap 'rm -f "$response"' EXIT
+          # The token is passed through curl's stdin config so it never appears in a process listing.
+          status="$(printf 'header = "Authorization: Bearer %s"\n' "$token" | curl --config - \
+            --silent --show-error --proto '=https' --tlsv1.2 --max-time 120 \
+            --header 'Content-Type: application/json' --data "$body" \
+            --output "$response" --write-out '%{http_code}' \
+            "${CCGC_BROKER_URL%/}$path")"
+          if [[ "$status" != 200 ]]; then
+            message="$(jq -r '.error.message // empty' "$response" 2>/dev/null | tr -d '\000-\037' | head -c 300 || true)"
+            fail "Broker returned HTTP $status${message:+: $message}"
+          fi
+
+          login="$(jq -r '.githubLogin // empty' "$response")"
+          [[ "$login" =~ ^[A-Za-z0-9]([A-Za-z0-9-]{0,37}[A-Za-z0-9])?$ ]] || fail 'Broker returned an invalid GitHub login.'
+
+          if [[ "$ACTION" == revoke ]]; then
+            users="$(jq -r '.deletedLiteLLMUsers' "$response")"
+            enrollments="$(jq -r '.revokedEnrollments' "$response")"
+            [[ "$users" =~ ^[0-9]+$ && "$enrollments" =~ ^[0-9]+$ ]] || fail 'Broker returned an invalid revocation result.'
+            {
+              echo "## CCGC access revoked for \`$login\`"
+              echo
+              echo "- Deleted LiteLLM users (with their keys and Copilot connection): $users"
+              echo "- Revoked enrollments: $enrollments"
+              echo
+              echo "Claude Code on the employee's Mac stops working on its next request."
+            } >> "$GITHUB_STEP_SUMMARY"
+            echo "Revoked CCGC access for $login."
+            exit 0
+          fi
+
+          code="$(jq -r '.code // empty' "$response")"
+          expires="$(jq -r '.expiresAt // empty' "$response")"
+          [[ "$code" =~ ^CCGC-[A-Za-z0-9_-]{24}$ ]] || fail 'Broker returned an invalid enrollment code.'
+          [[ "$expires" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9:.]+Z$ ]] || fail 'Broker returned an invalid expiry.'
+          # The code is written only to the run summary; it is never echoed to the log.
+          # It is single-use, expires in one hour, and only works when the named GitHub
+          # account approves the device code, so a copied code alone grants nothing.
+          {
+            echo "## CCGC enrollment for \`$login\`"
+            echo
+            echo "Send the message below to the employee through a private channel. It expires at **$expires** and works once."
+            echo
+            echo '```text'
+            echo "Your Claude Code (GitHub Copilot) access is ready."
+            echo
+            echo "One-time code: $code"
+            echo "Expires: $expires"
+            echo
+            echo "On your Mac (Node.js 24), from a checkout of"
+            echo "https://github.com/${GITHUB_REPOSITORY} run:"
+            echo
+            echo "  npm ci"
+            echo "  npm run enterprise:client -- setup --gateway ${CCGC_BROKER_URL%/} --apply"
+            echo
+            echo "Paste the one-time code when prompted, then approve the GitHub device"
+            echo "code while signed in to GitHub as $login. Then run: claude"
+            echo
+            echo "Your personal key lasts 90 days. Ask IT for a new code to renew it."
+            echo "Never share the code or key."
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+          echo "Enrollment created for $login; the one-time code is in the run summary and expires at $expires."

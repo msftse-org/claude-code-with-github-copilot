@@ -252,63 +252,117 @@ test('enterprise metadata is bounded and upstream authentication error bodies ar
   });
 });
 
-test('employee provisioning uses the Entra identity and rejects a different identity returned by the broker', async () => {
-  const tenantId = '11111111-1111-1111-1111-111111111111';
-  const objectId = '22222222-2222-2222-2222-222222222222';
-  const token = `${Buffer.from('{"alg":"none"}').toString('base64url')}.${Buffer.from(JSON.stringify({ tid: tenantId, oid: objectId })).toString('base64url')}.signature`;
-  const home = await mkdtemp(join(tmpdir(), 'ccgc-broker-setup-'));
-  try {
-    const client = new EnterpriseClient(home, {
+test('enrollment setup requires the GitHub account verified by the broker and never starts another device flow', async t => {
+  for (const scenario of ['missing', 'different'] as const) {
+    await t.test(scenario, async sub => {
+      const f = await fixture(sub);
+      f.state.connected = scenario === 'different';
+      f.state.githubLogin = 'other-github';
+      await assert.rejects(
+        setupEnterprise(f.client, origin, { apiKey: generatedKey }, { ...f.callbacks, verifiedGithubLogin: 'own-github' }),
+        { code: scenario === 'missing' ? 'GITHUB_CONNECTION_REQUIRED' : 'IDENTITY_CONFLICT' },
+      );
+      assert.deepEqual(f.devices, []);
+      assert.equal(f.calls.some(call => call.path.endsWith('/start')), false);
+      await f.unchanged();
+    });
+  }
+  const f = await fixture(t);
+  f.state.connected = true;
+  const profile = await setupEnterprise(f.client, origin, { apiKey: generatedKey }, { ...f.callbacks, verifiedGithubLogin: 'OWN-GITHUB' });
+  assert.equal(profile.githubLogin, 'own-github');
+  assert.deepEqual(f.devices, []);
+});
+
+test('enrollment codes exchange one GitHub approval for a validated personal LiteLLM key', async () => {
+  const broker = 'https://broker.example';
+  const code = `CCGC-${'a'.repeat(24)}`;
+  const userId = '55555555-5555-4555-8555-555555555555';
+  const completed = {
+    status: 'completed',
+    apiKey: generatedKey,
+    apiKeyExpiresAt: '2099-04-01T00:00:00Z',
+    litellmUserId: userId,
+    litellmCredentialName: credentialName,
+    githubLogin: 'own-github',
+    githubAccountId: 12345,
+    models,
+  };
+  const enrollmentClient = (responses: Record<string, ObjectValue[] | Response[]>, calls: Array<{ path: string; body?: ObjectValue }>) =>
+    new EnterpriseClient(tmpdir(), {
       async get() { throw new Error('not used'); },
       async set() { throw new Error('not used'); },
       async remove() { throw new Error('not used'); },
-    }, { async getToken(scope) {
-      assert.equal(scope, 'api://broker/.default');
-      return { token };
-    } }, async (input, init) => {
+    }, { async getToken() { throw new Error('Entra must not be used'); } }, async (input, init) => {
       const url = new URL(String(input));
-      assert.equal(url.origin, 'https://broker.example');
-      assert.equal(url.pathname, '/ccgc/enterprise/setup/provision');
-      assert.equal(init?.method, 'POST');
-      assert.equal(String(init?.body), '{}');
-      assert.equal(new Headers(init?.headers).get('authorization'), `Bearer ${token}`);
-      return Response.json({
-        tenantId,
-        objectId,
-        userId: objectId,
-        userAlias: `ccgc-${objectId}`,
-        apiKey: generatedKey,
-        models,
-        inferenceGateway: origin,
-      });
-    });
-    const provisioned = await client.provisionLiteLLMUser('https://broker.example', 'api://broker');
-    assert.equal(provisioned.userId, objectId);
-    assert.equal(provisioned.inferenceGateway, origin);
-    assert.deepEqual(provisioned.models, models);
-
-    const mismatched = new EnterpriseClient(home, client.secrets, client.credential, async () => Response.json({
-        tenantId,
-        objectId: '33333333-3333-3333-3333-333333333333',
-        userId: '33333333-3333-3333-3333-333333333333',
-        userAlias: 'ccgc-33333333-3333-3333-3333-333333333333',
-        apiKey: generatedKey,
-        models,
-        inferenceGateway: origin,
-      }));
-    await assert.rejects(mismatched.provisionLiteLLMUser('https://broker.example', 'api://broker'), {
-      code: 'IDENTITY_CONFLICT',
+      assert.equal(url.origin, broker);
+      assert.equal(init?.redirect, 'error');
+      assert.equal(new Headers(init?.headers).get('authorization'), null);
+      const body = init?.body ? object(JSON.parse(String(init.body))) : undefined;
+      calls.push({ path: url.pathname, ...(body ? { body } : {}) });
+      if (url.pathname === '/ccgc/enterprise/config') return Response.json({ inferenceGateway: origin });
+      const next = responses[url.pathname]?.shift();
+      assert.ok(next, `unexpected ${url.pathname}`);
+      return next instanceof Response ? next : Response.json(next);
     });
 
-    const cleanup = new EnterpriseClient(home, client.secrets, client.credential, async (input, init) => {
-      const url = new URL(String(input));
-      assert.equal(url.pathname, '/ccgc/enterprise/setup/revoke');
-      assert.deepEqual(JSON.parse(String(init?.body)), { apiKey: generatedKey });
-      assert.equal(new Headers(init?.headers).get('authorization'), `Bearer ${token}`);
-      return Response.json({ status: 'revoked' });
-    });
-    await cleanup.revokeLiteLLMSetupKey('https://broker.example', 'api://broker', generatedKey);
-  } finally {
-    await rm(home, { recursive: true, force: true });
-  }
+  const calls: Array<{ path: string; body?: ObjectValue }> = [];
+  const devices: unknown[] = [];
+  const client = enrollmentClient({
+    '/ccgc/enroll/start': [{
+      status: 'authorization_required',
+      verificationUri: 'https://github.com/login/device',
+      userCode: 'ABCD-1234',
+      expiresIn: 60,
+      interval: 1,
+      githubLogin: 'own-github',
+    }],
+    '/ccgc/enroll/poll': [{ status: 'pending' }, completed],
+    '/ccgc/enroll/complete': [{ status: 'completed', replacedKeys: 1 }],
+  }, calls);
+  await assert.rejects(client.enrollWithCode(broker, 'CCGC-short', { authorizeDevice: async () => undefined }), { code: 'INVALID_REQUEST' });
+  assert.equal(calls.length, 0);
+  const enrolled = await client.enrollWithCode(broker, code, { authorizeDevice: async device => { devices.push(device); } });
+  assert.deepEqual(enrolled, {
+    controlPlane: broker,
+    inferenceGateway: origin,
+    apiKey: generatedKey,
+    apiKeyExpiresAt: '2099-04-01T00:00:00.000Z',
+    userId,
+    githubLogin: 'own-github',
+    credentialName,
+    models,
+  });
+  assert.deepEqual(devices, [{ verificationUri: 'https://github.com/login/device', userCode: 'ABCD-1234', expiresIn: 60, githubLogin: 'own-github' }]);
+  assert.deepEqual(calls.filter(call => call.body).map(call => call.body), [
+    { code, credentialType: 'litellm' },
+    { code, credentialType: 'litellm' },
+    { code, credentialType: 'litellm' },
+  ]);
+  await client.acknowledgeEnrollment(broker, code);
+  assert.deepEqual(calls.at(-1), { path: '/ccgc/enroll/complete', body: { code } });
+
+  const mismatched = enrollmentClient({
+    '/ccgc/enroll/start': [{
+      status: 'authorization_required',
+      verificationUri: 'https://github.com/login/device',
+      userCode: 'ABCD-1234',
+      expiresIn: 60,
+      interval: 1,
+      githubLogin: 'own-github',
+    }],
+    '/ccgc/enroll/poll': [{ ...completed, githubLogin: 'different-github' }],
+  }, []);
+  await assert.rejects(mismatched.enrollWithCode(broker, code, { authorizeDevice: async () => undefined }), { code: 'IDENTITY_CONFLICT' });
+
+  const brokerError = enrollmentClient({
+    '/ccgc/enroll/start': [Response.json(
+      { type: 'error', error: { type: 'authentication_error', message: 'GATEWAY_AUTH_REQUIRED: Enrollment code is invalid, expired, or already used.' } },
+      { status: 401 },
+    )],
+  }, []);
+  await assert.rejects(brokerError.enrollWithCode(broker, code, { authorizeDevice: async () => undefined }), {
+    code: 'GATEWAY_AUTH_REQUIRED',
+    message: 'Enrollment code is invalid, expired, or already used.',
+  });
 });
