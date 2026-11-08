@@ -5,7 +5,7 @@
     "_generator": {
       "name": "bicep",
       "version": "0.48.1.52935",
-      "templateHash": "4405965148979644628"
+      "templateHash": "719982505877956181"
     }
   },
   "parameters": {
@@ -165,6 +165,13 @@
       "metadata": {
         "description": "Reviewed Claude model catalog consumed by the shared worker."
       }
+    },
+    "additionalLiteLLMUserIdsJson": {
+      "type": "string",
+      "defaultValue": "[[]",
+      "metadata": {
+        "description": "Additional existing LiteLLM user UUIDs to reconcile during bootstrap. Use only for direct LiteLLM users not represented by CCGC bindings."
+      }
     }
   },
   "variables": {
@@ -258,6 +265,9 @@
           },
           "modelsJson": {
             "value": "[parameters('modelsJson')]"
+          },
+          "additionalLiteLLMUserIdsJson": {
+            "value": "[parameters('additionalLiteLLMUserIdsJson')]"
           }
         },
         "template": {
@@ -267,7 +277,7 @@
             "_generator": {
               "name": "bicep",
               "version": "0.48.1.52935",
-              "templateHash": "8764977488346941580"
+              "templateHash": "11576371311831217417"
             }
           },
           "parameters": {
@@ -335,6 +345,9 @@
               "type": "int"
             },
             "modelsJson": {
+              "type": "string"
+            },
+            "additionalLiteLLMUserIdsJson": {
               "type": "string"
             }
           },
@@ -1280,6 +1293,10 @@
                         {
                           "name": "CCGC_MODELS_JSON",
                           "value": "[parameters('modelsJson')]"
+                        },
+                        {
+                          "name": "CCGC_LITELLM_ADDITIONAL_USER_IDS_JSON",
+                          "value": "[parameters('additionalLiteLLMUserIdsJson')]"
                         }
                       ],
                       "resources": {

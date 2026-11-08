@@ -262,6 +262,14 @@ export async function reconcileLiteLLMUsers(
   }
 }
 
+export function additionalLiteLLMUserIds(value: unknown): string[] {
+  if (!Array.isArray(value) || value.length > 100
+    || value.some(userId => typeof userId !== 'string' || !/^[0-9a-f-]{36}$/i.test(userId))) {
+    throw new BridgeError('INVALID_OPTIONS', 'Additional LiteLLM user IDs are invalid.');
+  }
+  return [...new Set(value)];
+}
+
 export async function bootstrapLiteLLM(input: Record<string, unknown>): Promise<void> {
   const credentialName = text(input.litellmCredentialName, 'LiteLLM credential name');
   const models = Array.isArray(input.models) ? input.models.map(value => text(value, 'model ID')) : [];

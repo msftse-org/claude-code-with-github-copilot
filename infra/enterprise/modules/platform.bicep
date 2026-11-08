@@ -25,6 +25,7 @@ param dispatchSigningSecret string
 param checkpointEncryptionKey string
 param cryptographicSecretExpiration int
 param modelsJson string
+param additionalLiteLLMUserIdsJson string
 
 var compact = replace(prefix, '-', '')
 var managedLiteLLM = litellmMode == 'managed'
@@ -880,6 +881,10 @@ resource bootstrapJob 'Microsoft.App/jobs@2025-01-01' = if (deployRuntime) {
             {
               name: 'CCGC_MODELS_JSON'
               value: modelsJson
+            }
+            {
+              name: 'CCGC_LITELLM_ADDITIONAL_USER_IDS_JSON'
+              value: additionalLiteLLMUserIdsJson
             }
           ]
           resources: {

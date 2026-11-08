@@ -9,7 +9,7 @@ test('runtime administration does not attempt schema migrations', async () => {
   );
 });
 import { readFile } from 'node:fs/promises';
-import { connectLiteLLMUser, reconcileLiteLLMUsers } from '../src/enterprise-admin.ts';
+import { additionalLiteLLMUserIds, connectLiteLLMUser, reconcileLiteLLMUsers } from '../src/enterprise-admin.ts';
 import { BridgeError } from '../src/protocol.ts';
 
 test('operator connection flow verifies the expected GitHub account', { concurrency: false }, async () => {
@@ -143,6 +143,18 @@ test('LiteLLM reconciliation assigns the complete catalog to every existing user
       { key: 'key-hash-3', models: ['claude-sonnet-5.5', 'claude-opus-5.5'] },
     ],
   );
+});
+
+test('additional LiteLLM users are validated, bounded, and deduplicated', () => {
+  assert.deepEqual(
+    additionalLiteLLMUserIds([
+      '11111111-1111-4111-8111-111111111111',
+      '11111111-1111-4111-8111-111111111111',
+    ]),
+    ['11111111-1111-4111-8111-111111111111'],
+  );
+  assert.throws(() => additionalLiteLLMUserIds(['not-a-uuid']));
+  assert.throws(() => additionalLiteLLMUserIds(Array.from({ length: 101 }, () => '11111111-1111-4111-8111-111111111111')));
 });
 
 test('LiteLLM reconciliation fails closed when a user update fails', async () => {

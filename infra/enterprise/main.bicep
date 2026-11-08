@@ -81,6 +81,9 @@ param cryptographicSecretExpiration int
 @description('Reviewed Claude model catalog consumed by the shared worker.')
 param modelsJson string = '{"models":[{"id":"claude-sonnet-5.5","name":"Claude Sonnet 5.5","responseIds":["claude-sonnet-5.5","claude-sonnet-5-5"],"context":1000000,"output":128000},{"id":"claude-sonnet-5","name":"Claude Sonnet 5","responseIds":["claude-sonnet-5"],"context":1000000,"output":16384},{"id":"claude-opus-5.5","name":"Claude Opus 5.5","responseIds":["claude-opus-5.5","claude-opus-5-5"],"context":1000000,"output":16384},{"id":"claude-haiku-5.5","name":"Claude Haiku 5.5","responseIds":["claude-haiku-5.5","claude-haiku-5-5"],"context":1000000,"output":16384},{"id":"claude-haiku-4.5","name":"Claude Haiku 4.5","responseIds":["claude-haiku-4.5","claude-haiku-4-5","claude-haiku-4-5-20251001"],"context":200000,"output":16384}]}'
 
+@description('Additional existing LiteLLM user UUIDs to reconcile during bootstrap. Use only for direct LiteLLM users not represented by CCGC bindings.')
+param additionalLiteLLMUserIdsJson string = '[]'
+
 var resourceGroupName = 'rg-${prefix}-enterprise'
 
 resource resourceGroup 'Microsoft.Resources/resourceGroups@2024-03-01' = {
@@ -119,6 +122,7 @@ module platform 'modules/platform.bicep' = {
     checkpointEncryptionKey: checkpointEncryptionKey
     cryptographicSecretExpiration: cryptographicSecretExpiration
     modelsJson: modelsJson
+    additionalLiteLLMUserIdsJson: additionalLiteLLMUserIdsJson
   }
 }
 

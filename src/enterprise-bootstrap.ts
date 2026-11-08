@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import { DefaultAzureCredential } from '@azure/identity';
-import { bootstrapLiteLLM, reconcileLiteLLMUsers } from './enterprise-admin.ts';
+import { additionalLiteLLMUserIds, bootstrapLiteLLM, reconcileLiteLLMUsers } from './enterprise-admin.ts';
 import { PostgresEnterpriseStore } from './enterprise-store.ts';
 import { BridgeError, object, parseJson, safeError, text } from './protocol.ts';
 
@@ -50,11 +50,14 @@ async function main(): Promise<void> {
   const catalog = object(parseJson(required('CCGC_MODELS_JSON')));
   if (!Array.isArray(catalog.models)) throw new BridgeError('INVALID_OPTIONS', 'Model catalog is invalid.');
   const models = catalog.models.map(value => text(object(value).id, 'model ID'));
+  const additionalUsers = process.env.CCGC_LITELLM_ADDITIONAL_USER_IDS_JSON ?? '[]';
+  const parsedAdditionalUsers = additionalLiteLLMUserIds(parseJson(additionalUsers));
   await bootstrapLiteLLM({
     litellmCredentialName: required('CCGC_LITELLM_CREDENTIAL_NAME'),
     models,
   });
   const reconciliation = await bootstrapDatabase(models);
+  reconciliation.objectIds = [...new Set([...reconciliation.objectIds, ...parsedAdditionalUsers])];
   await reconcileLiteLLMUsers(reconciliation.objectIds, models);
   console.log(JSON.stringify({ status: 'bootstrapped', models, reconciliation }));
 }
