@@ -10,7 +10,7 @@ import type {
 import type { WorkerResolver } from '../src/enterprise-worker.ts';
 import { EnterpriseManagement } from '../src/enterprise-management.ts';
 import { DispatchSigner } from '../src/enterprise-dispatch.ts';
-import { BridgeError, type ObjectValue } from '../src/protocol.ts';
+import { BridgeError, object, type ObjectValue } from '../src/protocol.ts';
 
 const principal: EnterprisePrincipal = {
   tenantId: '11111111-1111-1111-1111-111111111111',
@@ -20,20 +20,28 @@ const principal: EnterprisePrincipal = {
 
 class TokenAuthenticator implements EnterpriseAuthenticator {
   readonly expected: string;
+  readonly principal: EnterprisePrincipal;
 
-  constructor(expected: string) {
+  constructor(expected: string, value = principal) {
     this.expected = expected;
+    this.principal = value;
   }
 
   async authenticate(token: string): Promise<EnterprisePrincipal> {
     if (token !== this.expected) throw new BridgeError('ACCESS_DENIED', 'Required Entra role is missing.', 403);
-    return principal;
+    return this.principal;
   }
 }
 
 class FakeActions implements EnterpriseAdministrationActions {
   calls: Array<{ operation: string; input: ObjectValue }> = [];
 
+  provisionEmployee(value: EnterprisePrincipal) {
+    return this.called('provision-employee', { tenantId: value.tenantId, objectId: value.objectId });
+  }
+  revokeEmployeeSetupKey(value: EnterprisePrincipal, input: ObjectValue) {
+    return this.called('revoke-employee-setup-key', { tenantId: value.tenantId, objectId: value.objectId, ...input });
+  }
   private called(operation: string, input: ObjectValue): Promise<ObjectValue> {
     this.calls.push({ operation, input });
     return Promise.resolve({ status: 'ok', operation });
@@ -96,6 +104,63 @@ test('broker administration routes require CCGC.Admin before executing actions',
     adminAuthenticator: new TokenAuthenticator('admin-role'),
     adminActions: actions,
     ...brokerDependencies(),
+  });
+
+  test('employee setup requires Entra and rejects caller-supplied identity fields', async () => {
+    const actions = new FakeActions();
+    const entraPrincipal = { ...principal, authentication: 'entra' as const };
+    const server = await startEnterpriseServer({
+      authenticator: new TokenAuthenticator('entra-token', entraPrincipal),
+      setupAuthenticator: new TokenAuthenticator('entra-token', entraPrincipal),
+      adminAuthenticator: new TokenAuthenticator('admin-role'),
+      adminActions: actions,
+      inferenceGateway: 'https://litellm.example',
+      ...brokerDependencies(),
+    });
+    try {
+      const request = (token: string, body: ObjectValue) => fetch(
+        `http://127.0.0.1:${server.port}/ccgc/enterprise/setup/provision`,
+        {
+          method: 'POST',
+          headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' },
+          body: JSON.stringify(body),
+        },
+      );
+      const rejectedIdentity = await request('entra-token', { objectId: '33333333-3333-3333-3333-333333333333' });
+      assert.equal(rejectedIdentity.status, 400);
+      assert.equal(actions.calls.length, 0);
+
+      const apiKeyPrincipal = { ...entraPrincipal, authentication: 'apiKey' as const };
+      const apiKeyServer = await startEnterpriseServer({
+        authenticator: new TokenAuthenticator('api-key', apiKeyPrincipal),
+        setupAuthenticator: new TokenAuthenticator('api-key', apiKeyPrincipal),
+        adminAuthenticator: new TokenAuthenticator('admin-role'),
+        adminActions: actions,
+        inferenceGateway: 'https://litellm.example',
+        ...brokerDependencies(),
+      });
+      try {
+        const rejectedApiKey = await fetch(`http://127.0.0.1:${apiKeyServer.port}/ccgc/enterprise/setup/provision`, {
+          method: 'POST',
+          headers: { authorization: 'Bearer api-key', 'content-type': 'application/json' },
+          body: '{}',
+        });
+        assert.equal(rejectedApiKey.status, 403);
+        assert.equal(actions.calls.length, 0);
+      } finally {
+        await apiKeyServer.close();
+      }
+
+      const response = await request('entra-token', {});
+      assert.equal(response.status, 200);
+      assert.equal(response.headers.get('cache-control'), 'no-store');
+      assert.deepEqual(actions.calls, [{
+        operation: 'provision-employee',
+        input: { tenantId: principal.tenantId, objectId: principal.objectId },
+      }]);
+    } finally {
+      await server.close();
+    }
   });
   try {
     const employee = await fetch(`http://127.0.0.1:${server.port}/ccgc/admin/users`, {
@@ -820,4 +885,94 @@ test('self-service enrollment can recover an existing isolated LiteLLM user', as
   assert.match(String(createdInput?.pendingSecretName), /^ccgc-enrollment-pending-[0-9a-f]{32}$/);
   assert.notEqual(createdInput?.pendingSecretName, `ccgc-enrollment-pending-${principal.objectId.replaceAll('-', '')}`);
   assert.deepEqual([...storedSecrets.values()], [`sk-${'u'.repeat(32)}`]);
+});
+
+test('employee provisioning reuses the verified internal user and scopes issued keys to approved models', async () => {
+  const entraPrincipal = { ...principal, authentication: 'entra' as const };
+  const models = ['claude-sonnet-5.5', 'claude-haiku-4.5'];
+  const calls: Array<{ path: string; body?: ObjectValue; authorization?: string }> = [];
+  let userExists = false;
+  let issued = 0;
+  const setupKey = `sk-${'p'.repeat(32)}`;
+  let keyOwner = principal.objectId;
+  const management = new EnterpriseManagement({
+    litellmUrl: 'https://litellm.internal',
+    litellmMasterKey: `sk-${'m'.repeat(32)}`,
+    postgresUrl: 'postgresql://broker@postgres.internal/postgres?sslmode=require',
+    tenantId: principal.tenantId,
+    enrollmentModels: models,
+    fetcher: (async (input, init) => {
+      const url = new URL(String(input));
+      const body = init?.body ? object(JSON.parse(String(init.body))) : undefined;
+      const authorization = new Headers(init?.headers).get('authorization') ?? undefined;
+      calls.push({ path: `${url.pathname}${url.search}`, ...(body ? { body } : {}), ...(authorization ? { authorization } : {}) });
+      if (url.pathname === '/user/info') {
+        if (!userExists) return Response.json({ error: 'missing' }, { status: 404 });
+        return Response.json({ user_info: {
+          user_id: principal.objectId,
+          user_alias: `ccgc-${principal.objectId}`,
+          user_role: 'internal_user',
+        } });
+      }
+      if (url.pathname === '/user/new') {
+        assert.deepEqual(body, {
+          user_id: principal.objectId,
+          user_alias: `ccgc-${principal.objectId}`,
+          user_role: 'internal_user',
+          models,
+          auto_create_key: false,
+          send_invite_email: false,
+        });
+        assert.equal(Object.hasOwn(body, 'user_email'), false);
+        userExists = true;
+        return Response.json({ user_id: principal.objectId });
+      }
+      if (url.pathname === '/user/update') {
+        assert.deepEqual(body, { user_id: principal.objectId, models });
+        return Response.json({ status: 'success' });
+      }
+      if (url.pathname === '/key/generate') {
+        assert.deepEqual(body, {
+          user_id: principal.objectId,
+          key_alias: 'ccgc-claude',
+          models,
+          duration: '90d',
+        });
+        issued += 1;
+        return Response.json({ key: setupKey });
+      }
+      if (url.pathname === '/key/info') {
+        assert.equal(authorization, `Bearer ${setupKey}`);
+        return Response.json({ info: { user_id: keyOwner, key_alias: 'ccgc-claude' } });
+      }
+      if (url.pathname === '/key/delete') {
+        assert.deepEqual(body, { keys: [setupKey] });
+        return Response.json({ deleted_keys: ['redacted-hash'] });
+      }
+      throw new Error(`unexpected URL ${url}`);
+    }) as typeof fetch,
+  });
+
+  const first = await management.provisionEmployee(entraPrincipal);
+  const second = await management.provisionEmployee(entraPrincipal);
+  assert.equal(first.apiKey, setupKey);
+  assert.equal(second.userId, principal.objectId);
+  assert.equal(first.userAlias, `ccgc-${principal.objectId}`);
+  assert.deepEqual(first.models, models);
+  assert.equal(calls.filter(call => call.path === '/user/new').length, 1);
+  assert.equal(calls.filter(call => call.path === '/key/generate').length, 2);
+  assert.equal(issued, 2);
+
+  keyOwner = '33333333-3333-3333-3333-333333333333';
+  await assert.rejects(
+    () => management.revokeEmployeeSetupKey(entraPrincipal, { apiKey: setupKey }),
+    (error: unknown) => error instanceof BridgeError && error.code === 'ACCESS_DENIED',
+  );
+  assert.equal(calls.some(call => call.path === '/key/delete'), false);
+  keyOwner = principal.objectId;
+  assert.deepEqual(await management.revokeEmployeeSetupKey(entraPrincipal, { apiKey: setupKey }), { status: 'revoked' });
+  await assert.rejects(
+    () => management.provisionEmployee({ ...entraPrincipal, authentication: 'apiKey' }),
+    (error: unknown) => error instanceof BridgeError && error.code === 'ACCESS_DENIED',
+  );
 });

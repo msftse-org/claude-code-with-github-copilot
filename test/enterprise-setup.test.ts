@@ -9,12 +9,10 @@ import { writePrivate } from '../src/private-state.ts';
 import { BridgeError, object, type ObjectValue } from '../src/protocol.ts';
 
 const origin = 'https://litellm.example';
-const sessionKey = `sk-session-${'s'.repeat(32)}`;
 const generatedKey = `sk-personal-${'p'.repeat(32)}`;
 const oldKey = `sk-other-${'o'.repeat(32)}`;
 const oldId = 'a'.repeat(64);
 const credentialName = 'github-copilot-user';
-const personalLogin = { username: 'developer@example.test', password: 'synthetic-password' };
 const models = ['claude-sonnet-5.5', 'claude-haiku-4.5'];
 
 async function fixture(t: TestContext) {
@@ -27,19 +25,16 @@ async function fixture(t: TestContext) {
   const devices: Array<Parameters<SetupCallbacks['authorizeDevice']>[0]> = [];
   const state = {
     role: 'internal_user',
-    claimUser: 'own-user',
     generatedOwner: 'own-user',
     keyOwner: 'own-user',
     connected: false,
     githubLogin: 'own-github',
     changedConnection: false,
-    passwordReset: false,
     verificationUri: 'https://github.com/login/device',
     expiresIn: 60,
     polls: [{ status: 'connected', github_login: 'own-github' }] as ObjectValue[],
     visibleModels: [...models],
     extraRoutes: [] as ObjectValue[],
-    issuedModels: undefined as string[] | undefined,
     failWrite: false,
   };
   const client = new EnterpriseClient(home, {
@@ -62,25 +57,17 @@ async function fixture(t: TestContext) {
     const body = init?.body ? object(JSON.parse(String(init.body))) : undefined;
     calls.push({ path: url.pathname, ...(body ? { body } : {}) });
     const auth = new Headers(init?.headers).get('authorization');
-    if (url.pathname === '/v2/login') {
-      assert.equal(auth, null);
-      assert.deepEqual(body, personalLogin);
-      const claims = { user_id: state.claimUser, key: sessionKey, password_reset_required: state.passwordReset };
-      return Response.json({
-        token: `${Buffer.from('{"alg":"HS256"}').toString('base64url')}.${Buffer.from(JSON.stringify(claims)).toString('base64url')}.signature`,
-      });
-    }
-    assert.ok([sessionKey, generatedKey].some(key => auth === ['Bearer', key].join(' ')));
+    assert.equal(auth, ['Bearer', generatedKey].join(' '));
     const personalKey = auth === ['Bearer', generatedKey].join(' ');
     const userId = personalKey ? state.generatedOwner : 'own-user';
-    if (url.pathname === '/key/info') return Response.json({ info: { user_id: personalKey ? userId : state.keyOwner } });
+    if (url.pathname === '/key/info') return Response.json({ info: { user_id: state.keyOwner } });
     if (url.pathname === '/user/info') return Response.json({ user_info: { user_id: userId, user_alias: 'developer', user_role: state.role } });
     if (url.pathname === '/v1/model/info') return Response.json({ data: [...models.map(model => ({
       model_name: model,
       litellm_params: { model: `github_copilot/${model}`, litellm_credential_name: credentialName },
     })), ...state.extraRoutes] });
     if (url.pathname === '/v1/models') return Response.json({
-      data: (personalKey ? state.issuedModels ?? state.visibleModels : state.visibleModels).map(id => ({ id })),
+      data: state.visibleModels.map(id => ({ id })),
     });
     if (url.pathname === '/credentials/user_connections') return Response.json({ connections: [{
       credential_name: credentialName,
@@ -105,16 +92,6 @@ async function fixture(t: TestContext) {
       if (result.status === 'connected') state.connected = true;
       return Response.json(result);
     }
-    if (url.pathname === '/key/generate') {
-      assert.deepEqual(body, { user_id: 'own-user', key_alias: 'ccgc-claude', models });
-      state.issuedModels = [...models];
-      return Response.json({ key: generatedKey });
-    }
-    if (url.pathname === '/key/delete') {
-      assert.equal(auth, ['Bearer', sessionKey].join(' '));
-      assert.deepEqual(body, { keys: [generatedKey] });
-      return Response.json({ deleted_keys: ['synthetic-hash'] });
-    }
     throw new Error(`Unexpected request: ${url.pathname}`);
   });
   const oldProfile = {
@@ -135,11 +112,10 @@ async function fixture(t: TestContext) {
   return { client, state, callbacks, calls, values, reads, confirmations, devices, unchanged, oldProfile };
 }
 
-test('personal setup uses fresh login, native GitHub OAuth, and an isolated key without reading the old credential', async t => {
+test('broker-provisioned setup uses native GitHub OAuth and an isolated key without reading the old credential', async t => {
   const f = await fixture(t);
-  f.state.visibleModels.push('claude-other-provider');
   f.state.polls.unshift({ status: 'pending', interval: 1 });
-  const profile = await setupEnterprise(f.client, origin, personalLogin, f.callbacks);
+  const profile = await setupEnterprise(f.client, origin, { apiKey: generatedKey }, f.callbacks);
   assert.equal(profile.liteLLMUserId, 'own-user');
   assert.equal(profile.githubLogin, 'own-github');
   assert.equal(profile.copilotCredentialName, credentialName);
@@ -149,12 +125,12 @@ test('personal setup uses fresh login, native GitHub OAuth, and an isolated key 
   assert.equal(await f.client.token(), generatedKey);
   assert.notEqual(profile.keychainId, oldId);
   const stored = await readFile(f.client.statePath, 'utf8');
-  for (const secret of [sessionKey, generatedKey, oldKey, personalLogin.password, 'private-flow-handle']) {
+  for (const secret of [generatedKey, oldKey, 'private-flow-handle']) {
     assert.equal(stored.includes(secret), false);
   }
   assert.deepEqual(f.devices, [{ verificationUri: 'https://github.com/login/device', userCode: 'ABCD-1234', expiresIn: 60 }]);
   assert.equal(f.calls.filter(call => call.path.endsWith('/poll')).length, 2);
-  assert.equal(f.calls.some(call => call.path === '/key/delete'), false);
+  assert.equal(f.calls.some(call => call.path === '/key/generate' || call.path === '/v2/login'), false);
 });
 
 test('explicit own key confirms its existing connection without reconnecting or creating another key', async t => {
@@ -164,19 +140,17 @@ test('explicit own key confirms its existing connection without reconnecting or 
   const profile = await setupEnterprise(f.client, origin, { apiKey: generatedKey }, f.callbacks);
   assert.equal(profile.githubLogin, 'own-github');
   assert.equal(f.confirmations[0]?.githubLogin, 'own-github');
-  assert.equal(f.calls.some(call => call.path.endsWith('/start') || call.path === '/v2/login' || call.path === '/key/generate'), false);
+  assert.equal(f.calls.some(call => call.path.endsWith('/start') || call.path === '/key/generate'), false);
 });
 
-test('setup rejects shared admins, password resets, session-owner conflicts, and identity refusal without changing the old profile', async t => {
-  for (const scenario of ['admin', 'password-reset', 'session-user', 'key-user', 'refused']) {
+test('setup rejects shared admins, key-owner conflicts, and identity refusal without changing the old profile', async t => {
+  for (const scenario of ['admin', 'key-user', 'refused']) {
     await t.test(scenario, async sub => {
       const f = await fixture(sub);
       if (scenario === 'admin') f.state.role = 'proxy_admin';
-      if (scenario === 'password-reset') f.state.passwordReset = true;
-      if (scenario === 'session-user') f.state.claimUser = 'someone-else';
       if (scenario === 'key-user') f.state.keyOwner = 'someone-else';
       if (scenario === 'refused') f.callbacks.confirmIdentity = async () => false;
-      await assert.rejects(setupEnterprise(f.client, origin, personalLogin, f.callbacks), BridgeError);
+      await assert.rejects(setupEnterprise(f.client, origin, { apiKey: generatedKey }, f.callbacks), BridgeError);
       await f.unchanged();
       assert.equal(f.calls.some(call => call.path.endsWith('/start') || call.path === '/key/generate'), false);
     });
@@ -188,7 +162,7 @@ test('native OAuth terminal failures preserve prior credentials and never mint a
     await t.test(status, async sub => {
       const f = await fixture(sub);
       f.state.polls = [{ status }];
-      await assert.rejects(setupEnterprise(f.client, origin, personalLogin, f.callbacks), { code: 'GITHUB_CONNECTION_REQUIRED' });
+      await assert.rejects(setupEnterprise(f.client, origin, { apiKey: generatedKey }, f.callbacks), { code: 'GITHUB_CONNECTION_REQUIRED' });
       await f.unchanged();
       assert.equal(f.calls.some(call => call.path === '/key/generate'), false);
     });
@@ -209,24 +183,28 @@ test('OAuth slowdown, expiry, cancellation and unsafe verification URLs never tr
         f.callbacks.signal = cancellation.signal;
         f.callbacks.authorizeDevice = async () => cancellation.abort();
       }
-      await assert.rejects(setupEnterprise(f.client, origin, personalLogin, f.callbacks));
+      await assert.rejects(setupEnterprise(f.client, origin, { apiKey: generatedKey }, f.callbacks));
       await f.unchanged();
       assert.equal(f.calls.filter(call => call.path.endsWith('/poll')).length, scenario === 'slow-down' ? 1 : 0);
     });
   }
 });
 
-test('new-key ownership, connection drift, and failed persistence revoke only the newly issued key', async t => {
+test('key-owner mismatch, connection drift, and failed persistence preserve the previous local profile', async t => {
   for (const scenario of ['key-owner', 'connection', 'persistence']) {
     await t.test(scenario, async sub => {
       const f = await fixture(sub);
       f.state.connected = true;
-      if (scenario === 'key-owner') f.state.generatedOwner = 'another-user';
-      if (scenario === 'connection') f.state.changedConnection = true;
+      if (scenario === 'key-owner') f.state.keyOwner = 'another-user';
+      if (scenario === 'connection') {
+        f.callbacks.confirmIdentity = async () => {
+          f.state.changedConnection = true;
+          return true;
+        };
+      }
       if (scenario === 'persistence') f.state.failWrite = true;
-      await assert.rejects(setupEnterprise(f.client, origin, personalLogin, f.callbacks), BridgeError);
+      await assert.rejects(setupEnterprise(f.client, origin, { apiKey: generatedKey }, f.callbacks), BridgeError);
       await f.unchanged();
-      assert.equal(f.calls.filter(call => call.path === '/key/delete').length, 1);
     });
   }
 });
@@ -247,7 +225,7 @@ test('duplicate Claude names cannot hide an alternative provider or another GitH
       const f = await fixture(sub);
       f.state.extraRoutes.push({ model_name: models[0], litellm_params: alternate });
       f.callbacks.credentialName = credentialName;
-      await assert.rejects(setupEnterprise(f.client, origin, personalLogin, f.callbacks), { code: 'IDENTITY_CONFLICT' });
+      await assert.rejects(setupEnterprise(f.client, origin, { apiKey: generatedKey }, f.callbacks), { code: 'IDENTITY_CONFLICT' });
       await f.unchanged();
       assert.equal(f.calls.some(call => call.path.endsWith('/start')), false);
     });
@@ -272,4 +250,65 @@ test('enterprise metadata is bounded and upstream authentication error bodies ar
     assert.equal(error.message.includes('private-upstream-error-details'), false);
     return true;
   });
+});
+
+test('employee provisioning uses the Entra identity and rejects a different identity returned by the broker', async () => {
+  const tenantId = '11111111-1111-1111-1111-111111111111';
+  const objectId = '22222222-2222-2222-2222-222222222222';
+  const token = `${Buffer.from('{"alg":"none"}').toString('base64url')}.${Buffer.from(JSON.stringify({ tid: tenantId, oid: objectId })).toString('base64url')}.signature`;
+  const home = await mkdtemp(join(tmpdir(), 'ccgc-broker-setup-'));
+  try {
+    const client = new EnterpriseClient(home, {
+      async get() { throw new Error('not used'); },
+      async set() { throw new Error('not used'); },
+      async remove() { throw new Error('not used'); },
+    }, { async getToken(scope) {
+      assert.equal(scope, 'api://broker/.default');
+      return { token };
+    } }, async (input, init) => {
+      const url = new URL(String(input));
+      assert.equal(url.origin, 'https://broker.example');
+      assert.equal(url.pathname, '/ccgc/enterprise/setup/provision');
+      assert.equal(init?.method, 'POST');
+      assert.equal(String(init?.body), '{}');
+      assert.equal(new Headers(init?.headers).get('authorization'), `Bearer ${token}`);
+      return Response.json({
+        tenantId,
+        objectId,
+        userId: objectId,
+        userAlias: `ccgc-${objectId}`,
+        apiKey: generatedKey,
+        models,
+        inferenceGateway: origin,
+      });
+    });
+    const provisioned = await client.provisionLiteLLMUser('https://broker.example', 'api://broker');
+    assert.equal(provisioned.userId, objectId);
+    assert.equal(provisioned.inferenceGateway, origin);
+    assert.deepEqual(provisioned.models, models);
+
+    const mismatched = new EnterpriseClient(home, client.secrets, client.credential, async () => Response.json({
+        tenantId,
+        objectId: '33333333-3333-3333-3333-333333333333',
+        userId: '33333333-3333-3333-3333-333333333333',
+        userAlias: 'ccgc-33333333-3333-3333-3333-333333333333',
+        apiKey: generatedKey,
+        models,
+        inferenceGateway: origin,
+      }));
+    await assert.rejects(mismatched.provisionLiteLLMUser('https://broker.example', 'api://broker'), {
+      code: 'IDENTITY_CONFLICT',
+    });
+
+    const cleanup = new EnterpriseClient(home, client.secrets, client.credential, async (input, init) => {
+      const url = new URL(String(input));
+      assert.equal(url.pathname, '/ccgc/enterprise/setup/revoke');
+      assert.deepEqual(JSON.parse(String(init?.body)), { apiKey: generatedKey });
+      assert.equal(new Headers(init?.headers).get('authorization'), `Bearer ${token}`);
+      return Response.json({ status: 'revoked' });
+    });
+    await cleanup.revokeLiteLLMSetupKey('https://broker.example', 'api://broker', generatedKey);
+  } finally {
+    await rm(home, { recursive: true, force: true });
+  }
 });

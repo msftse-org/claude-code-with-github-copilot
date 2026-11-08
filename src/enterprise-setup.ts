@@ -1,4 +1,3 @@
-import { decodeJwt } from 'jose';
 import { setTimeout as delay } from 'node:timers/promises';
 import { EnterpriseClient, responseJson, type EnterpriseProfile, type LiteLLMIdentity } from './enterprise-client.ts';
 import { BridgeError, object, positive, text, type ObjectValue } from './protocol.ts';
@@ -11,7 +10,7 @@ export interface SetupCallbacks {
   signal?: AbortSignal;
 }
 
-export type SetupCredentials = { username: string; password: string } | { apiKey: string };
+export type SetupCredentials = { apiKey: string };
 
 export async function setupEnterprise(
   client: EnterpriseClient,
@@ -33,40 +32,11 @@ export async function setupEnterprise(
       signal: AbortSignal.any([requestSignal, AbortSignal.timeout(30_000)]),
     }));
 
-  let sessionKey: string;
-  let loginUserId: string | undefined;
-  if ('apiKey' in credentials) {
-    if (!/^sk-[A-Za-z0-9._-]{16,}$/.test(credentials.apiKey)) {
-      throw new BridgeError('GATEWAY_AUTH_REQUIRED', 'Supply your own LiteLLM virtual key through protected input.', 401);
-    }
-    sessionKey = credentials.apiKey;
-  } else {
-    if (!credentials.username.trim() || !credentials.password || credentials.username.length > 320 || credentials.password.length > 8192) {
-      throw new BridgeError('INVALID_OPTIONS', 'A bounded LiteLLM username and password are required.');
-    }
-    const login = await request('/v2/login', undefined, { username: credentials.username.trim(), password: credentials.password });
-    const encoded = text(login.token, 'LiteLLM UI session');
-    if (encoded.length > 65_536) throw new BridgeError('INVALID_RESPONSE', 'Invalid LiteLLM UI session.');
-    let claims: ObjectValue;
-    try { claims = object(decodeJwt(encoded)); }
-    catch { throw new BridgeError('INVALID_RESPONSE', 'Invalid LiteLLM UI session.'); }
-    if (claims.password_reset_required === true) {
-      throw new BridgeError('PASSWORD_CHANGE_REQUIRED', `Complete your password change at ${origin}/ui before running setup.`);
-    }
-    sessionKey = text(claims.key, 'LiteLLM session key');
-    if (!/^(?:sk-[A-Za-z0-9._-]{16,}|[a-f0-9]{64})$/.test(sessionKey)) {
-      throw new BridgeError('INVALID_RESPONSE', 'Invalid LiteLLM session credential.');
-    }
-    loginUserId = text(claims.user_id, 'LiteLLM login user ID');
+  if (!/^sk-[A-Za-z0-9._-]{16,}$/.test(credentials.apiKey)) {
+    throw new BridgeError('GATEWAY_AUTH_REQUIRED', 'A broker-provisioned LiteLLM virtual key is required.', 401);
   }
-
+  const sessionKey = credentials.apiKey;
   const identity = await client.identifyLiteLLMKey(origin, sessionKey, signal);
-  if (loginUserId && loginUserId !== identity.userId) {
-    throw new BridgeError('IDENTITY_CONFLICT', 'The authenticated LiteLLM session and user record disagree.', 403);
-  }
-  if (!('apiKey' in credentials) && identity.role !== 'internal_user') {
-    throw new BridgeError('ACCESS_DENIED', 'This account cannot create a personal key. Ask your administrator for your own permitted key.', 403);
-  }
   const catalog = await request('/v1/model/info', sessionKey);
   const routes = (Array.isArray(catalog.data) ? catalog.data : []).map(object);
   const names = [...new Set(routes
@@ -90,7 +60,7 @@ export async function setupEnterprise(
     .map(item => text(item.id, 'model ID')).filter(id => /^claude-[a-z0-9.-]+$/.test(id));
   const models = [...new Set(visibleModels.filter(model => allowedModels.includes(model)))];
   if (!models.length) throw new BridgeError('ACCESS_DENIED', 'This LiteLLM user has no approved Claude models on the selected GitHub credential.', 403);
-  if ('apiKey' in credentials && visibleModels.some(model => !allowedModels.includes(model))) {
+  if (visibleModels.some(model => !allowedModels.includes(model))) {
     throw new BridgeError('IDENTITY_CONFLICT', 'Use a key scoped to the selected GitHub credential; this key also exposes other Claude routes.', 403);
   }
   const connectionPath = `/credentials/${encodeURIComponent(credentialName)}/user_connection`;
@@ -142,25 +112,10 @@ export async function setupEnterprise(
     }
   }
 
-  let generatedKey: string | undefined;
-  try {
-    let key = sessionKey;
-    if (!('apiKey' in credentials)) {
-      const created = await request('/key/generate', sessionKey, {
-        user_id: identity.userId,
-        key_alias: 'ccgc-claude',
-        models,
-      });
-      key = text(created.key, 'generated LiteLLM virtual key');
-      if (!/^sk-[A-Za-z0-9._-]{16,}$/.test(key)) throw new BridgeError('INVALID_RESPONSE', 'The gateway did not return a valid virtual key.');
-      generatedKey = key;
-    }
-    return await client.loginLiteLLMKey(origin, key, { userId: identity.userId, credentialName, githubLogin, models }, signal);
-  } catch (error) {
-    if (generatedKey) {
-      try { await request('/key/delete', sessionKey, { keys: [generatedKey] }, AbortSignal.timeout(30_000)); }
-      catch { throw new BridgeError('KEY_CLEANUP_REQUIRED', 'Setup failed and its new key could not be revoked. Review your ccgc-claude keys in LiteLLM; the previous local profile was preserved.'); }
-    }
-    throw error;
-  }
+  return client.loginLiteLLMKey(
+    origin,
+    sessionKey,
+    { userId: identity.userId, credentialName, githubLogin, models },
+    signal,
+  );
 }

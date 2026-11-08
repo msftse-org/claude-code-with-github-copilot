@@ -1,5 +1,6 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { DefaultAzureCredential } from '@azure/identity';
+import { decodeJwt } from 'jose';
 import { constants } from 'node:fs';
 import { lstat, mkdir, open, rename, unlink } from 'node:fs/promises';
 import { homedir } from 'node:os';
@@ -162,6 +163,70 @@ export class EnterpriseClient {
     const access = await this.credential.getToken(`${audience.replace(/\/$/, '')}/.default`);
     if (!access?.token) throw new BridgeError('GATEWAY_AUTH_REQUIRED', 'Microsoft Entra sign-in did not return an access token.', 401);
     return access.token;
+  }
+
+  async provisionLiteLLMUser(broker: string, audience: string): Promise<{
+    controlPlane: string;
+    inferenceGateway: string;
+    tenantId: string;
+    objectId: string;
+    userId: string;
+    userAlias: string;
+    apiKey: string;
+    models: string[];
+  }> {
+    const controlPlane = gatewayUrl(broker);
+    const access = await this.entra(audience);
+    let claims: ReturnType<typeof decodeJwt>;
+    try { claims = decodeJwt(access); }
+    catch { throw new BridgeError('GATEWAY_AUTH_REQUIRED', 'Entra returned an invalid access token.', 401); }
+    const tenantId = typeof claims.tid === 'string' ? claims.tid.toLowerCase() : '';
+    const objectId = typeof claims.oid === 'string' ? claims.oid.toLowerCase() : '';
+    if (!/^[0-9a-f-]{36}$/i.test(tenantId) || !/^[0-9a-f-]{36}$/i.test(objectId)) {
+      throw new BridgeError('GATEWAY_AUTH_REQUIRED', 'Entra token has no valid employee identity.', 401);
+    }
+    const result = await responseJson(await this.fetcher(`${controlPlane}/ccgc/enterprise/setup/provision`, {
+      method: 'POST',
+      headers: { authorization: ['Bearer', access].join(' '), 'content-type': 'application/json' },
+      body: '{}',
+      redirect: 'error',
+      signal: AbortSignal.timeout(30_000),
+    }));
+    const returnedTenant = text(result.tenantId, 'tenant ID').toLowerCase();
+    const returnedObject = text(result.objectId, 'object ID').toLowerCase();
+    const userId = text(result.userId, 'LiteLLM user ID').toLowerCase();
+    const apiKey = text(result.apiKey, 'LiteLLM virtual key');
+    const models = Array.isArray(result.models) ? result.models.map(value => text(value, 'model ID')) : [];
+    if (returnedTenant !== tenantId || returnedObject !== objectId || userId !== objectId
+      || !/^sk-[A-Za-z0-9._-]{16,}$/.test(apiKey) || !models.length
+      || models.some(model => !/^claude-[a-z0-9.-]+$/.test(model))) {
+      throw new BridgeError('IDENTITY_CONFLICT', 'The broker provisioned an unexpected employee identity or model scope.', 403);
+    }
+    return {
+      controlPlane,
+      inferenceGateway: gatewayUrl(text(result.inferenceGateway, 'inference gateway')),
+      tenantId,
+      objectId,
+      userId,
+      userAlias: text(result.userAlias, 'LiteLLM internal identity'),
+      apiKey,
+      models: [...new Set(models)],
+    };
+  }
+
+  async revokeLiteLLMSetupKey(broker: string, audience: string, apiKey: string): Promise<void> {
+    const controlPlane = gatewayUrl(broker);
+    const access = await this.entra(audience);
+    await responseJson(await this.fetcher(`${controlPlane}/ccgc/enterprise/setup/revoke`, {
+      method: 'POST',
+      headers: {
+        authorization: ['Bearer', access].join(' '),
+        'content-type': 'application/json',
+      },
+      body: JSON.stringify({ apiKey }),
+      redirect: 'error',
+      signal: AbortSignal.timeout(30_000),
+    }));
   }
 
   async login(gateway: string, audience: string): Promise<EnterpriseProfile> {

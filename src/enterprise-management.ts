@@ -3,6 +3,7 @@ import { createHash, randomBytes, randomUUID } from 'node:crypto';
 import { DefaultAzureCredential } from '@azure/identity';
 import { promisify } from 'node:util';
 import { fileURLToPath } from 'node:url';
+import type { EnterprisePrincipal } from './enterprise-auth.ts';
 import { BridgeError, object, parseJson, positive, text, type ObjectValue } from './protocol.ts';
 import { PostgresEnterpriseStore } from './enterprise-store.ts';
 
@@ -77,7 +78,14 @@ export class EnterpriseManagement {
     }
   }
 
-  private async request(path: string, apiKey: string, init: RequestInit = {}): Promise<ObjectValue> {
+  private request(path: string, apiKey: string, init?: RequestInit): Promise<ObjectValue>;
+  private request(path: string, apiKey: string, init: RequestInit | undefined, missingIsEmpty: true): Promise<ObjectValue | undefined>;
+  private async request(
+    path: string,
+    apiKey: string,
+    init: RequestInit = {},
+    missingIsEmpty = false,
+  ): Promise<ObjectValue | undefined> {
     const response = await this.fetcher(`${this.litellmUrl}${path}`, {
       ...init,
       headers: {
@@ -88,11 +96,105 @@ export class EnterpriseManagement {
       redirect: 'error',
       signal: AbortSignal.timeout(30_000),
     });
+    if (missingIsEmpty && response.status === 404) return undefined;
     const raw = await response.text();
     if (!response.ok) {
       throw new BridgeError('GATEWAY_UNAVAILABLE', `LiteLLM returned HTTP ${response.status}.`, 502);
     }
     return parseJson(raw);
+  }
+
+  private assertEntraPrincipal(principal: EnterprisePrincipal): void {
+    if (principal.authentication !== 'entra'
+      || principal.tenantId.toLowerCase() !== this.tenantId
+      || !/^[0-9a-f-]{36}$/i.test(principal.objectId)) {
+      throw new BridgeError('ACCESS_DENIED', 'Employee setup requires an approved Entra principal.', 403);
+    }
+  }
+
+  private async provisionedUser(userId: string, userAlias: string): Promise<ObjectValue | undefined> {
+    const response = await this.request(
+      `/user/info?user_id=${encodeURIComponent(userId)}`,
+      this.litellmMasterKey,
+      undefined,
+      true,
+    );
+    if (!response) return undefined;
+    const user = object(response.user_info ?? response);
+    if (user.user_id !== userId || user.user_alias !== userAlias || user.user_role !== 'internal_user') {
+      throw new BridgeError('IDENTITY_CONFLICT', 'The Entra identity conflicts with an existing LiteLLM user.', 409);
+    }
+    return user;
+  }
+
+  async provisionEmployee(principal: EnterprisePrincipal): Promise<ObjectValue> {
+    this.assertEntraPrincipal(principal);
+    const userId = principal.objectId.toLowerCase();
+    const userAlias = `ccgc-${userId}`;
+    let user = await this.provisionedUser(userId, userAlias);
+    if (!user) {
+      try {
+        await this.request('/user/new', this.litellmMasterKey, {
+          method: 'POST',
+          body: JSON.stringify({
+            user_id: userId,
+            user_alias: userAlias,
+            user_role: 'internal_user',
+            models: this.enrollmentModels,
+            auto_create_key: false,
+            send_invite_email: false,
+          }),
+        });
+      } catch (error) {
+        user = await this.provisionedUser(userId, userAlias);
+        if (!user) throw error;
+      }
+      user ??= await this.provisionedUser(userId, userAlias);
+      if (!user) throw new BridgeError('INVALID_RESPONSE', 'LiteLLM did not create the Entra-linked internal user.', 502);
+    }
+    await this.request('/user/update', this.litellmMasterKey, {
+      method: 'POST',
+      body: JSON.stringify({ user_id: userId, models: this.enrollmentModels }),
+    });
+    const created = await this.request('/key/generate', this.litellmMasterKey, {
+      method: 'POST',
+      body: JSON.stringify({
+        user_id: userId,
+        key_alias: 'ccgc-claude',
+        models: this.enrollmentModels,
+        duration: '90d',
+      }),
+    });
+    const apiKey = text(created.key, 'LiteLLM user key');
+    if (!/^sk-[A-Za-z0-9._-]{16,}$/.test(apiKey)) {
+      throw new BridgeError('INVALID_RESPONSE', 'LiteLLM returned an invalid user key.', 502);
+    }
+    return {
+      status: 'ready',
+      tenantId: principal.tenantId,
+      objectId: userId,
+      userId,
+      userAlias,
+      apiKey,
+      models: this.enrollmentModels,
+    };
+  }
+
+  async revokeEmployeeSetupKey(principal: EnterprisePrincipal, input: ObjectValue): Promise<ObjectValue> {
+    this.assertEntraPrincipal(principal);
+    const apiKey = text(input.apiKey, 'LiteLLM setup key');
+    if (!/^sk-[A-Za-z0-9._-]{16,}$/.test(apiKey)) {
+      throw new BridgeError('INVALID_REQUEST', 'LiteLLM setup key is invalid.');
+    }
+    const keyInfo = object((await this.request('/key/info', apiKey)).info);
+    if (keyInfo.user_id !== principal.objectId.toLowerCase() || keyInfo.key_alias !== 'ccgc-claude') {
+      throw new BridgeError('ACCESS_DENIED', 'Only this Entra principal’s CCGC setup key can be revoked.', 403);
+    }
+    await this.request('/key/delete', this.litellmMasterKey, {
+      method: 'POST',
+      body: JSON.stringify({ keys: [apiKey] }),
+    });
+    return { status: 'revoked' };
   }
 
   private async adminCommand(command: 'link' | 'revoke', input: ObjectValue): Promise<ObjectValue> {

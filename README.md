@@ -146,43 +146,46 @@ Each employee needs:
 - `~/.claude/settings.json` pointing Claude Code to the central LiteLLM gateway
 - A private, non-secret profile containing the gateway and discovered models
 
-Use the guided TypeScript setup with Node.js 24 and repository dependencies:
+Use the guided TypeScript setup with Node.js 24, repository dependencies, and
+the enterprise broker URL and Entra audience:
 
 ```bash
-npm run enterprise:client -- setup --gateway https://LITELLM_FQDN --apply
+npm run enterprise:client -- setup \
+  --gateway https://BROKER_FQDN \
+  --audience api://APP-ID \
+  --apply
 ```
 
 The relocatable [`ccgc-enterprise` launcher](scripts/ccgc-enterprise-launcher.sh)
 can also be installed in Downloads and run with the same `setup` arguments.
 It requires the repository and Node.js 24; it is not a standalone binary.
 
-Setup asks for your **personal LiteLLM login**, hides the password, verifies
-the authenticated user and key owner, and runs LiteLLM's native GitHub device
-authorization. GitHub supplies the username after you approve; no GitHub
-username is manually configured. Setup creates a personal virtual key with
-the approved Claude routes, stores it only in Keychain, configures the CLI
-with `--apply`, and writes a secret-free Desktop import file.
+Setup authenticates the employee through Microsoft Entra and asks the broker
+to create or resolve a LiteLLM internal-user record using the verified Entra
+object ID. The broker uses its server-side administrator credential to issue a
+key restricted to the approved Claude models; no LiteLLM invitation, password,
+dashboard login, or employee-supplied key is needed. LiteLLM still requires
+this non-interactive internal record to associate the key with the employee's
+native GitHub device authorization. GitHub supplies the username after
+approval. The key is stored only in macOS Keychain, CLI settings are configured
+with `--apply`, and setup writes a secret-free Desktop import file.
+Setup keys expire after 90 days; rerun setup before expiry to refresh the local
+key. Older server keys remain active until expiry or administrator revocation.
+A failed setup revokes only the new key and leaves the prior local profile.
 
-An administrator must first invite/provision your personal LiteLLM account.
-Complete invitation/password setup in the dashboard before running this
-command. The shared administrator login is deliberately rejected. For
-SSO-only accounts or an existing personal key, use `--use-key` for a hidden
-key prompt, or `--api-key-file /private/path/key.json`. `--no-browser` leaves
-GitHub approval to a browser you open manually. Multiple configured GitHub
-credentials require explicit `--credential NAME`; no account is selected
-arbitrarily. Existing connections are confirmed, not automatically replaced.
-
-Setup never inherits a cached local key. Older TypeScript direct-key profiles
-without a verified LiteLLM owner now fail closed until fresh setup or
-`login-litellm-key` with your own key. Failed authorization preserves the old
-profile; failed key installation attempts to revoke only the newly issued
-key. No other user's server-side key or GitHub connection is changed.
+Employees need the `CCGC.Access` Entra app role and their own Copilot-entitled
+GitHub account. `--no-browser` leaves GitHub approval to a browser opened
+manually. Multiple configured GitHub credentials require explicit
+`--credential NAME`; no account is selected arbitrarily. Existing connections
+are confirmed, not automatically replaced. If setup fails after provisioning,
+the broker revokes the newly issued key; the previous local profile remains.
 Restart existing Claude sessions after switching identities.
 
-**Your connections belongs to the dashboard's signed-in LiteLLM user.**
-Sign into the dashboard with the same personal account reported by setup.
-A different browser session does not become that user just because the local
-CLI works. Setup does not read or replace browser cookies.
+**LiteLLM dashboard access is not part of employee setup.** The internal
+service identity has no employee password or dashboard session, so it will not
+appear under an employee's browser **Your connections** view. Setup verifies
+the GitHub identity returned by LiteLLM's OAuth flow directly; it does not
+read or replace browser cookies.
 
 Advanced `login-litellm-key` remains available for an explicitly supplied
 personal key; it validates ownership and discovery but does not initiate

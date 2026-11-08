@@ -39,6 +39,11 @@ const employeeEntra = new EntraAuthenticator({
   audience: entraAudience,
   requiredRole: process.env.CCGC_ENTRA_ROLE,
 });
+const employeeSetupEntra = new EntraAuthenticator({
+  tenantId: entraTenantId,
+  audience: entraAudience,
+  requiredRole: 'CCGC.Access',
+});
 const workerUrl = process.env.CCGC_LEGACY_WORKER_URL;
 const dispatchSecretName = process.env.CCGC_DISPATCH_SECRET_NAME;
 const dispatchSecret = workerUrl && dispatchSecretName
@@ -55,6 +60,7 @@ const server = await startEnterpriseServer({
     dispatchSigner: new DispatchSigner(dispatchSecret.value, brokerOrigin, workerUrl),
   } : {}),
   inferenceGateway: required('CCGC_LITELLM_PUBLIC_URL'),
+  setupAuthenticator: employeeSetupEntra,
   adminAuthenticator: new EntraAuthenticator({
     tenantId: entraTenantId,
     audience: entraAudience,

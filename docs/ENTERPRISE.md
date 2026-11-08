@@ -10,18 +10,22 @@ OpenAI-compatible clients send that virtual key directly to LiteLLM.
 
 ## Target request path
 
-1. An administrator creates or invites a personal internal user in LiteLLM.
-   The employee completes native invitation/password setup.
-2. The guided TypeScript `setup` authenticates that user, runs native GitHub
-   device authorization, and creates a user-owned virtual key. Alternatively,
-   the employee supplies their own key and connects through the same flow or
-   **Models + Endpoints → LLM Credentials → Your connections**.
-3. The managed client stores the virtual key only in the operating-system
+1. The employee runs guided setup and authenticates to the broker using the
+   existing Entra `CCGC.Access` app role. The request contains no caller-chosen
+   LiteLLM user ID, email, or model list.
+2. The broker derives the LiteLLM identity from the verified Entra object ID,
+   creates or resolves a non-invited `internal_user` record, and issues a key
+   scoped to the deployment's approved Claude models. The employee does not
+   need a LiteLLM password, dashboard login, or invitation.
+3. The employee approves LiteLLM's native per-user GitHub device flow. LiteLLM
+   associates the resulting GitHub identity with the service-managed internal
+   user; the broker's administrator credential never leaves the server.
+4. The managed client stores the virtual key only in the operating-system
    credential store. The non-secret profile contains the LiteLLM URL and
    discovered Claude model IDs.
-4. Claude's `apiKeyHelper` returns the virtual key. `ANTHROPIC_BASE_URL` points
+5. Claude's `apiKeyHelper` returns the virtual key. `ANTHROPIC_BASE_URL` points
    directly to LiteLLM.
-5. LiteLLM authenticates the key, applies model/team/budget/rate/spend policy,
+6. LiteLLM authenticates the key, applies model/team/budget/rate/spend policy,
    resolves the same LiteLLM user's encrypted GitHub connection, and invokes
    GitHub Copilot.
 
@@ -65,43 +69,58 @@ is authenticated and how the LiteLLM user is selected.
 ### TypeScript client
 
 ```bash
-npm run enterprise:client -- setup --gateway https://LITELLM_FQDN --apply
+npm run enterprise:client -- setup \
+  --gateway https://BROKER_FQDN \
+  --audience api://APP-ID \
+  --apply
 ```
 
-The password is entered privately in a terminal, never as a command argument.
-The script calls LiteLLM's native `/v2/login`, validates the resulting session
-against `/key/info` and `/user/info`, and rejects shared/proxy-admin identities.
-It discovers the credential referenced by exact GitHub Copilot Claude routes,
-then uses `/credentials/{name}/user_connection/start` and `/poll`. GitHub
-supplies the login after approval. No GitHub token is downloaded to the client.
-Pending/slowdown/expiry/denial/no-seat outcomes are handled without fallback.
+The client uses `DefaultAzureCredential` to obtain an Entra token for the
+configured broker audience. The broker accepts only a validated Entra principal
+with `CCGC.Access`; legacy CCGC API keys are rejected on the setup routes.
+LiteLLM's internal user record is necessary because its GitHub OAuth connection
+is per LiteLLM user, but the employee receives no LiteLLM password, invitation,
+or dashboard access. The key is returned over the authenticated HTTPS channel
+and stored only in Keychain.
+Setup keys expire after 90 days. Employees should rerun setup before expiry;
+the existing GitHub connection is confirmed and a new key replaces the local
+one only after owner/connection verification. Older keys remain active until
+their own expiry or administrator revocation.
+
+The client discovers the credential referenced by exact GitHub Copilot Claude
+routes, then uses `/credentials/{name}/user_connection/start` and `/poll`.
+GitHub supplies the login after approval. No GitHub token is downloaded to the
+client. Pending/slowdown/expiry/denial/no-seat outcomes are handled without
+fallback. If setup is cancelled or fails, the broker verifies key ownership and
+revokes only the newly issued key; the previous local profile remains intact.
 
 An existing connection is displayed for confirmation, never automatically
-disconnected or replaced. Personal-key creation uses the authenticated user's
-ID and approved model subset without changing budgets, rates, roles or other
-server policy. The generated key's owner and connection are rechecked before
-the active private profile changes. Keychain entries are isolated by gateway,
-user and key, so failed replacement cannot overwrite another employee's key.
+disconnected or replaced. User creation omits email, disables invitations and
+automatic key creation, assigns only `internal_user`, and applies the
+configured model allowlist. The generated key's owner and connection are
+rechecked before the active private profile changes. Keychain entries are
+isolated by gateway, user and key, so failed replacement cannot overwrite
+another employee's key.
 
-`--use-key` prompts privately for an existing personal virtual key, including
-for SSO-only users. `--api-key-file` reads the same key from a private file.
 `--no-browser` suppresses browser launching; `--credential NAME` resolves
-multiple configured per-user credentials explicitly. Supplied keys exposing
-other Claude routes are rejected rather than silently selecting another
-provider or GitHub credential. Native account invitation and human GitHub
-approval cannot be bypassed by the script.
+multiple configured per-user credentials explicitly. Existing personal keys
+can still use the separate `login-litellm-key` command, but are not accepted as
+the guided Entra setup credential. Human GitHub approval cannot be bypassed.
 
 Setup writes `~/.local/share/ccgc/enterprise/desktop-gateway.json`. Apply it
 through Desktop's supported third-party configuration UI; an existing Gateway
 configuration using this helper only needs a relaunch. CLI configuration and
-Desktop configuration remain separate. Sign into LiteLLM's dashboard as the
-same user shown by setup to see **Your connections**; the script does not
-reuse or modify browser sessions.
+Desktop configuration remain separate. The employee's browser **Your
+connections** view does not show the internal service identity because it has
+no dashboard login; setup verifies the connection through LiteLLM's API and
+does not reuse or modify browser sessions.
 
-Older TypeScript direct-key profiles without verified owner metadata now
-require fresh setup or explicit own-key login. They are not silently migrated
-by trusting the key already present on a machine. Inference still uses only a
-LiteLLM virtual key, not the dashboard session or Entra JWT.
+The LiteLLM user record is an internal service identity keyed by Entra object
+ID, not an employee-managed dashboard account. Inference still uses only a
+LiteLLM virtual key, not the dashboard session or Entra JWT. Older TypeScript
+direct-key profiles without verified owner metadata require fresh setup or
+explicit own-key login; they are not silently migrated by trusting the key
+already present on a machine.
 
 For advanced manual-key installation without GitHub OAuth automation:
 

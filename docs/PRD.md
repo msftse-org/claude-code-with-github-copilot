@@ -1182,21 +1182,29 @@ and the remaining production gates are not established by this evidence.
 
 ### Personal onboarding identity correction
 
-The TypeScript `setup` flow now authenticates a fresh personal LiteLLM user,
-verifies session/key ownership, performs native per-user GitHub device OAuth,
-and derives the GitHub login from authenticated results rather than typed
-usernames or the macOS account name. It creates and verifies that user's
-scoped virtual key, stores it only in an isolated Keychain entry, configures
-the CLI on request and exports supported Desktop Gateway configuration.
-It neither reuses an existing machine key nor accepts the shared proxy-admin
-login. Older unverified TypeScript direct-key profiles fail closed until
-explicit personal setup; existing other-user server credentials are untouched.
+The guided TypeScript `setup` flow authenticates the employee through the
+existing Entra `CCGC.Access` role. The broker derives the LiteLLM user ID from
+the verified Entra object ID, creates or resolves a non-invited `internal_user`
+record with only approved Claude models, and returns a user-scoped virtual key.
+Employees do not need a LiteLLM password, dashboard login, or invitation.
+LiteLLM still requires this internal record to associate its native per-user
+GitHub OAuth connection with the employee. The broker's master credential
+remains server-side.
 
-Native LiteLLM invitation/provisioning and human authentication/consent remain
-prerequisites. Dashboard **Your connections** is scoped to the dashboard user,
-not the local client profile; setup does not manipulate browser sessions.
-The flow has synthetic coverage, but correct-user live onboarding and new
-CLI/Desktop workflow evidence remain pending. The native Go helper still
-uses manual key installation rather than the new guided TypeScript setup.
+The client performs human GitHub device authorization, verifies the LiteLLM
+key owner and connected GitHub identity, and stores the 90-day key only in an
+isolated Keychain entry. Employees rerun setup before expiry to refresh it;
+older keys remain active until expiry or administrator revocation. The
+client configures the CLI on request and exports supported Desktop Gateway
+configuration. A cancelled or failed setup asks the broker to revoke only the
+just-issued key; the prior local profile remains intact. GitHub login is
+derived from the completed OAuth result, not typed usernames or the macOS
+account name. The native Go helper still uses manual key installation.
+
+The internal record is not an employee-managed LiteLLM dashboard account.
+Dashboard **Your connections** remains scoped to whichever LiteLLM user is
+signed into the browser; this guided client flow does not create dashboard
+credentials or manipulate browser sessions. Correct-user live onboarding and
+new CLI/Desktop workflow evidence remain pending.
 
 The project is an independent compatibility experiment, not affiliated with, endorsed by, or supported by GitHub or Anthropic. Their product names remain their respective trademarks. Technical feasibility, SDK licensing, service entitlement, organizational authorization, and vendor support are distinct questions.

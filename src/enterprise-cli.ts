@@ -4,16 +4,16 @@ import { execFile } from 'node:child_process';
 import { createInterface } from 'node:readline/promises';
 import { Writable } from 'node:stream';
 import { dirname, join } from 'node:path';
-import { EnterpriseClient, configureEnterprise, enterpriseDesktopConfig } from './enterprise-client.ts';
-import { setupEnterprise, type SetupCredentials } from './enterprise-setup.ts';
+import { EnterpriseClient, configureEnterprise, enterpriseDesktopConfig, type EnterpriseProfile } from './enterprise-client.ts';
+import { setupEnterprise } from './enterprise-setup.ts';
 import { BridgeError, object, parseJson, safeError, text } from './protocol.ts';
 import { readPrivate, writePrivate } from './private-state.ts';
 import { gatewayUrl } from './remote.ts';
 
 const help = `ccgc enterprise - enterprise client profile
 
-  ccgc-enterprise setup --gateway https://litellm-gateway [--apply] [--no-browser]
-    [--use-key | --api-key-file /private/own-key.json] [--credential NAME]
+  ccgc-enterprise setup --gateway https://enterprise-broker --audience api://APP-ID [--apply] [--no-browser]
+    [--credential NAME]
   ccgc-enterprise login --gateway https://private-gateway --audience api://APP-ID
   ccgc-enterprise login-api-key --gateway https://private-gateway --api-key-file /private/key.json
   ccgc-enterprise login-litellm-key --gateway https://litellm-gateway --api-key-file /private/key.json
@@ -25,12 +25,10 @@ const help = `ccgc enterprise - enterprise client profile
 The token command is the Claude apiKeyHelper. Direct LiteLLM virtual keys are
 returned unchanged from macOS Keychain. Legacy Entra and CCGC API-key profiles
 continue to use bounded admissions during migration.
-setup asks for your personal LiteLLM login (password hidden), verifies ownership,
-connects GitHub through native device authorization, and creates a personal key.
-It never uses a cached key or the shared admin account. Invited users must first
-finish account/password setup in the dashboard. SSO-only users can supply their
-own key with --use-key (hidden prompt) or --api-key-file instead.
-GitHub determines the username after consent.
+setup authenticates through Microsoft Entra, provisions a non-invited internal
+LiteLLM identity and scoped key on the server, and connects GitHub through its
+native device authorization. Employees do not need a LiteLLM login or dashboard
+account. GitHub determines the username after consent.
 --apply writes CLI settings; setup also writes a secret-free Desktop import file.
 Older direct-key profiles require setup or a fresh login-litellm-key before use.
 desktop-config prints a secret-free JSON configuration to import through
@@ -40,8 +38,7 @@ do not configure Desktop's separate third-party mode.
 
 async function guidedSetup(client: EnterpriseClient, options: {
   gateway: string;
-  apiKeyFile?: string;
-  useKey: boolean;
+  audience: string;
   credentialName?: string;
   apply: boolean;
   noBrowser: boolean;
@@ -49,7 +46,7 @@ async function guidedSetup(client: EnterpriseClient, options: {
   const gateway = gatewayUrl(options.gateway);
   if (process.platform !== 'darwin') throw new BridgeError('CREDENTIAL_STORE_UNAVAILABLE', 'This setup currently requires macOS Keychain.');
   if (!process.stdin.isTTY || !process.stderr.isTTY) {
-    throw new BridgeError('INTERACTIVE_LOGIN_REQUIRED', 'Run setup in a terminal to confirm your identity and approve GitHub; never put passwords in arguments.');
+    throw new BridgeError('INTERACTIVE_LOGIN_REQUIRED', 'Run setup in a terminal to confirm your identity and approve GitHub.');
   }
   const cancellation = new AbortController();
   let hidden = false;
@@ -72,36 +69,39 @@ async function guidedSetup(client: EnterpriseClient, options: {
     }
   };
   try {
-    console.error(`Sign in to your PERSONAL LiteLLM account at ${gateway}.`);
-    console.error('The existing local key will not be reused. No account yet? Complete your administrator invitation in the dashboard first.');
-    let credentials: SetupCredentials;
-    if (options.apiKeyFile) {
-      credentials = { apiKey: text(parseJson(await readPrivate(options.apiKeyFile)).apiKey, 'your LiteLLM virtual key') };
-    } else if (options.useKey) {
-      credentials = { apiKey: (await prompt('Your personal LiteLLM virtual key (hidden): ', true)).trim() };
-    } else {
-      credentials = {
-        username: (await prompt('LiteLLM email / username: ')).trim(),
-        password: await prompt('LiteLLM password (hidden): ', true),
-      };
+    console.error('Authenticating with Microsoft Entra; no LiteLLM login or dashboard account is required.');
+    const provisioned = await client.provisionLiteLLMUser(gateway, options.audience);
+    console.error(`Service-managed LiteLLM identity: ${JSON.stringify(provisioned.userAlias)} (${JSON.stringify(provisioned.userId)}).`);
+    let profile: EnterpriseProfile;
+    try {
+      profile = await setupEnterprise(client, provisioned.inferenceGateway, { apiKey: provisioned.apiKey }, {
+        ...(options.credentialName ? { credentialName: options.credentialName } : {}),
+        signal: cancellation.signal,
+        async confirmIdentity(identity) {
+          console.error(`LiteLLM identity: ${JSON.stringify(identity.userAlias ?? identity.userId)} (${JSON.stringify(identity.userId)})`);
+          console.error(`GitHub connection: ${identity.githubLogin ? JSON.stringify(identity.githubLogin) : 'not connected yet'}`);
+          return /^(y|yes)$/i.test((await prompt('Is this your account and, if already connected, your GitHub identity? [y/N] ')).trim());
+        },
+        async authorizeDevice(device) {
+          console.error(`Open ${device.verificationUri} and enter ${device.userCode}. Approve only using your own Copilot-entitled GitHub account.`);
+          console.error(`Waiting for GitHub approval (up to ${device.expiresIn} seconds). Ctrl-C cancels.`);
+          if (!options.noBrowser) {
+            try { await promisify(execFile)('/usr/bin/open', [device.verificationUri], { timeout: 10_000 }); }
+            catch { console.error('Could not launch the browser. Open the verification URL above manually.'); }
+          }
+        },
+      });
+    } catch (error) {
+      try {
+        await client.revokeLiteLLMSetupKey(gateway, options.audience, provisioned.apiKey);
+      } catch {
+        throw new BridgeError(
+          'KEY_CLEANUP_REQUIRED',
+          'Setup failed and the new LiteLLM key could not be revoked. Ask an administrator to revoke the ccgc-claude key; the previous local profile was preserved.',
+        );
+      }
+      throw error;
     }
-    const profile = await setupEnterprise(client, gateway, credentials, {
-      ...(options.credentialName ? { credentialName: options.credentialName } : {}),
-      signal: cancellation.signal,
-      async confirmIdentity(identity) {
-        console.error(`LiteLLM user: ${JSON.stringify(identity.userAlias ?? identity.userId)} (${JSON.stringify(identity.userId)})`);
-        console.error(`GitHub connection: ${identity.githubLogin ? JSON.stringify(identity.githubLogin) : 'not connected yet'}`);
-        return /^(y|yes)$/i.test((await prompt('Is this your account and, if already connected, your GitHub identity? [y/N] ')).trim());
-      },
-      async authorizeDevice(device) {
-        console.error(`Open ${device.verificationUri} and enter ${device.userCode}. Approve only using your own Copilot-entitled GitHub account.`);
-        console.error(`Waiting for GitHub approval (up to ${device.expiresIn} seconds). Ctrl-C cancels.`);
-        if (!options.noBrowser) {
-          try { await promisify(execFile)('/usr/bin/open', [device.verificationUri], { timeout: 10_000 }); }
-          catch { console.error('Could not launch the browser. Open the verification URL above manually.'); }
-        }
-      },
-    });
     const desktopPath = join(dirname(client.statePath), 'desktop-gateway.json');
     await writePrivate(desktopPath, enterpriseDesktopConfig(profile));
     const cli = await configureEnterprise(profile, options.apply);
@@ -113,9 +113,8 @@ async function guidedSetup(client: EnterpriseClient, options: {
       models: profile.models,
       cli,
       desktopConfig: desktopPath,
-      connectionsUrl: `${gateway}/ui/models-and-endpoints/?tab=llm-credentials`,
     }, null, 2));
-    console.error(`In LiteLLM's dashboard, sign in as this SAME personal user to see Your connections; a separate admin browser session will not show it.`);
+    console.error('No LiteLLM login or dashboard access is needed; the server-managed internal identity owns the GitHub connection.');
     console.error(`Desktop: if Gateway already uses this helper, relaunch it. Otherwise import ${desktopPath} in Developer > Configure Third-Party Inference and apply/relaunch.`);
     console.error('Restart existing Claude sessions to discard any previously cached credentials. Setup does not run inference or prove client feature parity.');
   } catch (error) {
@@ -149,13 +148,12 @@ async function main(argv = process.argv.slice(2)): Promise<void> {
   }
   const client = new EnterpriseClient();
   if (command === 'setup') {
-    if (!values.gateway || values.audience || (values['use-key'] && values['api-key-file'])) {
-      throw new BridgeError('INVALID_OPTIONS', 'setup requires --gateway, accepts one key-input method, and does not use --audience.');
+    if (!values.gateway || !values.audience || values['use-key'] || values['api-key-file']) {
+      throw new BridgeError('INVALID_OPTIONS', 'setup requires --gateway and --audience and does not accept a LiteLLM key.');
     }
     await guidedSetup(client, {
       gateway: values.gateway,
-      ...(values['api-key-file'] ? { apiKeyFile: values['api-key-file'] } : {}),
-      useKey: values['use-key'] ?? false,
+      audience: values.audience,
       ...(values.credential ? { credentialName: values.credential } : {}),
       apply: values.apply ?? false,
       noBrowser: values['no-browser'] ?? false,
