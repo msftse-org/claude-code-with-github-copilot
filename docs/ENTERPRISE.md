@@ -10,10 +10,12 @@ OpenAI-compatible clients send that virtual key directly to LiteLLM.
 
 ## Target request path
 
-1. An administrator creates or invites the user in the LiteLLM UI and issues a
-   user-owned virtual key.
-2. The user opens **Models + Endpoints → LLM Credentials → Your connections**
-   and connects GitHub Copilot.
+1. An administrator creates or invites a personal internal user in LiteLLM.
+   The employee completes native invitation/password setup.
+2. The guided TypeScript `setup` authenticates that user, runs native GitHub
+   device authorization, and creates a user-owned virtual key. Alternatively,
+   the employee supplies their own key and connects through the same flow or
+   **Models + Endpoints → LLM Credentials → Your connections**.
 3. The managed client stores the virtual key only in the operating-system
    credential store. The non-secret profile contains the LiteLLM URL and
    discovered Claude model IDs.
@@ -63,6 +65,47 @@ is authenticated and how the LiteLLM user is selected.
 ### TypeScript client
 
 ```bash
+npm run enterprise:client -- setup --gateway https://LITELLM_FQDN --apply
+```
+
+The password is entered privately in a terminal, never as a command argument.
+The script calls LiteLLM's native `/v2/login`, validates the resulting session
+against `/key/info` and `/user/info`, and rejects shared/proxy-admin identities.
+It discovers the credential referenced by exact GitHub Copilot Claude routes,
+then uses `/credentials/{name}/user_connection/start` and `/poll`. GitHub
+supplies the login after approval. No GitHub token is downloaded to the client.
+Pending/slowdown/expiry/denial/no-seat outcomes are handled without fallback.
+
+An existing connection is displayed for confirmation, never automatically
+disconnected or replaced. Personal-key creation uses the authenticated user's
+ID and approved model subset without changing budgets, rates, roles or other
+server policy. The generated key's owner and connection are rechecked before
+the active private profile changes. Keychain entries are isolated by gateway,
+user and key, so failed replacement cannot overwrite another employee's key.
+
+`--use-key` prompts privately for an existing personal virtual key, including
+for SSO-only users. `--api-key-file` reads the same key from a private file.
+`--no-browser` suppresses browser launching; `--credential NAME` resolves
+multiple configured per-user credentials explicitly. Supplied keys exposing
+other Claude routes are rejected rather than silently selecting another
+provider or GitHub credential. Native account invitation and human GitHub
+approval cannot be bypassed by the script.
+
+Setup writes `~/.local/share/ccgc/enterprise/desktop-gateway.json`. Apply it
+through Desktop's supported third-party configuration UI; an existing Gateway
+configuration using this helper only needs a relaunch. CLI configuration and
+Desktop configuration remain separate. Sign into LiteLLM's dashboard as the
+same user shown by setup to see **Your connections**; the script does not
+reuse or modify browser sessions.
+
+Older TypeScript direct-key profiles without verified owner metadata now
+require fresh setup or explicit own-key login. They are not silently migrated
+by trusting the key already present on a machine. Inference still uses only a
+LiteLLM virtual key, not the dashboard session or Entra JWT.
+
+For advanced manual-key installation without GitHub OAuth automation:
+
+```bash
 npm run enterprise:client -- login-litellm-key \
   --gateway https://LITELLM_FQDN \
   --api-key-file /private/path/litellm-key.json
@@ -83,9 +126,10 @@ contain:
 {"apiKey":"sk-REDACTED"}
 ```
 
-After verification through `/v1/models`, the client stores the key in Keychain
-or the platform credential store and writes no key to the profile or Claude
-settings.
+Both manual paths verify `/v1/models` and store the key in the platform
+credential store, not the profile or Claude settings. The TypeScript path also
+validates the personal key owner. The native macOS/Windows helper does not yet
+implement the new guided setup.
 
 ## Supported API surfaces
 
@@ -122,7 +166,9 @@ pass. It must not be presented as part of the final request architecture.
 | Path | Purpose |
 |---|---|
 | `src/enterprise-client.ts` | TypeScript direct-key login, credential storage, token helper, and Claude configuration |
-| `src/enterprise-cli.ts` | `login-litellm-key` command |
+| `src/enterprise-setup.ts` | Fresh personal login, native GitHub OAuth and isolated key installation |
+| `src/enterprise-cli.ts` | Guided `setup`, manual login and Desktop export commands |
+| `scripts/ccgc-enterprise-launcher.sh` | Relocatable launcher suitable for Downloads |
 | `cmd/ccgc-enterprise/` | Native `login-key` implementation for managed endpoints |
 | `server/litellm.enterprise.yaml` | LiteLLM model and temporary compatibility-auth configuration |
 | `server/ccgc_litellm_auth.py` | Migration-only CCGC API-key and admission compatibility |
@@ -148,11 +194,18 @@ accounting, delayed budget enforcement, replacement-key rotation, revocation,
 fail-closed inference for an unconnected second user, and the temporary CCGC
 API-key/admission rollback path. Desktop 4.23118.0 now has separate, supported
 Gateway configuration with a Keychain-backed credential helper; a real Code
-Read workflow passed with LiteLLM attribution to the intended user's Copilot
-route. CLI settings alone do not configure this Desktop surface. See the root
+Read workflow passed with LiteLLM attribution to the key owner's Copilot
+route. The Mac later proved to hold another employee's key; this does not
+verify the current operator's identity. Fresh correct-user setup and client
+retesting are still required. CLI settings alone do not configure this Desktop surface. See the root
 README for setup and the model-by-model results: four configured models
 passed, while Opus 5.5 returned upstream `model_not_supported`.
 
 Broader two-user concurrency and traffic observation remain required before
 the broker is removed. Desktop Chat/Cowork workflows were not verified in
 this rollout.
+
+Guided onboarding has synthetic coverage for ownership isolation, native
+OAuth outcomes, URL validation, cancellation, model-route isolation and
+failed-installation cleanup. That coverage is not live proof of a new user's
+Copilot seat or Desktop/CLI workflow.

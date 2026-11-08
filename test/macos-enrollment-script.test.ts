@@ -5,9 +5,23 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
 import { promisify } from 'node:util';
+import { fileURLToPath } from 'node:url';
 
 const exec = promisify(execFile);
 const script = new URL('../scripts/ccgc-enterprise-macos.sh', import.meta.url);
+
+test('enterprise launcher locates its own repository from an unrelated working directory', async () => {
+  const launcher = new URL('../scripts/ccgc-enterprise-launcher.sh', import.meta.url);
+  const cwd = await mkdtemp(join(tmpdir(), 'ccgc-launcher-location-'));
+  try {
+    await exec('/bin/sh', ['-n', fileURLToPath(launcher)]);
+    const { stdout } = await exec('/bin/sh', [fileURLToPath(launcher), 'paths'], {
+      cwd,
+      env: { ...process.env, CCGC_NODE: process.execPath, CCGC_ENTERPRISE_ROOT: '', CCGC_ENTERPRISE_ENTRYPOINT: '' },
+    });
+    assert.ok(stdout.includes(`CCGC_ENTERPRISE_ENTRYPOINT=${fileURLToPath(new URL('../src/enterprise-cli.ts', import.meta.url))}`));
+  } finally { await rm(cwd, { recursive: true, force: true }); }
+});
 
 test('macOS enrollment script has valid Bash syntax', async () => {
   await exec('/bin/bash', ['-n', script.pathname]);

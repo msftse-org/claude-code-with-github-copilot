@@ -146,15 +146,52 @@ Each employee needs:
 - `~/.claude/settings.json` pointing Claude Code to the central LiteLLM gateway
 - A private, non-secret profile containing the gateway and discovered models
 
-Use `login-litellm-key` in the TypeScript CLI or `login-key` in the native
-client with a mode-0600 JSON key file. The client verifies `/v1/models`, moves
-the key into OS credential storage, and never writes it to Claude settings or
-the profile. GitHub OAuth tokens remain encrypted in LiteLLM PostgreSQL.
+Use the guided TypeScript setup with Node.js 24 and repository dependencies:
 
-See [Mac enterprise setup and operation](docs/mac/README.md) for installation,
-Entra sign-in, configuration, Keychain behavior, verification, and daily use.
-The managed macOS enrollment entry point is the tracked
-[`scripts/ccgc-enterprise-macos.sh`](scripts/ccgc-enterprise-macos.sh) script.
+```bash
+npm run enterprise:client -- setup --gateway https://LITELLM_FQDN --apply
+```
+
+The relocatable [`ccgc-enterprise` launcher](scripts/ccgc-enterprise-launcher.sh)
+can also be installed in Downloads and run with the same `setup` arguments.
+It requires the repository and Node.js 24; it is not a standalone binary.
+
+Setup asks for your **personal LiteLLM login**, hides the password, verifies
+the authenticated user and key owner, and runs LiteLLM's native GitHub device
+authorization. GitHub supplies the username after you approve; no GitHub
+username is manually configured. Setup creates a personal virtual key with
+the approved Claude routes, stores it only in Keychain, configures the CLI
+with `--apply`, and writes a secret-free Desktop import file.
+
+An administrator must first invite/provision your personal LiteLLM account.
+Complete invitation/password setup in the dashboard before running this
+command. The shared administrator login is deliberately rejected. For
+SSO-only accounts or an existing personal key, use `--use-key` for a hidden
+key prompt, or `--api-key-file /private/path/key.json`. `--no-browser` leaves
+GitHub approval to a browser you open manually. Multiple configured GitHub
+credentials require explicit `--credential NAME`; no account is selected
+arbitrarily. Existing connections are confirmed, not automatically replaced.
+
+Setup never inherits a cached local key. Older TypeScript direct-key profiles
+without a verified LiteLLM owner now fail closed until fresh setup or
+`login-litellm-key` with your own key. Failed authorization preserves the old
+profile; failed key installation attempts to revoke only the newly issued
+key. No other user's server-side key or GitHub connection is changed.
+Restart existing Claude sessions after switching identities.
+
+**Your connections belongs to the dashboard's signed-in LiteLLM user.**
+Sign into the dashboard with the same personal account reported by setup.
+A different browser session does not become that user just because the local
+CLI works. Setup does not read or replace browser cookies.
+
+Advanced `login-litellm-key` remains available for an explicitly supplied
+personal key; it validates ownership and discovery but does not initiate
+GitHub OAuth. The native client's `login-key` remains a manual-key path, not
+the new guided setup. GitHub tokens stay in LiteLLM PostgreSQL.
+See [enterprise setup](docs/ENTERPRISE.md) for the current flow.
+[Mac managed enrollment](docs/mac/README.md) and
+[`scripts/ccgc-enterprise-macos.sh`](scripts/ccgc-enterprise-macos.sh) describe
+the older CCGC admission path, retained for migration only.
 
 ### Claude Desktop uses separate gateway settings
 
@@ -166,6 +203,10 @@ configuration from the repository with Node.js 24:
 umask 077
 node src/enterprise-cli.ts desktop-config > "$HOME/Downloads/ccgc-desktop-gateway.json"
 ```
+
+Guided `setup` already writes the same configuration to
+`~/.local/share/ccgc/enterprise/desktop-gateway.json`. If Desktop already uses
+this helper in Gateway mode, relaunch it to pick up the newly verified key.
 
 In Desktop, enable **Help > Troubleshooting > Enable Developer Mode**, open
 **Developer > Configure Third-Party Inference**, and use the configuration
@@ -194,7 +235,7 @@ allowlists, including explicitly selected direct LiteLLM users. The client
 refreshes `/v1/models` before configuration and model listing. Canonical IDs
 are preserved, including dots in version numbers.
 
-Live results for the tested Copilot connection on 2026-11-08:
+Live results for the tested employee connection on 2026-11-08:
 
 | Client model ID | LiteLLM provider model | Result |
 |---|---|---|
@@ -208,6 +249,10 @@ Discovery currently advertises all five configured routes; it is not an
 upstream entitlement check. Opus 5.5 is therefore **not verified working** for
 this connection. This reviewed catalog is not a claim that every model
 available to every Copilot account has been exhaustively discovered.
+These requests proved the configured employee's route, **not the identity of
+the person currently operating the Mac**. That Mac was later found to contain
+another employee's key. Correct-user sign-in and new live client proof remain
+required; the new setup's synthetic coverage is not a substitute.
 
 ## Claude Code feature compatibility
 
@@ -449,6 +494,9 @@ sentinel; LiteLLM recorded successful `github_copilot/claude-sonnet-5.5`
 requests under the same user who owns the virtual key and GitHub connection.
 CLI `2.1.319` independently passed the same kind of Read workflow. Neither the
 Pro account label nor a successful CLI check establishes Desktop routing.
+Later inspection established that this was another employee's stored key,
+not a verified identity of the current Mac operator. These historical passes
+must not be described as proof that the operator's own Copilot account works.
 
 Existing employees do **not** repeat `enroll` for routine control-plane,
 LiteLLM, model-catalog, image, or Claude Code updates. Those updates preserve

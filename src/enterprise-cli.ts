@@ -1,11 +1,19 @@
 #!/usr/bin/env node
-import { parseArgs } from 'node:util';
+import { parseArgs, promisify } from 'node:util';
+import { execFile } from 'node:child_process';
+import { createInterface } from 'node:readline/promises';
+import { Writable } from 'node:stream';
+import { dirname, join } from 'node:path';
 import { EnterpriseClient, configureEnterprise, enterpriseDesktopConfig } from './enterprise-client.ts';
+import { setupEnterprise, type SetupCredentials } from './enterprise-setup.ts';
 import { BridgeError, object, parseJson, safeError, text } from './protocol.ts';
-import { readPrivate } from './private-state.ts';
+import { readPrivate, writePrivate } from './private-state.ts';
+import { gatewayUrl } from './remote.ts';
 
 const help = `ccgc enterprise - enterprise client profile
 
+  ccgc-enterprise setup --gateway https://litellm-gateway [--apply] [--no-browser]
+    [--use-key | --api-key-file /private/own-key.json] [--credential NAME]
   ccgc-enterprise login --gateway https://private-gateway --audience api://APP-ID
   ccgc-enterprise login-api-key --gateway https://private-gateway --api-key-file /private/key.json
   ccgc-enterprise login-litellm-key --gateway https://litellm-gateway --api-key-file /private/key.json
@@ -17,10 +25,106 @@ const help = `ccgc enterprise - enterprise client profile
 The token command is the Claude apiKeyHelper. Direct LiteLLM virtual keys are
 returned unchanged from macOS Keychain. Legacy Entra and CCGC API-key profiles
 continue to use bounded admissions during migration.
+setup asks for your personal LiteLLM login (password hidden), verifies ownership,
+connects GitHub through native device authorization, and creates a personal key.
+It never uses a cached key or the shared admin account. Invited users must first
+finish account/password setup in the dashboard. SSO-only users can supply their
+own key with --use-key (hidden prompt) or --api-key-file instead.
+GitHub determines the username after consent.
+--apply writes CLI settings; setup also writes a secret-free Desktop import file.
+Older direct-key profiles require setup or a fresh login-litellm-key before use.
 desktop-config prints a secret-free JSON configuration to import through
 Desktop's Developer > Configure Third-Party Inference window. CLI settings
 do not configure Desktop's separate third-party mode.
 `;
+
+async function guidedSetup(client: EnterpriseClient, options: {
+  gateway: string;
+  apiKeyFile?: string;
+  useKey: boolean;
+  credentialName?: string;
+  apply: boolean;
+  noBrowser: boolean;
+}): Promise<void> {
+  const gateway = gatewayUrl(options.gateway);
+  if (process.platform !== 'darwin') throw new BridgeError('CREDENTIAL_STORE_UNAVAILABLE', 'This setup currently requires macOS Keychain.');
+  if (!process.stdin.isTTY || !process.stderr.isTTY) {
+    throw new BridgeError('INTERACTIVE_LOGIN_REQUIRED', 'Run setup in a terminal to confirm your identity and approve GitHub; never put passwords in arguments.');
+  }
+  const cancellation = new AbortController();
+  let hidden = false;
+  const output = new Writable({
+    write(chunk, encoding, callback) {
+      if (!hidden) process.stderr.write(chunk, encoding);
+      callback();
+    },
+  });
+  const terminal = createInterface({ input: process.stdin, output, terminal: true, historySize: 0 });
+  terminal.on('SIGINT', () => cancellation.abort());
+  terminal.on('close', () => cancellation.abort());
+  const prompt = async (label: string, secret = false): Promise<string> => {
+    const answer = terminal.question(label, { signal: cancellation.signal });
+    hidden = secret;
+    try { return await answer; }
+    finally {
+      hidden = false;
+      if (secret) process.stderr.write('\n');
+    }
+  };
+  try {
+    console.error(`Sign in to your PERSONAL LiteLLM account at ${gateway}.`);
+    console.error('The existing local key will not be reused. No account yet? Complete your administrator invitation in the dashboard first.');
+    let credentials: SetupCredentials;
+    if (options.apiKeyFile) {
+      credentials = { apiKey: text(parseJson(await readPrivate(options.apiKeyFile)).apiKey, 'your LiteLLM virtual key') };
+    } else if (options.useKey) {
+      credentials = { apiKey: (await prompt('Your personal LiteLLM virtual key (hidden): ', true)).trim() };
+    } else {
+      credentials = {
+        username: (await prompt('LiteLLM email / username: ')).trim(),
+        password: await prompt('LiteLLM password (hidden): ', true),
+      };
+    }
+    const profile = await setupEnterprise(client, gateway, credentials, {
+      ...(options.credentialName ? { credentialName: options.credentialName } : {}),
+      signal: cancellation.signal,
+      async confirmIdentity(identity) {
+        console.error(`LiteLLM user: ${JSON.stringify(identity.userAlias ?? identity.userId)} (${JSON.stringify(identity.userId)})`);
+        console.error(`GitHub connection: ${identity.githubLogin ? JSON.stringify(identity.githubLogin) : 'not connected yet'}`);
+        return /^(y|yes)$/i.test((await prompt('Is this your account and, if already connected, your GitHub identity? [y/N] ')).trim());
+      },
+      async authorizeDevice(device) {
+        console.error(`Open ${device.verificationUri} and enter ${device.userCode}. Approve only using your own Copilot-entitled GitHub account.`);
+        console.error(`Waiting for GitHub approval (up to ${device.expiresIn} seconds). Ctrl-C cancels.`);
+        if (!options.noBrowser) {
+          try { await promisify(execFile)('/usr/bin/open', [device.verificationUri], { timeout: 10_000 }); }
+          catch { console.error('Could not launch the browser. Open the verification URL above manually.'); }
+        }
+      },
+    });
+    const desktopPath = join(dirname(client.statePath), 'desktop-gateway.json');
+    await writePrivate(desktopPath, enterpriseDesktopConfig(profile));
+    const cli = await configureEnterprise(profile, options.apply);
+    console.log(JSON.stringify({
+      liteLLMUserId: profile.liteLLMUserId,
+      liteLLMUserAlias: profile.liteLLMUserAlias,
+      githubLogin: profile.githubLogin,
+      credentialName: profile.copilotCredentialName,
+      models: profile.models,
+      cli,
+      desktopConfig: desktopPath,
+      connectionsUrl: `${gateway}/ui/models-and-endpoints/?tab=llm-credentials`,
+    }, null, 2));
+    console.error(`In LiteLLM's dashboard, sign in as this SAME personal user to see Your connections; a separate admin browser session will not show it.`);
+    console.error(`Desktop: if Gateway already uses this helper, relaunch it. Otherwise import ${desktopPath} in Developer > Configure Third-Party Inference and apply/relaunch.`);
+    console.error('Restart existing Claude sessions to discard any previously cached credentials. Setup does not run inference or prove client feature parity.');
+  } catch (error) {
+    if (error instanceof Error && ['AbortError', 'TimeoutError'].includes(error.name)) {
+      throw new BridgeError('SETUP_CANCELLED', 'Setup was cancelled or timed out; no automatic retry was attempted.');
+    }
+    throw error;
+  } finally { terminal.close(); output.destroy(); }
+}
 
 async function main(argv = process.argv.slice(2)): Promise<void> {
   const { positionals, values } = parseArgs({
@@ -32,15 +136,35 @@ async function main(argv = process.argv.slice(2)): Promise<void> {
       gateway: { type: 'string' },
       audience: { type: 'string' },
       'api-key-file': { type: 'string' },
+      'use-key': { type: 'boolean' },
+      credential: { type: 'string' },
+      'no-browser': { type: 'boolean' },
       apply: { type: 'boolean' },
     },
   });
   if (values.help || !positionals.length) { console.log(help); return; }
   const command = positionals[0];
-  if (positionals.length !== 1 || !['login', 'login-api-key', 'login-litellm-key', 'configure', 'desktop-config', 'token', 'models'].includes(command ?? '')) {
+  if (positionals.length !== 1 || !['setup', 'login', 'login-api-key', 'login-litellm-key', 'configure', 'desktop-config', 'token', 'models'].includes(command ?? '')) {
     throw new BridgeError('INVALID_OPTIONS', 'Unknown enterprise command.');
   }
   const client = new EnterpriseClient();
+  if (command === 'setup') {
+    if (!values.gateway || values.audience || (values['use-key'] && values['api-key-file'])) {
+      throw new BridgeError('INVALID_OPTIONS', 'setup requires --gateway, accepts one key-input method, and does not use --audience.');
+    }
+    await guidedSetup(client, {
+      gateway: values.gateway,
+      ...(values['api-key-file'] ? { apiKeyFile: values['api-key-file'] } : {}),
+      useKey: values['use-key'] ?? false,
+      ...(values.credential ? { credentialName: values.credential } : {}),
+      apply: values.apply ?? false,
+      noBrowser: values['no-browser'] ?? false,
+    });
+    return;
+  }
+  if (values.credential || values['no-browser'] || values['use-key']) {
+    throw new BridgeError('INVALID_OPTIONS', '--credential, --no-browser and --use-key apply only to setup.');
+  }
   if (command === 'login') {
     if (!values.gateway || !values.audience || values['api-key-file'] || values.apply) {
       throw new BridgeError('INVALID_OPTIONS', 'login requires --gateway and --audience.');

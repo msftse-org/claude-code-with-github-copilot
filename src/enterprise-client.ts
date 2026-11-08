@@ -21,6 +21,10 @@ export interface EnterpriseProfile {
   objectId?: string;
   githubLogin?: string;
   githubAccountId?: number;
+  liteLLMUserId?: string;
+  liteLLMUserAlias?: string;
+  keychainId?: string;
+  copilotCredentialName?: string;
   models: string[];
   bindingRevision?: number;
   grant?: { id: string; expires: number };
@@ -32,6 +36,12 @@ const apiKeyId = (gateway: string) => createHash('sha256')
 
 interface TokenCredential {
   getToken(scope: string): Promise<{ token: string } | null>;
+}
+
+export interface LiteLLMIdentity {
+  userId: string;
+  userAlias?: string;
+  role: string;
 }
 
 function profile(value: ObjectValue): EnterpriseProfile {
@@ -66,8 +76,20 @@ function profile(value: ObjectValue): EnterpriseProfile {
   const controlPlane = value.controlPlane === undefined
     ? legacyGateway
     : gatewayUrl(text(value.controlPlane, 'control plane'));
+  const directIdentity: ObjectValue = {};
+  if (authMethod === 'litellmKey' && (value.liteLLMUserId !== undefined || value.keychainId !== undefined)) {
+    directIdentity.liteLLMUserId = text(value.liteLLMUserId, 'LiteLLM user ID');
+    const keychainId = text(value.keychainId, 'Keychain identifier');
+    if (!/^[a-f0-9]{64}$/.test(keychainId)) throw new BridgeError('INVALID_RESPONSE', 'Invalid Keychain identifier.');
+    directIdentity.keychainId = keychainId;
+    if (value.liteLLMUserAlias !== undefined) directIdentity.liteLLMUserAlias = text(value.liteLLMUserAlias, 'LiteLLM user alias');
+    if (value.copilotCredentialName !== undefined || value.githubLogin !== undefined) {
+      directIdentity.copilotCredentialName = text(value.copilotCredentialName, 'Copilot credential name');
+      directIdentity.githubLogin = text(value.githubLogin, 'GitHub login');
+    }
+  }
   const identity = authMethod === 'litellmKey'
-    ? {}
+    ? directIdentity
     : {
         tenantId: text(value.tenantId, 'tenant ID'),
         objectId: text(value.objectId, 'object ID'),
@@ -87,14 +109,32 @@ function profile(value: ObjectValue): EnterpriseProfile {
   };
 }
 
-async function responseJson(response: Response): Promise<ObjectValue> {
-  const raw = await response.text();
-  if (!response.ok) throw new BridgeError(
-    response.status === 401 ? 'GATEWAY_AUTH_REQUIRED' : response.status === 403 ? 'ACCESS_DENIED' : 'GATEWAY_UNAVAILABLE',
-    `Enterprise gateway returned HTTP ${response.status}; no fallback was attempted.`,
-    response.status,
-  );
-  return parseJson(raw);
+export async function responseJson(response: Response): Promise<ObjectValue> {
+  if (!response.ok) {
+    await response.body?.cancel();
+    throw new BridgeError(
+      response.status === 401 ? 'GATEWAY_AUTH_REQUIRED' : response.status === 403 ? 'ACCESS_DENIED' : 'GATEWAY_UNAVAILABLE',
+      `Enterprise gateway returned HTTP ${response.status}; no fallback was attempted.`,
+      response.status,
+    );
+  }
+  const reader = response.body?.getReader();
+  if (!reader) throw new BridgeError('INVALID_RESPONSE', 'Enterprise gateway returned an empty response.');
+  const chunks: Uint8Array[] = [];
+  let size = 0;
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      size += value.byteLength;
+      if (size > 1024 * 1024) {
+        await reader.cancel();
+        throw new BridgeError('LIMIT_REACHED', 'Enterprise metadata response exceeds 1 MiB.', 502);
+      }
+      chunks.push(value);
+    }
+  } finally { reader.releaseLock(); }
+  return parseJson(Buffer.concat(chunks).toString('utf8'));
 }
 
 export class EnterpriseClient {
@@ -174,44 +214,109 @@ export class EnterpriseClient {
     return next;
   }
 
-  async loginLiteLLMKey(gateway: string, apiKey: string): Promise<EnterpriseProfile> {
+  async identifyLiteLLMKey(gateway: string, apiKey: string, signal?: AbortSignal): Promise<LiteLLMIdentity> {
+    const origin = gatewayUrl(gateway);
+    const headers = { authorization: ['Bearer', apiKey].join(' ') };
+    const keyResponse = await responseJson(await this.fetcher(`${origin}/key/info`, {
+      headers, redirect: 'error', signal: signal ? AbortSignal.any([signal, AbortSignal.timeout(30_000)]) : AbortSignal.timeout(30_000),
+    }));
+    const userResponse = await responseJson(await this.fetcher(`${origin}/user/info`, {
+      headers, redirect: 'error', signal: signal ? AbortSignal.any([signal, AbortSignal.timeout(30_000)]) : AbortSignal.timeout(30_000),
+    }));
+    const keyInfo = object(keyResponse.info);
+    const userInfo = object(userResponse.user_info);
+    const userId = text(userInfo.user_id, 'LiteLLM user ID');
+    if (keyInfo.user_id !== userId) {
+      throw new BridgeError('IDENTITY_CONFLICT', 'The key must belong to the authenticated LiteLLM user, not a shared team or another user.', 403);
+    }
+    const role = text(userInfo.user_role, 'LiteLLM user role');
+    if (!['internal_user', 'internal_user_viewer'].includes(role)) {
+      throw new BridgeError('USER_ACCOUNT_REQUIRED', 'Use your own LiteLLM internal-user account or key, not the shared admin login or a proxy-admin key.', 403);
+    }
+    return {
+      userId,
+      role,
+      ...(typeof userInfo.user_alias === 'string' && userInfo.user_alias.trim() ? { userAlias: userInfo.user_alias } : {}),
+    };
+  }
+
+  async loginLiteLLMKey(gateway: string, apiKey: string, connection?: {
+    userId: string;
+    credentialName: string;
+    githubLogin: string;
+    models: string[];
+  }, signal?: AbortSignal): Promise<EnterpriseProfile> {
     if (!/^sk-[A-Za-z0-9._-]{16,}$/.test(apiKey)) {
       throw new BridgeError('GATEWAY_AUTH_REQUIRED', 'LiteLLM virtual key is invalid.', 401);
     }
     const inferenceGateway = gatewayUrl(gateway);
+    const identity = await this.identifyLiteLLMKey(inferenceGateway, apiKey, signal);
+    if (connection && connection.userId !== identity.userId) {
+      throw new BridgeError('IDENTITY_CONFLICT', 'The new key does not belong to the user who connected GitHub.', 403);
+    }
+    if (connection) {
+      const state = await responseJson(await this.fetcher(`${inferenceGateway}/credentials/user_connections`, {
+        headers: { authorization: ['Bearer', apiKey].join(' ') },
+        redirect: 'error',
+        signal: signal ? AbortSignal.any([signal, AbortSignal.timeout(30_000)]) : AbortSignal.timeout(30_000),
+      }));
+      const connections = Array.isArray(state.connections) ? state.connections.map(object) : [];
+      if (!connections.some(item => item.credential_name === connection.credentialName
+        && item.provider === 'github_copilot' && item.connected === true && item.github_login === connection.githubLogin)) {
+        throw new BridgeError('IDENTITY_CONFLICT', 'The new key does not resolve to the verified per-user GitHub connection.', 403);
+      }
+    }
     const response = await responseJson(await this.fetcher(`${inferenceGateway}/v1/models`, {
       headers: { authorization: ['Bearer', apiKey].join(' ') },
       redirect: 'error',
-      signal: AbortSignal.timeout(30_000),
+      signal: signal ? AbortSignal.any([signal, AbortSignal.timeout(30_000)]) : AbortSignal.timeout(30_000),
     }));
     const data = Array.isArray(response.data) ? response.data : [];
     const models = [...new Set(data
       .map(item => object(item))
       .map(item => text(item.id, 'model ID'))
       .filter(model => /^claude-[a-z0-9.-]+$/.test(model)))];
+    if (connection && models.some(model => !connection.models.includes(model))) {
+      throw new BridgeError('IDENTITY_CONFLICT', 'The key exposes Claude routes outside the selected per-user GitHub credential. Use a key scoped to that credential.', 403);
+    }
+    const keyId = createHash('sha256')
+      .update(`enterprise-verified-key\n${inferenceGateway}\n${identity.userId}\n${apiKey}`)
+      .digest('hex');
     const next = profile({
       controlPlane: inferenceGateway,
       gateway: inferenceGateway,
       authMethod: 'litellmKey',
       inferenceAuthentication: 'directKey',
+      liteLLMUserId: identity.userId,
+      ...(identity.userAlias ? { liteLLMUserAlias: identity.userAlias } : {}),
+      keychainId: keyId,
+      ...(connection ? { copilotCredentialName: connection.credentialName, githubLogin: connection.githubLogin } : {}),
       models,
     });
-    const keyId = apiKeyId(inferenceGateway);
+    const previous = await readState(this.statePath);
+    signal?.throwIfAborted();
     await this.secrets.set(keyId, apiKey);
     try {
-      await this.secrets.remove(profileKey(inferenceGateway));
+      signal?.throwIfAborted();
       await writePrivate(this.statePath, { ...next });
     } catch (error) {
-      await this.secrets.remove(keyId);
+      if (previous?.keychainId !== keyId) await this.secrets.remove(keyId);
       throw error;
     }
     return next;
   }
 
+  private verifiedDirectKey(current: EnterpriseProfile): Promise<string> {
+    if (!current.liteLLMUserId || !current.keychainId) {
+      throw new BridgeError('USER_SETUP_REQUIRED', 'This older profile has no verified LiteLLM owner. Run ccgc-enterprise setup with your own login or key; the cached credential will not be used.');
+    }
+    return this.secrets.get(current.keychainId);
+  }
+
   async refreshModels(): Promise<EnterpriseProfile> {
     const current = await this.load();
     if (current.inferenceAuthentication !== 'directKey') return current;
-    const apiKey = await this.secrets.get(apiKeyId(current.gateway));
+    const apiKey = await this.verifiedDirectKey(current);
     const response = await responseJson(await this.fetcher(`${current.gateway}/v1/models`, {
       headers: { authorization: ['Bearer', apiKey].join(' ') },
       redirect: 'error',
@@ -230,7 +335,7 @@ export class EnterpriseClient {
   async token(): Promise<string> {
     const current = await this.load();
     if (current.inferenceAuthentication === 'directKey') {
-      return this.secrets.get(apiKeyId(current.gateway));
+      return this.verifiedDirectKey(current);
     }
     const id = profileKey(current.controlPlane);
     if (current.grant && current.grant.expires > Date.now() + 5 * 60_000) {

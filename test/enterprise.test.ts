@@ -629,9 +629,11 @@ test('enterprise client stores a direct LiteLLM key only in Keychain', async () 
     },
     { async getToken() { throw new Error('Entra must not be used for direct keys'); } },
     async (input, init) => {
+      assert.equal(new Headers(init?.headers).get('authorization'), ['Bearer', apiKey].join(' '));
+      if (String(input).endsWith('/key/info')) return Response.json({ info: { user_id: 'own-user' } });
+      if (String(input).endsWith('/user/info')) return Response.json({ user_info: { user_id: 'own-user', user_role: 'internal_user' } });
       requests++;
       assert.equal(String(input), 'https://litellm.example/v1/models');
-      assert.equal(new Headers(init?.headers).get('authorization'), ['Bearer', apiKey].join(' '));
       return Response.json({
         data: requests === 1
           ? [{ id: 'claude-sonnet-5.5' }, { id: 'non-claude-model' }]
@@ -644,6 +646,7 @@ test('enterprise client stores a direct LiteLLM key only in Keychain', async () 
     assert.equal(profile.authMethod, 'litellmKey');
     assert.equal(profile.inferenceAuthentication, 'directKey');
     assert.equal(profile.gateway, 'https://litellm.example');
+    assert.equal(profile.liteLLMUserId, 'own-user');
     assert.deepEqual(profile.models, ['claude-sonnet-5.5']);
     assert.equal(await client.token(), apiKey);
     assert.equal(await client.token(), apiKey);

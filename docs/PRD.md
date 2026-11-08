@@ -1170,12 +1170,33 @@ not be treated as Desktop routing evidence.
 
 Claude Code CLI 2.1.319 and Desktop 4.23118.0 Code each completed an isolated
 Read-tool workflow on Sonnet 5.5. Desktop requests were recorded under the
-intended LiteLLM user on `github_copilot/claude-sonnet-5.5`. Sonnet 5, Haiku
+stored key's LiteLLM user on `github_copilot/claude-sonnet-5.5`. Subsequent
+inspection found that key belonged to another employee, so these results do
+not establish the current Mac operator's identity. Sonnet 5, Haiku
 5.5, and Haiku 4.5 also passed Messages API inference and actual CLI Read
 workflows with exact model selection. The configured Opus
 5.5 route returned GitHub `model_not_supported`, with no fallback. Model
 discovery reflects configured allowlists, not a guarantee of upstream
 availability. Desktop Chat/Cowork workflows, other client/model combinations,
 and the remaining production gates are not established by this evidence.
+
+### Personal onboarding identity correction
+
+The TypeScript `setup` flow now authenticates a fresh personal LiteLLM user,
+verifies session/key ownership, performs native per-user GitHub device OAuth,
+and derives the GitHub login from authenticated results rather than typed
+usernames or the macOS account name. It creates and verifies that user's
+scoped virtual key, stores it only in an isolated Keychain entry, configures
+the CLI on request and exports supported Desktop Gateway configuration.
+It neither reuses an existing machine key nor accepts the shared proxy-admin
+login. Older unverified TypeScript direct-key profiles fail closed until
+explicit personal setup; existing other-user server credentials are untouched.
+
+Native LiteLLM invitation/provisioning and human authentication/consent remain
+prerequisites. Dashboard **Your connections** is scoped to the dashboard user,
+not the local client profile; setup does not manipulate browser sessions.
+The flow has synthetic coverage, but correct-user live onboarding and new
+CLI/Desktop workflow evidence remain pending. The native Go helper still
+uses manual key installation rather than the new guided TypeScript setup.
 
 The project is an independent compatibility experiment, not affiliated with, endorsed by, or supported by GitHub or Anthropic. Their product names remain their respective trademarks. Technical feasibility, SDK licensing, service entitlement, organizational authorization, and vendor support are distinct questions.
