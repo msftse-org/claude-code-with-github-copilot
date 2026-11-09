@@ -34,6 +34,9 @@ function fakeCli({
   terraformState = '',
   statePublicNetworkAccess = 'SecuredByPerimeter',
   associationStates = ['Succeeded'],
+  applyFailures = 0,
+  plannedChanges = [] as unknown[],
+  diagnosticSettings = {} as Record<string, string[]>,
 } = {}) {
   const commands: Command[] = [];
   const run = async (command: string, args: string[], options: { input?: string; env?: Record<string, string> } = {}) => {
@@ -77,7 +80,12 @@ function fakeCli({
         resource_group_name: { value: 'rg-ccgc-pilot-enterprise' },
       });
     }
-    if (command === 'terraform' && ['init', 'plan', 'apply'].includes(args[1]!)) return '';
+    if (command === 'terraform' && args[1] === 'apply' && applyFailures-- > 0) throw new Error('terraform apply failed');
+    if (command === 'terraform' && args[1] === 'show') return JSON.stringify({ resource_changes: plannedChanges });
+    if (line.startsWith('az monitor diagnostic-settings list')) {
+      return JSON.stringify(diagnosticSettings[argumentAfter(entry, '--resource')!] ?? []);
+    }
+    if (command === 'terraform' && ['init', 'plan', 'apply', 'import'].includes(args[1]!)) return '';
     if (line.startsWith('az deployment sub what-if')) return '';
     if (line.startsWith('az deployment sub create')) {
       return JSON.stringify({
@@ -314,5 +322,69 @@ test('confirmed Terraform deploy stores state in Azure, bootstraps LiteLLM, and 
     const variable = cli.commands.find(entry => entry.args.slice(0, 3).join(' ') === 'variable set LITELLM_URL');
     assert.ok(variable?.args.includes('https://litellm.example'));
     assertNoSecretArguments(cli.commands, await secretValues(directory));
+  } finally { await rm(directory, { recursive: true, force: true }); }
+});
+
+const environmentId = '/subscriptions/example/resourceGroups/rg-ccgc-pilot-enterprise/providers/Microsoft.App/managedEnvironments/cae';
+const vaultId = '/subscriptions/example/resourceGroups/rg-ccgc-pilot-enterprise/providers/Microsoft.KeyVault/vaults/kv';
+
+function diagnosticSettingCreate(address: string, parentId: string | null) {
+  return {
+    address,
+    type: 'azapi_resource',
+    change: {
+      actions: ['create'],
+      after: { type: 'Microsoft.Insights/diagnosticSettings@2021-05-01-preview', name: 'send-to-workspace', parent_id: parentId },
+    },
+  };
+}
+
+async function confirmedDeploy(directory: string, cli: ReturnType<typeof fakeCli>) {
+  return deploy(options(directory, ['--confirm-deploy']), {
+    run: cli.run,
+    log: () => {},
+    sleep: async () => {},
+    fetcher: async input => new Response(String(input) === 'https://api.ipify.org' ? '198.51.100.20\n' : JSON.stringify({ db: 'connected' })),
+    bootstrap: async () => ({ createdCredential: false, createdModels: [], models: [] }),
+  });
+}
+
+test('Terraform deploy imports diagnostic settings Azure kept from deleted resources and retries the apply', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'ccgc-deploy-test-'));
+  try {
+    const cli = fakeCli({
+      applyFailures: 1,
+      plannedChanges: [
+        diagnosticSettingCreate('azapi_resource.environment_diagnostics', environmentId),
+        diagnosticSettingCreate('azapi_resource.vault_diagnostics', vaultId),
+        diagnosticSettingCreate('azapi_resource.other_diagnostics', null),
+      ],
+      diagnosticSettings: { [environmentId]: ['send-to-workspace'], [vaultId]: ['other-setting'] },
+    });
+    const result = await confirmedDeploy(directory, cli);
+    assert.equal(result.deployed, true);
+    assert.equal(cli.commands.filter(entry => entry.command === 'terraform' && entry.args[1] === 'apply').length, 2);
+    const imports = cli.commands.filter(entry => entry.command === 'terraform' && entry.args[1] === 'import');
+    assert.deepEqual(imports.map(entry => entry.args.slice(-2)), [[
+      'azapi_resource.environment_diagnostics',
+      `${environmentId}/providers/Microsoft.Insights/diagnosticSettings/send-to-workspace?api-version=2021-05-01-preview`,
+    ]]);
+    const masterKey = JSON.parse(await readFile(join(directory, 'secrets.json'), 'utf8')).litellmMasterKey as string;
+    assert.equal(imports[0]!.variables?.litellm_master_key, masterKey);
+    assert.ok(cli.commands.indexOf(imports[0]!) < cli.commands.findLastIndex(entry => entry.args[1] === 'apply'));
+    assertNoSecretArguments(cli.commands, await secretValues(directory));
+  } finally { await rm(directory, { recursive: true, force: true }); }
+});
+
+test('Terraform deploy reports the original apply failure when there is nothing to import', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'ccgc-deploy-test-'));
+  try {
+    const cli = fakeCli({
+      applyFailures: 1,
+      plannedChanges: [diagnosticSettingCreate('azapi_resource.vault_diagnostics', vaultId)],
+    });
+    await assert.rejects(confirmedDeploy(directory, cli), /terraform apply failed/);
+    assert.equal(cli.commands.filter(entry => entry.command === 'terraform' && entry.args[1] === 'apply').length, 1);
+    assert.equal(terraform(cli.commands, 'import'), undefined);
   } finally { await rm(directory, { recursive: true, force: true }); }
 });

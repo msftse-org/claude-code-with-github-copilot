@@ -187,22 +187,18 @@ from the secrets file.
 
 ## Rebuild from scratch
 
-1. Revoke employees if needed. Delete the `send-to-workspace` diagnostic
-   settings first: Azure Monitor keeps them after their resource is deleted
-   and attaches them to a new resource with the same ID, which makes
-   Terraform fail with `already exists`.
+1. Revoke employees if needed, then delete the resource group:
 
    ```bash
-   rg=rg-<prefix>-enterprise
-   for id in $(az resource list -g "$rg" --query "[?type=='Microsoft.App/managedEnvironments' || type=='Microsoft.KeyVault/vaults'].id" -o tsv); do
-     az monitor diagnostic-settings delete --name send-to-workspace --resource "$id"
-   done
-   az group delete --name "$rg" --yes
+   az group delete --name rg-<prefix>-enterprise --yes
    ```
 
    Terraform's `prevent_destroy` blocks `terraform destroy` on purpose. Keep
    `rg-<prefix>-tfstate`: the next Terraform run drops the deleted resources
-   from its state.
+   from its state. Azure Monitor keeps the `send-to-workspace` diagnostic
+   settings after their resources are deleted and attaches them to the new
+   resources. When that makes the apply fail with `already exists`, the deploy
+   imports those settings into state and retries the apply once.
 2. The Key Vault stays soft-deleted for 90 days with purge protection, which
    reserves its name. Deploy with a new `--name-seed` to get new Key Vault and
    PostgreSQL names.
@@ -216,7 +212,7 @@ from the secrets file.
 |---|---|
 | Readiness never reports the database connected | `az postgres flexible-server show` must report `Ready`; external automation can stop the server (`az postgres flexible-server start`). Then check `az containerapp logs show -n ca-<prefix>-litellm -g rg-<prefix>-enterprise`. |
 | Revision fails with a Key Vault reference error | The role assignment was still propagating. Re-run the deploy. |
-| Terraform reports that a resource `already exists` and must be imported | The resource exists outside Terraform state, for example from a Bicep deployment. Use `--engine bicep` or import it. A `diagnosticSettings/send-to-workspace` ID is a leftover from a deleted resource with the same ID: delete it with `az monitor diagnostic-settings delete --name send-to-workspace --resource <resource-id>` and re-run. |
+| Terraform reports that a resource `already exists` and must be imported | The resource exists outside Terraform state, for example from a Bicep deployment. Use `--engine bicep` or import it. The deploy already imports leftover diagnostic settings and retries. If a `diagnosticSettings` ID still fails, delete it with `az monitor diagnostic-settings delete --name <name> --resource <resource-id>` and re-run. |
 | Terraform reports `Instance cannot be destroyed` | A protected resource is tainted after a failed create. See [Terraform and Bicep](#terraform-and-bicep). |
 | `Cannot read Terraform state` | Your Storage Blob Data Contributor role on the state account has not propagated yet, or you lack it. Wait and re-run. If Azure sees you at a different address than the one in the message (VPN, proxy, split tunnel), re-run with `--state-client-ip <ipv4>`. |
 | `Could not detect this machine's public IPv4 address` | `https://api.ipify.org` is blocked or returned something else. Re-run with `--state-client-ip <ipv4>`. |

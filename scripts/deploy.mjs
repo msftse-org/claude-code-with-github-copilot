@@ -406,6 +406,30 @@ async function terraformWorkspace(directory) {
   return config;
 }
 
+// Azure Monitor keeps diagnostic settings after their resource is deleted and re-attaches them to a
+// new resource with the same ID, so creating them after a rebuild fails with "already exists".
+// Imports every planned diagnostic setting that Azure already has and reports whether any was found.
+async function importLeftoverDiagnosticSettings(run, { chdir, env, variables, directory, log }) {
+  const planFile = join(directory, 'leftovers.tfplan');
+  await run('terraform', [chdir, 'plan', '-input=false', `-out=${planFile}`, ...variables], { env });
+  const plan = JSON.parse(await run('terraform', [chdir, 'show', '-json', planFile], { env }));
+  let imported = false;
+  for (const change of plan.resource_changes ?? []) {
+    const planned = change.change?.after;
+    const [type, apiVersion] = String(planned?.type ?? '').split('@');
+    if (change.type !== 'azapi_resource' || type !== 'Microsoft.Insights/diagnosticSettings'
+      || change.change.actions.join() !== 'create' || typeof planned.parent_id !== 'string') continue;
+    const existing = JSON.parse(await run('az', ['monitor', 'diagnostic-settings', 'list',
+      '--resource', planned.parent_id, '--query', '[].name', '--output', 'json']));
+    if (!existing.includes(planned.name)) continue;
+    log(`Importing diagnostic setting ${planned.name} that Azure kept from a deleted ${planned.parent_id}.`);
+    await run('terraform', [chdir, 'import', '-input=false', ...variables, change.address,
+      `${planned.parent_id}/providers/Microsoft.Insights/diagnosticSettings/${planned.name}?api-version=${apiVersion}`], { env });
+    imported = true;
+  }
+  return imported;
+}
+
 async function deployWithTerraform(options, account, secrets, { groupExists, run, log, sleep, fetcher }) {
   await requireTerraform(run);
   const state = terraformStateLocation(options);
@@ -464,7 +488,20 @@ async function deployWithTerraform(options, account, secrets, { groupExists, run
       return undefined;
     }
     log(`Deploying rg-${options.prefix}-enterprise with Terraform. A new zone-redundant PostgreSQL server can take 20-30 minutes.`);
-    await run('terraform', [chdir, 'apply', '-input=false', '-auto-approve', ...variables], { env, inherit: true });
+    const apply = () => run('terraform', [chdir, 'apply', '-input=false', '-auto-approve', ...variables], { env, inherit: true });
+    try {
+      await apply();
+    } catch (error) {
+      let imported = false;
+      try {
+        imported = await importLeftoverDiagnosticSettings(run, { chdir, env, variables, directory, log });
+      } catch {
+        // The apply error printed above explains the failure better than this check can.
+      }
+      if (!imported) throw error;
+      log('Retrying the Terraform apply.');
+      await apply();
+    }
     const outputs = JSON.parse(await run('terraform', [chdir, 'output', '-json'], { env }));
     return {
       litellmUrl: outputs?.litellm_url?.value,
