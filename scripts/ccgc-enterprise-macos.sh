@@ -11,9 +11,15 @@ SETTINGS_PATH="$HOME/.claude/settings.json"
 DESKTOP_PATH="$HOME/.local/share/ccgc/enterprise/desktop-gateway.json"
 DESKTOP_DATA_PATH="$HOME/Library/Application Support/Claude-3p"
 DESKTOP_ACTIVE_PATH=''
-JSON_SETUP_MARKER='__ccgc_setup_719ee977'
+# Credentials, provider switches, and model overrides that bypass or break enterprise routing.
+CONFLICTING_ENV_KEYS='ANTHROPIC_API_KEY ANTHROPIC_AUTH_TOKEN CLAUDE_CODE_OAUTH_TOKEN ANTHROPIC_CUSTOM_HEADERS ANTHROPIC_MODEL ANTHROPIC_SMALL_FAST_MODEL ANTHROPIC_DEFAULT_OPUS_MODEL ANTHROPIC_DEFAULT_SONNET_MODEL ANTHROPIC_DEFAULT_HAIKU_MODEL CLAUDE_CODE_USE_BEDROCK CLAUDE_CODE_USE_VERTEX CLAUDE_CODE_USE_FOUNDRY'
+MANAGED_ENV_KEYS='ANTHROPIC_BASE_URL ANTHROPIC_DEFAULT_MODEL CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY CLAUDE_CODE_API_KEY_HELPER_TTL_MS CLAUDE_CODE_AUTO_MODE_SERVER'
 TEMP_DIR=''
-PREAPPROVED_SETTING_CONFLICTS=''
+FRESH_START_APPROVED=0
+SETTINGS_RESET=0
+DESKTOP_RESET=0
+SETTINGS_BACKUP_PATH=''
+DESKTOP_BACKUP_PATH=''
 DETECTED_CLAUDE_VERSION=''
 
 fail() {
@@ -74,8 +80,11 @@ No repository checkout, Node.js, npm, or LiteLLM login is needed.
 Claude Code must already be installed.
 The enrollment command verifies the LiteLLM user and connection, stores the
 90-day personal LiteLLM key in macOS Keychain, and configures the Claude Code CLI.
-Enrollment also configures installed Claude Desktop's local Gateway profile,
-backing up changed files and retaining a secret-free desktop-gateway.json. This script
+Enrollment also configures installed Claude Desktop's local Gateway profile and
+retains a secret-free desktop-gateway.json. When Claude Code settings or Desktop
+gateway profiles from another setup exist, enrollment asks once, backs them up
+privately, and starts from a clean enterprise configuration. configure does the
+same only for conflicting routing and keeps later personal settings. This script
 does not disable Gatekeeper, remove quarantine attributes, or change MDM policy.
 Existing employees do not repeat enrollment for routine service, model, script,
 or Claude Code updates. Run doctor first; use models or configure when needed.
@@ -297,22 +306,7 @@ lowercase() {
   /usr/bin/tr '[:upper:]' '[:lower:]'
 }
 
-preflight_enrollment_settings() {
-  local gateway="$1"
-  local helper
-  local existing
-  local key
-  local choice
-  local setting_conflicts=()
-
-  for key in ANTHROPIC_API_KEY ANTHROPIC_AUTH_TOKEN CLAUDE_CODE_OAUTH_TOKEN; do
-    [ -z "$(printenv "$key" 2>/dev/null || true)" ] ||
-      fail "shell environment setting $key conflicts with the enterprise gateway; run 'unset $key' and retry"
-  done
-  if [ -n "${ANTHROPIC_BASE_URL-}" ] && [ "$ANTHROPIC_BASE_URL" != "$gateway" ]; then
-    fail "shell environment setting ANTHROPIC_BASE_URL conflicts with the enterprise gateway; run 'unset ANTHROPIC_BASE_URL' and retry"
-  fi
-
+require_safe_settings_file() {
   [ ! -L "$SETTINGS_PATH" ] ||
     fail 'existing Claude settings must not be a symlink'
   [ -e "$SETTINGS_PATH" ] || return 0
@@ -320,47 +314,197 @@ preflight_enrollment_settings() {
     fail 'existing Claude settings must be a regular file'
   [ "$(file_stat '%u' '%u' "$SETTINGS_PATH")" = "$(/usr/bin/id -u)" ] ||
     fail 'existing Claude settings must be owned by the current user'
-  valid_json "$SETTINGS_PATH" ||
-    fail 'existing Claude settings are not valid JSON'
-  if json_raw "$SETTINGS_PATH" "$JSON_SETUP_MARKER" >/dev/null 2>&1; then
-    fail 'Claude settings contain a reserved CCGC setup key'
-  fi
+}
 
-  helper="$(installed_helper)"
-  existing="$(json_raw "$SETTINGS_PATH" apiKeyHelper 2>/dev/null || true)"
-  if [ -n "$existing" ] && [ "$existing" != "$helper" ]; then
-    setting_conflicts+=('apiKeyHelper')
-  fi
-  for key in ANTHROPIC_API_KEY ANTHROPIC_AUTH_TOKEN CLAUDE_CODE_OAUTH_TOKEN; do
-    if json_raw "$SETTINGS_PATH" "env.$key" >/dev/null 2>&1; then
-      setting_conflicts+=("$key")
-    fi
+require_no_conflicting_shell_env() {
+  local gateway="$1"
+  local key
+  for key in $CONFLICTING_ENV_KEYS; do
+    [ -z "$(printenv "$key" 2>/dev/null || true)" ] ||
+      fail "shell environment setting $key conflicts with the enterprise gateway; run 'unset $key' and retry"
   done
-  existing="$(json_raw "$SETTINGS_PATH" env.ANTHROPIC_BASE_URL 2>/dev/null || true)"
-  if [ -n "$existing" ] && [ "$existing" != "$gateway" ]; then
-    setting_conflicts+=('ANTHROPIC_BASE_URL')
+  if [ -n "${ANTHROPIC_BASE_URL-}" ] && [ "$ANTHROPIC_BASE_URL" != "$gateway" ]; then
+    fail "shell environment setting ANTHROPIC_BASE_URL conflicts with the enterprise gateway; run 'unset ANTHROPIC_BASE_URL' and retry"
   fi
-  [ "${#setting_conflicts[@]}" -gt 0 ] || return 0
+}
 
-  printf 'Existing Claude setting(s) conflict with the enterprise gateway:\n' >&2
-  for key in "${setting_conflicts[@]}"; do
-    printf '  - %s\n' "$key" >&2
-  done
-  printf '\nChoose an action before the LiteLLM key is used:\n' >&2
-  printf '  1. After gateway verification, back up Claude settings and replace only these enterprise-managed settings.\n' >&2
-  printf '  2. Cancel without using the LiteLLM key or changing Claude settings.\n' >&2
-  printf 'Enter 1 or 2: ' >&2
-  IFS= read -r choice ||
-    fail 'interactive confirmation is required to resolve existing Claude credentials'
-  case "$choice" in
-    1)
-      for key in "${setting_conflicts[@]}"; do
-        PREAPPROVED_SETTING_CONFLICTS="${PREAPPROVED_SETTING_CONFLICTS}|$key|"
-      done
-      ;;
-    2) fail 'enrollment cancelled; the LiteLLM key and Claude settings were not changed' ;;
-    *) fail 'invalid choice; the LiteLLM key and Claude settings were not changed' ;;
+json_is_empty_object() {
+  [ "$(/usr/bin/plutil -convert json -o - "$1" 2>/dev/null)" = '{}' ]
+}
+
+# Succeeds when Claude Code settings must be backed up and recreated. Both modes
+# reset another gateway, credential helper, or any environment variable this
+# script did not write. Enrollment (full) also resets every other leftover;
+# configure (routing) keeps later user preferences such as plugins and hooks.
+settings_need_reset() {
+  local gateway="$1"
+  local mode="$2"
+  local probe
+  local key
+  local desired
+  local existing
+  local foreign=1
+  [ -f "$SETTINGS_PATH" ] && [ ! -L "$SETTINGS_PATH" ] || return 1
+  valid_json "$SETTINGS_PATH" || return 0
+  case "$(/usr/bin/plutil -convert json -o - "$SETTINGS_PATH" 2>/dev/null)" in
+    '{'*) ;;
+    *) return 0 ;;
   esac
+  for key in env permissions; do
+    existing="$(/usr/bin/plutil -type "$key" "$SETTINGS_PATH" 2>/dev/null || true)"
+    [ -z "$existing" ] || [ "$existing" = dictionary ] || return 0
+  done
+  existing="$(json_raw "$SETTINGS_PATH" apiKeyHelper || true)"
+  [ -z "$existing" ] || [ "$existing" = "$(installed_helper)" ] || return 0
+  while IFS='=' read -r key desired; do
+    existing="$(json_raw "$SETTINGS_PATH" "env.$key" || true)"
+    [ -z "$existing" ] || [ "$existing" = "$desired" ] || return 0
+  done <<EOF
+ANTHROPIC_BASE_URL=$gateway
+CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY=1
+CLAUDE_CODE_API_KEY_HELPER_TTL_MS=60000
+CLAUDE_CODE_AUTO_MODE_SERVER=0
+EOF
+  probe="$(/usr/bin/mktemp "${TMPDIR:-/tmp}/ccgc-settings.XXXXXX")" || return 0
+  if /usr/bin/plutil -convert json -o "$probe" "$SETTINGS_PATH" >/dev/null 2>&1; then
+    for key in $MANAGED_ENV_KEYS; do
+      /usr/bin/plutil -remove "env.$key" "$probe" >/dev/null 2>&1 || true
+    done
+    existing="$(/usr/bin/plutil -extract env json -o - "$probe" 2>/dev/null || printf '{}')"
+    if [ "$existing" != '{}' ]; then
+      foreign=0
+    elif [ "$mode" = full ]; then
+      for key in env model apiKeyHelper permissions.defaultMode; do
+        /usr/bin/plutil -remove "$key" "$probe" >/dev/null 2>&1 || true
+      done
+      if [ "$(/usr/bin/plutil -extract permissions json -o - "$probe" 2>/dev/null)" = '{}' ]; then
+        /usr/bin/plutil -remove permissions "$probe" >/dev/null 2>&1 || true
+      fi
+      json_is_empty_object "$probe" || foreign=0
+    fi
+  else
+    foreign=0
+  fi
+  /bin/rm -f "$probe"
+  return "$foreign"
+}
+
+# Succeeds when Claude Desktop's saved gateway profiles must be backed up and
+# recreated. Full mode resets any difference from the clean enterprise profile
+# or any other saved profile; routing mode resets only conflicting routing in
+# the active profile. Invalid or unsafe state is left to the strict checks.
+desktop_needs_reset() {
+  local desired="$1"
+  local mode="$2"
+  local library="$DESKTOP_DATA_PATH/configLibrary"
+  local active
+  local id
+  local key
+  local existing
+  local path
+  desktop_installed || return 1
+  [ -f "$library/_meta.json" ] && [ ! -L "$library/_meta.json" ] && valid_json "$library/_meta.json" || return 1
+  [ -z "$(json_raw "$library/_meta.json" hybridPointer || true)" ] || return 1
+  id="$(json_raw "$library/_meta.json" appliedId || true)"
+  [[ "$id" =~ ^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$ ]] || return 1
+  active="$library/$id.json"
+  [ -f "$active" ] && [ ! -L "$active" ] && valid_json "$active" || return 1
+  case "$(/usr/bin/plutil -convert json -o - "$active" 2>/dev/null)" in
+    '{'*) ;;
+    *) return 0 ;;
+  esac
+  if [ "$mode" = routing ]; then
+    for key in inferenceGatewayApiKey inferenceGatewayOidc inferenceCustomHeaders; do
+      ! /usr/bin/plutil -type "$key" "$active" >/dev/null 2>&1 || return 0
+    done
+    for key in inferenceProvider inferenceGatewayBaseUrl inferenceGatewayAuthScheme \
+      inferenceCredentialKind inferenceCredentialHelper; do
+      existing="$(json_raw "$active" "$key" || true)"
+      [ -z "$existing" ] || [ "$existing" = "$(json_value "$desired" "$key")" ] || return 0
+    done
+    if /usr/bin/plutil -type inferenceCredentialHelperArgs "$active" >/dev/null 2>&1; then
+      [ "$(json_array "$active" inferenceCredentialHelperArgs)" = \
+        "$(json_array "$desired" inferenceCredentialHelperArgs)" ] || return 0
+    fi
+    return 1
+  fi
+  for path in "$library"/*.json; do
+    [ -f "$path" ] && [ ! -L "$path" ] || continue
+    [ "$path" != "$library/_meta.json" ] && [ "$path" != "$active" ] || continue
+    # Desktop creates an empty Default profile itself; any saved settings are old configuration.
+    json_is_empty_object "$path" || return 0
+  done
+  ! json_is_empty_object "$active" || return 1
+  [ "$(/usr/bin/plutil -convert xml1 -o - "$active" 2>/dev/null)" = \
+    "$(/usr/bin/plutil -convert xml1 -o - "$desired" 2>/dev/null)" ] && return 1
+  return 0
+}
+
+confirm_fresh_start() {
+  local context="$1"
+  local settings_reset="$2"
+  local desktop_reset="$3"
+  local choice
+  [ "$FRESH_START_APPROVED" -eq 0 ] || return 0
+  [ "$settings_reset" -eq 1 ] || [ "$desktop_reset" -eq 1 ] || return 0
+
+  printf 'Existing Claude configuration from another setup was found:\n' >&2
+  [ "$settings_reset" -eq 0 ] || printf '  - Claude Code settings (%s)\n' "$SETTINGS_PATH" >&2
+  [ "$desktop_reset" -eq 0 ] || printf '  - Claude Desktop gateway profiles\n' >&2
+  printf 'It will be backed up privately and replaced with a clean enterprise configuration;\n' >&2
+  printf 'copy back any personal settings you still need from the backup afterwards.\n' >&2
+  printf 'Claude conversations, ~/.claude.json (including MCP servers), and Desktop app preferences are not changed.\n' >&2
+  if [ "$context" = enroll ]; then
+    printf '\nChoose an action before the LiteLLM key is used:\n' >&2
+    printf '  1. After gateway verification, back up this configuration and start from scratch.\n' >&2
+    printf '  2. Cancel without using the LiteLLM key or changing Claude configuration.\n' >&2
+  else
+    printf '\nChoose an action:\n' >&2
+    printf '  1. Back up this configuration and start from scratch.\n' >&2
+    printf '  2. Cancel without changing Claude configuration.\n' >&2
+  fi
+  printf 'Enter 1 or 2: ' >&2
+  if ! IFS= read -r choice; then
+    printf '\n' >&2
+    fail 'interactive confirmation is required to replace existing Claude configuration'
+  fi
+  [ -t 0 ] || printf '\n' >&2
+  case "$choice" in
+    1) FRESH_START_APPROVED=1 ;;
+    2) fail 'setup cancelled; the LiteLLM key and Claude configuration were not changed' ;;
+    *) fail 'invalid choice; the LiteLLM key and Claude configuration were not changed' ;;
+  esac
+}
+
+reset_fresh_start_state() {
+  FRESH_START_APPROVED=0
+  SETTINGS_RESET=0
+  DESKTOP_RESET=0
+  SETTINGS_BACKUP_PATH=''
+  DESKTOP_BACKUP_PATH=''
+}
+
+# Asks once, before any change, whether to back up and recreate configuration.
+preflight_fresh_start() {
+  local gateway="$1"
+  local mode="$2"
+  local context="$3"
+  local desired
+  local settings_reset=0
+  local desktop_reset=0
+  require_no_conflicting_shell_env "$gateway"
+  require_safe_settings_file
+  if settings_need_reset "$gateway" "$mode"; then settings_reset=1; fi
+  desired="$(/usr/bin/mktemp "${TMPDIR:-/tmp}/ccgc-desktop.XXXXXX")" ||
+    fail 'could not create a private temporary file'
+  prepare_desktop_config "$gateway" "$desired"
+  if desktop_needs_reset "$desired" "$mode"; then desktop_reset=1; fi
+  /bin/rm -f "$desired"
+  confirm_fresh_start "$context" "$settings_reset" "$desktop_reset"
+}
+
+preflight_enrollment_settings() {
+  preflight_fresh_start "$1" full enroll
 }
 
 require_private_file() {
@@ -585,6 +729,7 @@ require_desktop_paths() {
 
 prepare_desktop_install() {
   local tmp_dir="$1"
+  local mode="$2"
   local meta="$DESKTOP_DATA_PATH/configLibrary/_meta.json"
   local preferences="$DESKTOP_DATA_PATH/claude_desktop_config.json"
   local id key path
@@ -607,8 +752,30 @@ prepare_desktop_install() {
       [ -z "$(json_raw "$DESKTOP_ACTIVE_PATH" "$key" || true)" ] ||
         fail 'Claude Desktop uses remote configuration; ask IT to update it'
     done
+    if desktop_needs_reset "$tmp_dir/desktop.json" "$mode"; then
+      confirm_fresh_start configure 0 1
+      DESKTOP_RESET=1
+    fi
+  fi
+  if [ -f "$meta" ] && [ "$DESKTOP_RESET" -eq 0 ]; then
     /bin/cp "$meta" "$tmp_dir/desktop-meta.json"
     /bin/cp "$DESKTOP_ACTIVE_PATH" "$tmp_dir/desktop-active.json"
+    for key in inferenceModels inferenceCredentialHelperArgs modelDiscoveryEnabled inferenceProvider \
+      inferenceGatewayBaseUrl inferenceGatewayAuthScheme inferenceCredentialKind inferenceCredentialHelper; do
+      /usr/bin/plutil -remove "$key" "$tmp_dir/desktop-active.json" >/dev/null 2>&1 || true
+    done
+    # plutil cannot edit a bare {} file, so an emptied profile is replaced by the clean one.
+    if json_is_empty_object "$tmp_dir/desktop-active.json"; then
+      /bin/cp "$tmp_dir/desktop.json" "$tmp_dir/desktop-active.json"
+    else
+      for key in inferenceProvider inferenceGatewayBaseUrl inferenceGatewayAuthScheme \
+        inferenceCredentialKind inferenceCredentialHelper; do
+        /usr/bin/plutil -insert "$key" -string "$(json_value "$tmp_dir/desktop.json" "$key")" "$tmp_dir/desktop-active.json"
+      done
+      /usr/bin/plutil -insert inferenceCredentialHelperArgs -json \
+        "$(json_array "$tmp_dir/desktop.json" inferenceCredentialHelperArgs)" "$tmp_dir/desktop-active.json"
+      /usr/bin/plutil -insert modelDiscoveryEnabled -bool true "$tmp_dir/desktop-active.json"
+    fi
   else
     id="$(/usr/bin/uuidgen | lowercase)"
     DESKTOP_ACTIVE_PATH="$DESKTOP_DATA_PATH/configLibrary/$id.json"
@@ -616,20 +783,7 @@ prepare_desktop_install() {
       "$id" "$id" >"$tmp_dir/desktop-meta.json"
     /bin/cp "$tmp_dir/desktop.json" "$tmp_dir/desktop-active.json"
   fi
-  for key in inferenceGatewayApiKey inferenceGatewayOidc inferenceCustomHeaders inferenceModels; do
-    /usr/bin/plutil -remove "$key" "$tmp_dir/desktop-active.json" >/dev/null 2>&1 || true
-  done
-  for key in inferenceProvider inferenceGatewayBaseUrl inferenceGatewayAuthScheme \
-    inferenceCredentialKind inferenceCredentialHelper; do
-    plist_set_string "$tmp_dir/desktop-active.json" "$key" "$(json_value "$tmp_dir/desktop.json" "$key")"
-  done
-  for key in inferenceCredentialHelperArgs modelDiscoveryEnabled; do
-    /usr/bin/plutil -remove "$key" "$tmp_dir/desktop-active.json" >/dev/null 2>&1 || true
-  done
-  /usr/bin/plutil -insert inferenceCredentialHelperArgs -json \
-    "$(json_array "$tmp_dir/desktop.json" inferenceCredentialHelperArgs)" "$tmp_dir/desktop-active.json"
-  /usr/bin/plutil -insert modelDiscoveryEnabled -bool true "$tmp_dir/desktop-active.json"
-  if [ -f "$preferences" ]; then
+  if [ -f "$preferences" ] && ! json_is_empty_object "$preferences"; then
     /bin/cp "$preferences" "$tmp_dir/desktop-preferences.json"
     plist_set_string "$tmp_dir/desktop-preferences.json" deploymentMode 3p
   else
@@ -667,6 +821,39 @@ verify_desktop_config() {
   done
 }
 
+backup_desktop_library() {
+  local library="$DESKTOP_DATA_PATH/configLibrary"
+  local path
+  DESKTOP_BACKUP_PATH="$(/usr/bin/mktemp -d \
+    "$DESKTOP_DATA_PATH/configLibrary.ccgc-backup.$(/bin/date -u '+%Y%m%dT%H%M%SZ').XXXXXX")" || return 1
+  for path in "$library"/*; do
+    [ -f "$path" ] && [ ! -L "$path" ] || continue
+    /bin/cp -p "$path" "$DESKTOP_BACKUP_PATH/" || return 1
+  done
+}
+
+# Runs only after the clean profile is installed; leftovers are already backed up.
+remove_old_desktop_profiles() {
+  local library="$DESKTOP_DATA_PATH/configLibrary"
+  local path
+  for path in "$library"/*; do
+    [ "$path" != "$library/_meta.json" ] && [ "$path" != "$DESKTOP_ACTIVE_PATH" ] || continue
+    if [ -L "$path" ] || [ -f "$path" ]; then
+      /bin/rm -f "$path" ||
+        printf 'WARNING: could not remove old Claude Desktop profile %s\n' "$path" >&2
+    fi
+  done
+}
+
+report_backups() {
+  if [ -n "$SETTINGS_BACKUP_PATH" ]; then
+    printf 'Previous Claude Code settings backed up to %s\n' "$SETTINGS_BACKUP_PATH"
+  fi
+  if [ -n "$DESKTOP_BACKUP_PATH" ]; then
+    printf 'Previous Claude Desktop gateway profiles backed up to %s\n' "$DESKTOP_BACKUP_PATH"
+  fi
+}
+
 install_enrollment_files() {
   local tmp_dir="$1"
   local index
@@ -678,6 +865,9 @@ install_enrollment_files() {
   if [ -f "$tmp_dir/desktop-active.json" ]; then
     sources+=("$tmp_dir/desktop-active.json" "$tmp_dir/desktop-meta.json" "$tmp_dir/desktop-preferences.json")
     targets+=("$DESKTOP_ACTIVE_PATH" "$DESKTOP_DATA_PATH/configLibrary/_meta.json" "$DESKTOP_DATA_PATH/claude_desktop_config.json")
+    if [ "$DESKTOP_RESET" -eq 1 ]; then
+      backup_desktop_library || return 1
+    fi
   fi
 
   for (( index=0; index<${#sources[@]}; index++ )); do
@@ -688,7 +878,13 @@ install_enrollment_files() {
         [ "$(file_stat '%u' '%u' "${targets[$index]}")" = "$(/usr/bin/id -u)" ] || return 1
       /bin/cp "${targets[$index]}" "$tmp_dir/previous-$index.json" || return 1
       existed[index]=1
-      if [ "$index" -ge 3 ] &&
+      if [ "$index" -eq 1 ] && [ "$SETTINGS_RESET" -eq 1 ]; then
+        SETTINGS_BACKUP_PATH="$(/usr/bin/mktemp \
+          "$SETTINGS_PATH.ccgc-backup.$(/bin/date -u '+%Y%m%dT%H%M%SZ').XXXXXX")" || return 1
+        /bin/cp "${targets[$index]}" "$SETTINGS_BACKUP_PATH" &&
+          /bin/chmod 0600 "$SETTINGS_BACKUP_PATH" || return 1
+      elif [ "$index" -ge 3 ] && { [ "$DESKTOP_RESET" -eq 0 ] || [ "$index" -eq 5 ]; } &&
+        ! json_is_empty_object "${targets[$index]}" &&
         [ "$(/usr/bin/plutil -convert xml1 -o - "${sources[$index]}")" != \
           "$(/usr/bin/plutil -convert xml1 -o - "${targets[$index]}")" ]; then
         backup="$(/usr/bin/mktemp "${targets[$index]}.ccgc-backup.XXXXXX")" || return 1
@@ -709,6 +905,9 @@ install_enrollment_files() {
       return 1
     fi
   done
+  if [ "$DESKTOP_RESET" -eq 1 ] && [ "${#targets[@]}" -gt 3 ]; then
+    remove_old_desktop_profiles
+  fi
 }
 
 model_display_name() {
@@ -841,119 +1040,44 @@ prepare_settings() {
   local gateway="$1"
   local default_model="$2"
   local output="$3"
-  local helper
-  local existing
+  local mode="$4"
   local key
   local desired
-  local permission_mode
-  local backup_path
-  local choice
-  local confirmation_required=0
-  local setting_conflicts=()
+  local existing
+  local permission_mode=''
 
-  helper="$(installed_helper)"
-  if [ -f "$SETTINGS_PATH" ]; then
-    [ ! -L "$SETTINGS_PATH" ] || fail 'existing Claude settings must not be a symlink'
-    [ "$(file_stat '%u' '%u' "$SETTINGS_PATH")" = "$(/usr/bin/id -u)" ] ||
-      fail 'existing Claude settings must be owned by the current user'
-    valid_json "$SETTINGS_PATH" ||
-      fail 'existing Claude settings are not valid JSON'
-    /bin/cp "$SETTINGS_PATH" "$output"
-    /usr/bin/plutil -convert json "$output"
-    if json_raw "$output" "$JSON_SETUP_MARKER" >/dev/null 2>&1; then
-      fail 'Claude settings contain a reserved CCGC setup key'
-    fi
-    if [ "$(/usr/bin/plutil -p "$output")" = '{}' ]; then
-      printf '{"%s":"active"}\n' "$JSON_SETUP_MARKER" >"$output"
-    else
-      /usr/bin/plutil -insert "$JSON_SETUP_MARKER" -string active "$output"
-    fi
-  else
-    printf '{"%s":"active"}\n' "$JSON_SETUP_MARKER" >"$output"
-  fi
-
-  if existing="$(json_raw "$output" apiKeyHelper 2>/dev/null)" &&
-    [ -n "$existing" ] && [ "$existing" != "$helper" ]; then
-    setting_conflicts+=('apiKeyHelper')
-  fi
-
-  if ! /usr/bin/plutil -extract env json -o - "$output" >/dev/null 2>&1; then
-    /usr/bin/plutil -insert env -dictionary "$output"
-  fi
-  if ! /usr/bin/plutil -extract permissions json -o - "$output" >/dev/null 2>&1; then
-    /usr/bin/plutil -insert permissions -dictionary "$output"
-  fi
-
-  permission_mode="$(json_raw "$output" permissions.defaultMode 2>/dev/null || true)"
-
-  for key in ANTHROPIC_API_KEY ANTHROPIC_AUTH_TOKEN CLAUDE_CODE_OAUTH_TOKEN; do
-    if [ -n "$(printenv "$key" 2>/dev/null || true)" ]; then
-      fail "shell environment setting $key conflicts with the enterprise gateway; run 'unset $key' and retry"
-    fi
-    if json_raw "$output" "env.$key" >/dev/null 2>&1; then
-      setting_conflicts+=("$key")
-    fi
-  done
-
+  require_no_conflicting_shell_env "$gateway"
   while IFS='=' read -r key desired; do
     existing="$(printenv "$key" 2>/dev/null || true)"
     if [ -n "$existing" ] && [ "$existing" != "$desired" ]; then
       fail "shell environment setting $key conflicts with the enterprise gateway; run 'unset $key' and retry"
     fi
-    existing="$(json_raw "$output" "env.$key" 2>/dev/null || true)"
-    if [ -n "$existing" ] && [ "$existing" != "$desired" ]; then
-      setting_conflicts+=("$key")
-    fi
   done <<EOF
-ANTHROPIC_BASE_URL=$gateway
 ANTHROPIC_DEFAULT_MODEL=$(client_model "$default_model")
 CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY=1
 CLAUDE_CODE_API_KEY_HELPER_TTL_MS=60000
 CLAUDE_CODE_AUTO_MODE_SERVER=0
 EOF
+  require_safe_settings_file
 
-  if [ "${#setting_conflicts[@]}" -gt 0 ]; then
-    for key in "${setting_conflicts[@]}"; do
-      case "$PREAPPROVED_SETTING_CONFLICTS" in
-        *"|$key|"*) ;;
-        *) confirmation_required=1 ;;
-      esac
+  if settings_need_reset "$gateway" "$mode"; then
+    confirm_fresh_start configure 1 0
+    SETTINGS_RESET=1
+    printf '{"env":{},"permissions":{}}\n' >"$output"
+  elif [ -f "$SETTINGS_PATH" ] && ! json_is_empty_object "$SETTINGS_PATH"; then
+    /usr/bin/plutil -convert json -o "$output" "$SETTINGS_PATH"
+    for key in env permissions; do
+      /usr/bin/plutil -type "$key" "$output" >/dev/null 2>&1 ||
+        /usr/bin/plutil -insert "$key" -dictionary "$output"
     done
-    choice=1
-    if [ "$confirmation_required" -eq 1 ]; then
-      printf 'Existing Claude setting(s) conflict with the enterprise gateway:\n' >&2
-      for key in "${setting_conflicts[@]}"; do
-        printf '  - %s\n' "$key" >&2
-      done
-      printf '\nChoose an action:\n' >&2
-      printf '  1. Back up Claude settings, replace only these enterprise-managed settings, and continue.\n' >&2
-      printf '  2. Cancel without changing Claude settings.\n' >&2
-      printf 'Enter 1 or 2: ' >&2
-      IFS= read -r choice ||
-        fail 'interactive confirmation is required to resolve existing Claude credentials'
+    for key in model apiKeyHelper $(printf 'env.%s ' $MANAGED_ENV_KEYS); do
+      /usr/bin/plutil -remove "$key" "$output" >/dev/null 2>&1 || true
+    done
+    if [ "$(/usr/bin/plutil -type permissions.defaultMode "$output" 2>/dev/null || true)" != string ]; then
+      /usr/bin/plutil -remove permissions.defaultMode "$output" >/dev/null 2>&1 || true
     fi
-    case "$choice" in
-      1)
-        backup_path="$SETTINGS_PATH.ccgc-backup.$(/bin/date -u '+%Y%m%dT%H%M%SZ')"
-        [ -f "$SETTINGS_PATH" ] || fail 'Claude settings disappeared before backup'
-        /bin/cp -p "$SETTINGS_PATH" "$backup_path"
-        /bin/chmod 0600 "$backup_path"
-        for key in "${setting_conflicts[@]}"; do
-          if [ "$key" = 'apiKeyHelper' ]; then
-            /usr/bin/plutil -remove "$key" "$output"
-          else
-            /usr/bin/plutil -remove "env.$key" "$output"
-          fi
-        done
-        printf 'Backed up existing Claude settings to %s\n' "$backup_path" >&2
-        ;;
-      2)
-        fail 'enrollment cancelled; existing Claude settings were not changed'
-        ;;
-      *)
-        fail 'invalid choice; existing Claude settings were not changed'
-        ;;
-    esac
+  else
+    printf '{"env":{},"permissions":{}}\n' >"$output"
   fi
 
   while IFS='=' read -r key desired; do
@@ -965,13 +1089,12 @@ CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY=1
 CLAUDE_CODE_API_KEY_HELPER_TTL_MS=60000
 CLAUDE_CODE_AUTO_MODE_SERVER=0
 EOF
-
+  permission_mode="$(json_raw "$output" permissions.defaultMode || true)"
   if [ -z "$permission_mode" ]; then
     plist_set_string "$output" permissions.defaultMode manual
   fi
   plist_set_string "$output" model "$(client_model "$default_model")"
-  plist_set_string "$output" apiKeyHelper "$helper"
-  /usr/bin/plutil -remove "$JSON_SETUP_MARKER" "$output"
+  plist_set_string "$output" apiKeyHelper "$(installed_helper)"
   /usr/bin/plutil -convert json "$output"
 }
 
@@ -1054,6 +1177,7 @@ enroll() {
   validate_gateway "$gateway"
   require_macos_tools
   require_claude_version
+  reset_fresh_start_state
   preflight_enrollment_settings "$gateway"
   api_key="$(read_litellm_key)"
 
@@ -1180,9 +1304,9 @@ enroll() {
   verify_litellm_profile "$gateway" "$api_key" "$tmp_dir/profile.json" "$tmp_dir" "$tmp_dir/verified-profile.json"
   default_model="$(json_value "$tmp_dir/verified-profile.json" models.0)"
   verify_gateway_access "$gateway" "$api_key" "$default_model" "$tmp_dir"
-  prepare_settings "$gateway" "$default_model" "$tmp_dir/settings.json"
+  prepare_settings "$gateway" "$default_model" "$tmp_dir/settings.json" full
   prepare_desktop_config "$gateway" "$tmp_dir/desktop.json"
-  prepare_desktop_install "$tmp_dir"
+  prepare_desktop_install "$tmp_dir" full
 
   service="ccgc.remote.$(json_value "$tmp_dir/verified-profile.json" keychainId)"
   previous_key="$(keychain_get "$service" || true)"
@@ -1196,6 +1320,7 @@ enroll() {
   printf 'Enrollment complete for GitHub account %s.\n' "$login"
   printf 'Configured %s approved model(s). The employee key expires at %s.\n' \
     "$model_count" "$expiry"
+  report_backups
   if [ -d '/Applications/Claude.app' ]; then
     printf 'Claude Desktop gateway configuration updated automatically. Quit and reopen Desktop to apply it.\n'
   fi
@@ -1272,13 +1397,16 @@ configure() {
   refresh_profile "$tmp_dir"
   gateway="$(json_value "$PROFILE_PATH" gateway)"
   default_model="$(json_value "$PROFILE_PATH" models.0)"
-  prepare_settings "$gateway" "$default_model" "$tmp_dir/settings.json"
+  reset_fresh_start_state
+  preflight_fresh_start "$gateway" routing configure
+  prepare_settings "$gateway" "$default_model" "$tmp_dir/settings.json" routing
   prepare_desktop_config "$gateway" "$tmp_dir/desktop.json"
-  prepare_desktop_install "$tmp_dir"
+  prepare_desktop_install "$tmp_dir" routing
   /bin/cp "$PROFILE_PATH" "$tmp_dir/verified-profile.json"
   /bin/mkdir -p "$(dirname "$SETTINGS_PATH")"
   install_enrollment_files "$tmp_dir" || fail 'could not install Claude configuration'
   printf 'Claude Code configuration updated.\n'
+  report_backups
   if [ -d '/Applications/Claude.app' ]; then
     printf 'Claude Desktop gateway configuration updated automatically. Quit and reopen Desktop to apply it.\n'
   fi
@@ -1310,13 +1438,16 @@ doctor() {
   expected_model="$(client_model "$default_model")"
   helper="$(installed_helper)"
 
-  for existing in ANTHROPIC_API_KEY ANTHROPIC_AUTH_TOKEN CLAUDE_CODE_OAUTH_TOKEN; do
+  for existing in $CONFLICTING_ENV_KEYS; do
     [ -z "$(printenv "$existing" 2>/dev/null || true)" ] ||
       fail "shell environment setting $existing conflicts with the enterprise gateway; run 'unset $existing'"
     if json_raw "$SETTINGS_PATH" "env.$existing" >/dev/null 2>&1; then
-      fail "Claude settings still contain conflicting credential $existing"
+      fail "Claude settings contain $existing from another setup; run configure to back them up and start from scratch"
     fi
   done
+  if settings_need_reset "$gateway" routing; then
+    fail 'Claude settings contain configuration from another setup; run configure to back them up and start from scratch'
+  fi
   if [ -n "${ANTHROPIC_BASE_URL-}" ] && [ "$ANTHROPIC_BASE_URL" != "$gateway" ]; then
     fail "shell environment setting ANTHROPIC_BASE_URL conflicts with the enterprise gateway; run 'unset ANTHROPIC_BASE_URL'"
   fi

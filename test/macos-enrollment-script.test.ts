@@ -48,69 +48,98 @@ test('macOS enrollment script never removes quarantine or changes Gatekeeper pol
   assert.match(source, /security -i/);
 });
 
-test('macOS enrollment script requires a choice before replacing enterprise-managed settings', async () => {
+test('macOS enrollment script asks once before backing up and replacing configuration', async () => {
   const source = await readFile(script, 'utf8');
   assert.match(source, /Choose an action before the LiteLLM key is used:/);
-  assert.match(source, /Cancel without using the LiteLLM key or changing Claude settings/);
-  assert.match(source, /Back up Claude settings, replace only these enterprise-managed settings, and continue/);
-  assert.match(source, /Cancel without changing Claude settings/);
+  assert.match(source, /After gateway verification, back up this configuration and start from scratch/);
+  assert.match(source, /Cancel without using the LiteLLM key or changing Claude configuration/);
+  assert.match(source, /Cancel without changing Claude configuration/);
   assert.match(source, /ccgc-backup\./);
-  assert.match(source, /setting_conflicts\+=\('apiKeyHelper'\)/);
-  assert.match(source, /plutil -remove "\$key" "\$output"/);
-  assert.match(source, /plutil -remove "env\.\$key"/);
+  assert.match(source, /preflight_fresh_start "\$gateway" routing configure/);
+  assert.match(source, /prepare_settings "\$gateway" "\$default_model" "\$tmp_dir\/settings\.json" full/);
   assert.match(source, /ANTHROPIC_BASE_URL=\$gateway/);
 });
 
-test('macOS enrollment preflight succeeds when settings are absent or conflict-free', async () => {
+test('macOS fresh-start preflight detects leftovers without prompting for clean configuration', {
+  skip: process.platform !== 'darwin',
+}, async () => {
   const harness = `
 source "$1"
-json_raw() {
-  node -e '
-    const fs = require("node:fs");
-    const [file, path] = process.argv.slice(1);
-    let value = JSON.parse(fs.readFileSync(file, "utf8"));
-    for (const part of path.split(".")) value = value[part];
-    if (value === undefined || value === null || typeof value === "object") process.exit(1);
-    process.stdout.write(String(value));
-  ' "$1" "$2"
-}
-valid_json() {
-  node -e '
-    const fs = require("node:fs");
-    JSON.parse(fs.readFileSync(process.argv[1], "utf8"));
-  ' "$1"
-}
-if [ "\${CCGC_TEST_APPROVE-}" = '1' ]; then
-  preflight_enrollment_settings 'https://gateway.example' <<< '1'
-else
-  preflight_enrollment_settings 'https://gateway.example'
-fi
+desktop_installed() { [ "\${CCGC_TEST_DESKTOP-}" = 1 ]; }
+preflight_fresh_start 'https://gateway.example' "\${CCGC_TEST_PREFLIGHT_MODE:-full}" enroll <<< "\${CCGC_TEST_CHOICE-}"
 printf 'preflight-ok\\n'
 `;
   const home = await mkdtemp(join(tmpdir(), 'ccgc-preflight-'));
-  try {
-    const absent = await exec('/bin/bash', ['-c', harness, 'bash', script.pathname], {
-      env: { ...process.env, HOME: home },
+  const run = (env: Record<string, string> = {}) => exec('/bin/bash', ['-c', harness, 'bash', script.pathname], {
+    env: { ...process.env, HOME: home, TMPDIR: home, ...env },
+  });
+  const expectPrompt = async (env: Record<string, string>, item: RegExp) => {
+    await assert.rejects(run(env), error => {
+      assert.match(String((error as { stderr?: string }).stderr), item);
+      assert.match(String((error as { stderr?: string }).stderr), /invalid choice/);
+      return true;
     });
-    assert.equal(absent.stdout.trim(), 'preflight-ok');
-
-    const claudeDirectory = join(home, '.claude');
-    const settings = join(claudeDirectory, 'settings.json');
-    await mkdir(claudeDirectory, { recursive: true });
-    await writeFile(settings, '{}\n', { mode: 0o600 });
-    await chmod(settings, 0o600);
-    const clean = await exec('/bin/bash', ['-c', harness, 'bash', script.pathname], {
-      env: { ...process.env, HOME: home },
-    });
-    assert.equal(clean.stdout.trim(), 'preflight-ok');
-
-    await writeFile(settings, '{"apiKeyHelper":"/bin/unrelated-helper"}\n', { mode: 0o600 });
-    await chmod(settings, 0o600);
-    const approved = await exec('/bin/bash', ['-c', harness, 'bash', script.pathname], {
-      env: { ...process.env, HOME: home, CCGC_TEST_APPROVE: '1' },
-    });
+    const approved = await run({ ...env, CCGC_TEST_CHOICE: '1' });
     assert.equal(approved.stdout.trim(), 'preflight-ok');
-    assert.match(approved.stderr, /apiKeyHelper/);
+    assert.match(approved.stderr, item);
+  };
+  try {
+    assert.equal((await run()).stdout.trim(), 'preflight-ok');
+
+    const settings = join(home, '.claude/settings.json');
+    await mkdir(join(home, '.claude'), { recursive: true });
+    const helper = `'/bin/bash' '${join(home, '.local/share/ccgc/enterprise/ccgc-enterprise-macos.sh')}' token`;
+    const managed = {
+      env: { ANTHROPIC_BASE_URL: 'https://gateway.example', ANTHROPIC_DEFAULT_MODEL: 'claude-sonnet-5.5' },
+      permissions: { defaultMode: 'acceptEdits' }, model: 'claude-sonnet-5.5', apiKeyHelper: helper,
+    };
+    for (const clean of ['{}', JSON.stringify(managed)]) {
+      await writeFile(settings, clean, { mode: 0o600 });
+      assert.equal((await run()).stdout.trim(), 'preflight-ok');
+    }
+    for (const leftover of [
+      '{"apiKeyHelper":"/bin/unrelated-helper"}',
+      '{"env":{"ANTHROPIC_CUSTOM_HEADERS":"x-litellm-api-key: Bearer old-virtual-key"}}',
+      '{"env":{"ANTHROPIC_BASE_URL":"https://retired.example"}}',
+      '{"theme":"dark"}',
+      '{invalid',
+      '[]',
+    ]) {
+      await writeFile(settings, leftover, { mode: 0o600 });
+      await expectPrompt({}, /Claude Code settings/);
+    }
+    await writeFile(settings, JSON.stringify({ ...managed, enabledPlugins: { 'example@market': true } }), { mode: 0o600 });
+    await expectPrompt({}, /Claude Code settings/);
+    assert.equal((await run({ CCGC_TEST_PREFLIGHT_MODE: 'routing' })).stdout.trim(), 'preflight-ok');
+    await writeFile(settings, JSON.stringify({ ...managed, env: { ...managed.env, CLAUDE_CODE_MAX_OUTPUT_TOKENS: '1' } }), { mode: 0o600 });
+    await expectPrompt({ CCGC_TEST_PREFLIGHT_MODE: 'routing' }, /Claude Code settings/);
+    await writeFile(settings, JSON.stringify(managed), { mode: 0o600 });
+
+    const library = join(home, 'Library/Application Support/Claude-3p/configLibrary');
+    await mkdir(library, { recursive: true, mode: 0o700 });
+    const activeId = '11111111-2222-4333-8444-555555555555';
+    const defaultId = '22222222-2222-4333-8444-555555555555';
+    const desired = {
+      inferenceProvider: 'gateway', inferenceGatewayAuthScheme: 'bearer', inferenceCredentialKind: 'helper-script',
+      modelDiscoveryEnabled: true, inferenceGatewayBaseUrl: 'https://gateway.example', inferenceCredentialHelper: '/bin/bash',
+      inferenceCredentialHelperArgs: [join(home, '.local/share/ccgc/enterprise/ccgc-enterprise-macos.sh'), 'token'],
+    };
+    await writeFile(join(library, '_meta.json'), JSON.stringify({ appliedId: activeId, entries: [{ id: activeId, name: 'x' }] }), { mode: 0o600 });
+    await writeFile(join(library, `${activeId}.json`), JSON.stringify(desired), { mode: 0o600 });
+    await writeFile(join(library, `${activeId}.json`), '{}', { mode: 0o600 });
+    await writeFile(join(library, `${defaultId}.json`), '{}', { mode: 0o600 });
+    assert.equal((await run({ CCGC_TEST_DESKTOP: '1' })).stdout.trim(), 'preflight-ok');
+    await writeFile(join(library, `${activeId}.json`), JSON.stringify(desired), { mode: 0o600 });
+    assert.equal((await run({ CCGC_TEST_DESKTOP: '1' })).stdout.trim(), 'preflight-ok');
+    await writeFile(join(library, `${defaultId}.json`), '{"inferenceGatewayApiKey":"old-virtual-key"}', { mode: 0o600 });
+    await expectPrompt({ CCGC_TEST_DESKTOP: '1' }, /Claude Desktop gateway profiles/);
+    assert.equal((await run({ CCGC_TEST_DESKTOP: '1', CCGC_TEST_PREFLIGHT_MODE: 'routing' })).stdout.trim(), 'preflight-ok');
+    await writeFile(join(library, `${defaultId}.json`), '{}', { mode: 0o600 });
+    await writeFile(join(library, `${activeId}.json`), JSON.stringify({ ...desired, chatTabEnabled: true }), { mode: 0o600 });
+    await expectPrompt({ CCGC_TEST_DESKTOP: '1' }, /Claude Desktop gateway profiles/);
+    assert.equal((await run({ CCGC_TEST_DESKTOP: '1', CCGC_TEST_PREFLIGHT_MODE: 'routing' })).stdout.trim(), 'preflight-ok');
+    await writeFile(join(library, `${activeId}.json`), JSON.stringify({ ...desired, inferenceGatewayBaseUrl: 'https://retired.example' }), { mode: 0o600 });
+    await expectPrompt({ CCGC_TEST_DESKTOP: '1', CCGC_TEST_PREFLIGHT_MODE: 'routing' }, /Claude Desktop gateway profiles/);
   } finally {
     await rm(home, { recursive: true, force: true });
   }
@@ -250,7 +279,7 @@ test('macOS gateway failures include safe server-side error messages', async () 
 const standaloneKey = `sk-${'k'.repeat(32)}`;
 const standaloneUser = '11111111-2222-4333-8444-555555555555';
 const standaloneCredential = 'github-copilot-user';
-const standaloneHarness = `
+const standaloneStubs = `
 source "$1"
 claude() { printf '2.1.319 (Claude Code)\\n'; }
 desktop_installed() { [ "$CCGC_TEST_MODE" != no-desktop ]; }
@@ -316,16 +345,22 @@ request_json_status() {
   printf '%s' "$status"
 }
 DEFAULT_GATEWAY=https://gateway.example
-main
+`;
+const standaloneHarness = `${standaloneStubs}
+main <<< "\${CCGC_TEST_CHOICE-1}"
 cleanup_temp
 token > "$HOME/helper-token"
 if [ "$CCGC_TEST_MODE" = success ]; then
   models
   cleanup_temp
-  configure
+  configure < /dev/null
   cleanup_temp
   doctor
 fi
+`;
+const configureHarness = `${standaloneStubs}
+if [ "\${CCGC_TEST_COMMAND-}" = doctor ]; then doctor; else configure <<< "\${CCGC_TEST_CHOICE-}"; fi
+cleanup_temp
 `;
 
 async function standaloneFixture(mode: string): Promise<string> {
@@ -417,6 +452,7 @@ async function standaloneFixture(mode: string): Promise<string> {
     await writeFile(join(library, '../claude_desktop_config.json'), JSON.stringify({
       deploymentMode: '3p', preferences: { keepThis: true },
     }), { mode: 0o600 });
+    if (mode === 'desktop-default-profile') await writeFile(join(library, `${standaloneUser}.json`), '{}');
     if (mode === 'desktop-invalid-json') await writeFile(join(library, '_meta.json'), '{invalid');
     if (mode === 'desktop-symlink') {
       await rename(join(library, `${standaloneUser}.json`), join(library, 'original.json'));
@@ -428,7 +464,7 @@ async function standaloneFixture(mode: string): Promise<string> {
   return home;
 }
 
-function runStandalone(home: string, mode: string) {
+function runStandalone(home: string, mode: string, extra: Record<string, string> = {}, harness = standaloneHarness) {
   const env: NodeJS.ProcessEnv = {
     ...process.env, HOME: home, TMPDIR: join(home, 'temp'), CCGC_TEST_MODE: mode,
     CCGC_TEST_KEY: standaloneKey,
@@ -436,7 +472,7 @@ function runStandalone(home: string, mode: string) {
   for (const name of Object.keys(env)) {
     if (name.startsWith('ANTHROPIC_') || name.startsWith('CLAUDE_CODE_')) delete env[name];
   }
-  return exec('/bin/bash', ['-c', standaloneHarness, 'bash', script.pathname], { env, timeout: 30_000 });
+  return exec('/bin/bash', ['-c', harness, 'bash', script.pathname], { env: { ...env, ...extra }, timeout: 30_000 });
 }
 
 test('standalone default enrollment opens GitHub and installs a verified direct key without Node or a checkout', {
@@ -453,8 +489,15 @@ test('standalone default enrollment opens GitHub and installs a verified direct 
     assert.equal(profile.liteLLMUserId, standaloneUser);
     assert.equal(profile.githubLogin, 'example-user');
     assert.deepEqual(profile.models, ['claude-sonnet-5.5', 'claude-haiku-4.5']);
-    assert.equal(settings.unrelatedSetting, true);
+    assert.equal(settings.unrelatedSetting, undefined);
+    assert.deepEqual(Object.keys(settings).sort(), ['apiKeyHelper', 'env', 'model', 'permissions']);
     assert.equal(settings.permissions.defaultMode, 'manual');
+    const settingsBackups = (await readdir(join(home, '.claude'))).filter(name => name.startsWith('settings.json.ccgc-backup.'));
+    assert.equal(settingsBackups.length, 1, 'configure should not back up clean settings again');
+    assert.equal(
+      await readFile(join(home, '.claude', settingsBackups[0]!), 'utf8'),
+      '{"unrelatedSetting":true,"permissions":{"defaultMode":"manual"}}',
+    );
     assert.equal(settings.env.ANTHROPIC_BASE_URL, 'https://gateway.example');
     assert.equal(desktop.inferenceCredentialHelper, '/bin/bash');
     assert.deepEqual(desktop.inferenceCredentialHelperArgs, [
@@ -468,26 +511,33 @@ test('standalone default enrollment opens GitHub and installs a verified direct 
     assert.equal(events.split('\n').filter(line => line.endsWith('/user_connection/poll')).length, 1);
     assert.doesNotMatch(events, /ccgc\/|admissions|enterprise\/info/);
     assert.match(result.stdout, /Enrollment complete for GitHub account example-user/);
+    assert.match(result.stdout, /Previous Claude Code settings backed up to /);
+    assert.match(result.stdout, /Previous Claude Desktop gateway profiles backed up to /);
+    assert.match(result.stderr, /Existing Claude configuration from another setup was found/);
+    assert.equal(result.stderr.split('Enter 1 or 2').length, 2, 'enrollment should ask exactly once');
     assert.match(result.stdout, /CCGC doctor passed/);
     const library = join(home, 'Library/Application Support/Claude-3p/configLibrary');
-    const active = JSON.parse(await readFile(join(library, `${standaloneUser}.json`), 'utf8'));
-    assert.equal(active.inferenceGatewayBaseUrl, 'https://gateway.example');
-    assert.equal(active.inferenceCredentialHelper, '/bin/bash');
-    assert.deepEqual(active.inferenceCredentialHelperArgs, desktop.inferenceCredentialHelperArgs);
-    assert.equal(active.chatTabEnabled, true);
-    assert.equal(active.inferenceGatewayApiKey, undefined);
-    assert.equal(active.inferenceModels, undefined);
+    const meta = JSON.parse(await readFile(join(library, '_meta.json'), 'utf8'));
+    assert.notEqual(meta.appliedId, standaloneUser);
+    assert.deepEqual(meta.entries, [{ id: meta.appliedId, name: 'GitHub Copilot via LiteLLM' }]);
+    assert.deepEqual((await readdir(library)).sort(), [`${meta.appliedId}.json`, '_meta.json'].sort());
+    const active = JSON.parse(await readFile(join(library, `${meta.appliedId}.json`), 'utf8'));
+    assert.deepEqual(active, desktop);
     assert.deepEqual(JSON.parse(await readFile(join(library, '../claude_desktop_config.json'), 'utf8')).preferences, { keepThis: true });
-    const backups = (await readdir(library)).filter(name => name.includes('.ccgc-backup.'));
-    assert.equal(backups.length, 1, 'configure should not create repeated backups when unchanged');
-    assert.equal(JSON.parse(await readFile(join(library, backups[0]!), 'utf8')).inferenceCredentialHelper, '/old/node');
+    const desktopBackups = (await readdir(join(library, '..'))).filter(name => name.startsWith('configLibrary.ccgc-backup.'));
+    assert.equal(desktopBackups.length, 1, 'configure should not back up clean Desktop profiles again');
+    const desktopBackup = join(library, '..', desktopBackups[0]!);
+    assert.deepEqual((await readdir(desktopBackup)).sort(), [`${standaloneUser}.json`, '_meta.json'].sort());
+    const previousActive = JSON.parse(await readFile(join(desktopBackup, `${standaloneUser}.json`), 'utf8'));
+    assert.equal(previousActive.inferenceCredentialHelper, '/old/node');
+    assert.equal(previousActive.inferenceGatewayApiKey, 'old-key');
     for (const output of [result.stdout, result.stderr, JSON.stringify(profile), JSON.stringify(settings), JSON.stringify(desktop)]) {
       assert.equal(output.includes(standaloneKey), false);
     }
     assert.equal(await readFile(join(home, 'keychain/previous-key'), 'utf8'), 'previous-personal-key');
     assert.deepEqual(await readdir(join(home, 'temp')), []);
     active.inferenceCredentialHelper = '/old/node';
-    await writeFile(join(library, `${standaloneUser}.json`), JSON.stringify(active));
+    await writeFile(join(library, `${meta.appliedId}.json`), JSON.stringify(active));
     await assert.rejects(exec('/bin/bash', ['-c', `
 source "$1"
 desktop_installed() { return 0; }
@@ -496,6 +546,73 @@ verify_desktop_config https://gateway.example
       assert.match(String((error as { stderr?: string }).stderr), /Desktop gateway or credential helper is outdated/);
       return true;
     });
+  } finally { await rm(home, { recursive: true, force: true }); }
+});
+
+test('standalone enrollment cancellation changes nothing and never uses the key', {
+  skip: process.platform !== 'darwin',
+}, async () => {
+  for (const choice of ['2', '']) {
+    const home = await standaloneFixture('success');
+    try {
+      await assert.rejects(runStandalone(home, 'success', { CCGC_TEST_CHOICE: choice }), error => {
+        const stderr = String((error as { stderr?: string }).stderr);
+        assert.match(stderr, choice === '2' ? /setup cancelled/ : /invalid choice/);
+        assert.equal(stderr.split('\n').filter(line => line.startsWith('ERROR:')).length, 1);
+        return true;
+      });
+      await assert.rejects(readFile(join(home, 'events')), { code: 'ENOENT' });
+      assert.equal(await readFile(join(home, '.claude/settings.json'), 'utf8'), '{"unrelatedSetting":true,"permissions":{"defaultMode":"manual"}}');
+      assert.deepEqual(await readdir(join(home, '.claude')), ['settings.json']);
+      const library = join(home, 'Library/Application Support/Claude-3p/configLibrary');
+      assert.deepEqual((await readdir(library)).sort(), [`${standaloneUser}.json`, '_meta.json'].sort());
+      assert.deepEqual(await readdir(join(home, 'keychain')), ['previous-key']);
+      assert.deepEqual(await readdir(join(home, 'temp')), []);
+    } finally { await rm(home, { recursive: true, force: true }); }
+  }
+});
+
+test('configure keeps later personal settings but resets configuration from another setup', {
+  skip: process.platform !== 'darwin',
+}, async () => {
+  const home = await standaloneFixture('success');
+  const settingsPath = join(home, '.claude/settings.json');
+  const backups = async () => (await readdir(join(home, '.claude'))).filter(name => name.includes('.ccgc-backup.'));
+  try {
+    await runStandalone(home, 'success');
+    const enrolled = JSON.parse(await readFile(settingsPath, 'utf8'));
+    const personal = {
+      ...enrolled, enabledPlugins: { 'example@market': true },
+      permissions: { ...enrolled.permissions, defaultMode: 'acceptEdits', allow: ['Bash(npm test)'] },
+    };
+    await writeFile(settingsPath, JSON.stringify(personal), { mode: 0o600 });
+    const kept = await runStandalone(home, 'success', {}, configureHarness);
+    assert.doesNotMatch(kept.stderr, /Enter 1 or 2/);
+    assert.deepEqual(JSON.parse(await readFile(settingsPath, 'utf8')), personal);
+    assert.equal((await backups()).length, 1);
+
+    const leftover = { ...personal, env: { ...personal.env, ANTHROPIC_CUSTOM_HEADERS: 'x-litellm-api-key: Bearer old-virtual-key' } };
+    await writeFile(settingsPath, JSON.stringify(leftover), { mode: 0o600 });
+    await assert.rejects(runStandalone(home, 'success', { CCGC_TEST_COMMAND: 'doctor' }, configureHarness), error => {
+      assert.match(String((error as { stderr?: string }).stderr), /Claude settings contain ANTHROPIC_CUSTOM_HEADERS from another setup; run configure/);
+      return true;
+    });
+    await assert.rejects(runStandalone(home, 'success', { CCGC_TEST_CHOICE: '2' }, configureHarness), /setup cancelled/);
+    assert.deepEqual(JSON.parse(await readFile(settingsPath, 'utf8')), leftover);
+
+    const reset = await runStandalone(home, 'success', { CCGC_TEST_CHOICE: '1' }, configureHarness);
+    assert.match(reset.stdout, /Previous Claude Code settings backed up to /);
+    const settings = JSON.parse(await readFile(settingsPath, 'utf8'));
+    assert.equal(settings.env.ANTHROPIC_CUSTOM_HEADERS, undefined);
+    assert.equal(settings.enabledPlugins, undefined);
+    assert.equal(settings.permissions.defaultMode, 'manual');
+    assert.equal(settings.env.ANTHROPIC_BASE_URL, 'https://gateway.example');
+    const allBackups = await backups();
+    assert.equal(allBackups.length, 2);
+    const restored = await Promise.all(allBackups.map(name => readFile(join(home, '.claude', name), 'utf8')));
+    assert.ok(restored.some(content => content.includes('old-virtual-key')));
+    await runStandalone(home, 'success', { CCGC_TEST_COMMAND: 'doctor' }, configureHarness);
+    assert.deepEqual(await readdir(join(home, 'temp')), []);
   } finally { await rm(home, { recursive: true, force: true }); }
 });
 
@@ -561,11 +678,14 @@ test('standalone enrollment rejects health, identity, routing and authorization 
 test('Desktop configuration is created for a fresh install and skipped when Desktop is absent', {
   skip: process.platform !== 'darwin',
 }, async () => {
-  for (const mode of ['fresh-desktop', 'no-desktop']) {
+  for (const mode of ['fresh-desktop', 'no-desktop', 'desktop-default-profile']) {
     const home = await standaloneFixture(mode);
     try {
-      await runStandalone(home, mode);
+      const result = await runStandalone(home, mode);
       const metaPath = join(home, 'Library/Application Support/Claude-3p/configLibrary/_meta.json');
+      assert.doesNotMatch(result.stderr, /Claude Desktop gateway profiles/);
+      assert.equal((await readdir(join(home, 'Library/Application Support'), { recursive: true }).catch(() => []))
+        .filter(name => String(name).includes('ccgc-backup')).length, 0);
       if (mode === 'no-desktop') {
         await assert.rejects(readFile(metaPath), { code: 'ENOENT' });
       } else {
@@ -573,7 +693,9 @@ test('Desktop configuration is created for a fresh install and skipped when Desk
         const active = JSON.parse(await readFile(join(home, `Library/Application Support/Claude-3p/configLibrary/${meta.appliedId}.json`), 'utf8'));
         assert.equal(active.inferenceCredentialHelper, '/bin/bash');
         assert.equal(active.inferenceGatewayBaseUrl, 'https://gateway.example');
-        assert.deepEqual(meta.entries, [{ id: meta.appliedId, name: 'GitHub Copilot via LiteLLM' }]);
+        assert.deepEqual(meta.entries, mode === 'fresh-desktop'
+          ? [{ id: meta.appliedId, name: 'GitHub Copilot via LiteLLM' }]
+          : [{ id: standaloneUser, name: 'Existing gateway' }]);
       }
     } finally { await rm(home, { recursive: true, force: true }); }
   }

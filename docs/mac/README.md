@@ -17,7 +17,7 @@ profile. Restart Desktop after configuration changes.
 | Official Claude Code `2.1.296` or newer | Provides the unchanged coding interface and runs local Read, Edit, Bash, and permission decisions. | Install and verify the minimum supported version. |
 | Enterprise CCGC helper | Shell-based self-enrollment client and Claude `apiKeyHelper`. | Keep the installed private script at its stable path. |
 | Personal LiteLLM key in macOS Keychain | Authenticates that employee's inference requests directly for up to 90 days. | Use a newly issued key for renewal. |
-| `~/.claude/settings.json` | Routes Claude to LiteLLM and installs the Keychain credential helper. | Enrollment applies a conflict-checked update. |
+| `~/.claude/settings.json` | Routes Claude to LiteLLM and installs the Keychain credential helper. | Enrollment backs up configuration from another setup and starts clean; `configure` resets only conflicting routing. |
 | Enterprise profile | Stores the gateway, verified LiteLLM/GitHub identity, credential reference, and model catalog; no secrets. | Let the helper create it; do not hand-edit it. |
 | `desktop-gateway.json` | Secret-free copy of Desktop's Gateway configuration. | The script applies it to the local Desktop profile; restart Desktop afterward. |
 
@@ -92,12 +92,14 @@ Use the LiteLLM HTTPS origin from Enterprise IT, without a path, with
 which may not match your deployment.
 
 1. The script checks the Claude Code version and your existing Claude
-   settings. A conflicting shell environment variable stops enrollment; unset
-   it and retry. If `~/.claude/settings.json` already sets another
-   `apiKeyHelper`, `ANTHROPIC_API_KEY`, `ANTHROPIC_AUTH_TOKEN`,
-   `CLAUDE_CODE_OAUTH_TOKEN`, or a different `ANTHROPIC_BASE_URL`, the script
-   asks before the key is used whether to back up and replace only those
-   settings after verification, or cancel.
+   configuration. A conflicting shell environment variable stops enrollment;
+   unset it and retry. If `~/.claude/settings.json` or Claude Desktop's
+   gateway profiles contain anything from another setup, for example another
+   gateway URL, virtual key, `apiKeyHelper`, model override, or extra
+   environment settings, the script lists them and asks once, before the key
+   is used, whether to back them up and start from scratch after
+   verification, or cancel. Cancelling changes nothing. See
+   [Fresh start and backups](#fresh-start-and-backups).
 2. Paste your personal key from the enrollment workflow when prompted, not
    the LiteLLM administrator/master key. Input is hidden, and the key does
    not go into shell history.
@@ -120,7 +122,8 @@ which may not match your deployment.
    inference response.
 7. It then stores the key in macOS Keychain, writes the non-secret profile,
    configures Claude Code, and applies the Desktop Gateway configuration
-   when Desktop is installed. Changed Desktop files are backed up privately.
+   when Desktop is installed. Replaced configuration is backed up privately
+   and the backup paths are printed.
 
 Failed identity or routing verification does not replace the previous local
 profile or credentials. When the script prints `Enrollment complete`, restart
@@ -187,7 +190,7 @@ troubleshooting step.
 
 ## 5. Reapply Claude settings
 
-Enrollment configures Claude automatically. To reapply the same conflict-checked
+Enrollment configures Claude automatically. To reapply the enterprise
 configuration later, run:
 
 ```bash
@@ -207,19 +210,66 @@ Desktop Gateway configuration, and updates
 - preserves an existing permission default, or uses `manual` when none is set
 - sets `CLAUDE_CODE_AUTO_MODE_SERVER=0`, allowing opt-in auto mode to use
   Claude Code's local classifier instead of Anthropic-only server safeguards
-- preserves unrelated Claude settings and existing allow/deny rules
+- preserves personal Claude settings added after enrollment, such as plugins,
+  hooks, and allow/deny rules
 
-If the existing Claude settings contain `ANTHROPIC_API_KEY`,
-`ANTHROPIC_AUTH_TOKEN`, or `CLAUDE_CODE_OAUTH_TOKEN`, the script asks whether
-to create a private timestamped backup and replace only conflicting
-enterprise-managed credential and routing settings, or cancel without changing
-the file. This also safely handles an existing `ANTHROPIC_BASE_URL`. Shell
-environment settings are never edited automatically; unset them explicitly and
-retry.
+### Fresh start and backups
 
-Configuration fails without changing the file if a shell environment variable
-conflicts, the settings file is unsafe or invalid, or you cancel the conflict
-prompt. Resolve the conflict explicitly; do not overwrite organizational policy.
+`enroll` and `configure` never merge routing from another setup into the
+enterprise configuration. When they find it, they list what was found and ask
+once:
+
+```text
+Existing Claude configuration from another setup was found:
+  - Claude Code settings (~/.claude/settings.json)
+  - Claude Desktop gateway profiles
+...
+  1. After gateway verification, back up this configuration and start from scratch.
+  2. Cancel without using the LiteLLM key or changing Claude configuration.
+Enter 1 or 2:
+```
+
+`configure` shows the same list with a shorter choice, because the key is
+already enrolled.
+
+| Command | What triggers a fresh start | What is kept |
+|---|---|---|
+| `enroll` | Anything in `~/.claude/settings.json` besides the enterprise settings, an invalid settings file, or a Desktop gateway profile that differs from the enterprise profile | Nothing outside the backup; re-add personal settings from it if needed |
+| `configure` | Conflicting routing only: another gateway URL, credential, virtual key, `apiKeyHelper`, model override, unknown environment setting, an invalid settings file, or Desktop `apiKey`, OIDC, custom headers, or another gateway | Personal settings such as plugins, hooks, permission rules, and unrelated Desktop preferences |
+
+Claude conversations, `~/.claude.json` (including MCP servers), and Desktop app
+preferences are never reset.
+
+With option `1`, the script verifies the gateway and key first, then:
+
+- copies the old Claude Code settings to a private (`0600`) backup at
+  `~/.claude/settings.json.ccgc-backup.<UTC timestamp>.<random>`
+- copies the old Desktop gateway profiles to a private directory at
+  `~/Library/Application Support/Claude-3p/configLibrary.ccgc-backup.<UTC timestamp>.<random>/`
+- writes a clean enterprise `settings.json` and a single active Desktop
+  profile named `GitHub Copilot via LiteLLM`, and removes the old profiles
+- prints both backup paths
+
+Option `2`, an empty answer, or any other input cancels without using the
+key or changing any file. Shell environment variables are never edited
+automatically; unset conflicting ones, such as `ANTHROPIC_AUTH_TOKEN`, in
+`~/.zshrc` or `~/.bash_profile`, open a new terminal, and retry.
+
+The script still refuses to proceed if the settings file is a symlink, is not
+a regular file, or is not owned by the current user, and it never overrides
+managed policy.
+
+To restore a previous configuration, quit Claude, then copy the backup back:
+
+```bash
+cp -p "$HOME/.claude/settings.json.ccgc-backup.<timestamp>.<random>" "$HOME/.claude/settings.json"
+```
+
+For Desktop, copy the needed profile files from the
+`configLibrary.ccgc-backup.*` directory back into
+`~/Library/Application Support/Claude-3p/configLibrary/`. Restoring
+another setup's routing disconnects Claude from the enterprise gateway until
+`configure` runs again.
 
 ## 6. Inspect the approved models
 
@@ -251,7 +301,9 @@ The doctor fails closed and reports the first actionable problem. It verifies:
 - the minimum supported Claude Code version
 - a current personal-key enrollment
 - private, user-owned, non-symlink helper/profile/settings files
-- absence of conflicting shell and Claude credentials
+- absence of conflicting shell and Claude credentials, model overrides, and
+  other leftover routing settings (if found, run `configure` to back them up
+  and start from scratch)
 - the enterprise base URL, model, helper, cache, permissions, and auto-mode settings
 - LiteLLM health
 - the personal key in macOS Keychain, its LiteLLM owner and employee role, and
@@ -293,8 +345,10 @@ CLI settings do not select Claude Desktop's inference provider; Desktop needs
 its own third-party inference configuration. Enrollment and `configure`
 automatically update its active local profile under
 `~/Library/Application Support/Claude-3p/configLibrary/`. A fresh installation
-gets a new profile. Unrelated preferences and other saved profiles are retained;
-changed files get private `.ccgc-backup.*` copies. A secret-free copy is also kept:
+gets a new profile. Profiles from another setup are backed up and replaced as
+described in [Fresh start and backups](#fresh-start-and-backups); unrelated
+Desktop preferences are retained, and changed files get private
+`.ccgc-backup.*` copies. A secret-free copy is also kept:
 
 ```text
 ~/.local/share/ccgc/enterprise/desktop-gateway.json
@@ -383,7 +437,11 @@ Do not delete or edit the profile to bypass an identity conflict.
 | `enterprise profile models changed` | Run the installed helper's `configure`, then `doctor`. |
 | LiteLLM returns HTTP 401 or 403 | Run `doctor`; ask IT to check key expiry, revocation, and Copilot entitlement. Do not add a provider key. |
 | Keychain credential is unavailable | Unlock Keychain and confirm the current macOS user owns the enrollment. |
-| Routing conflict | Remove or resolve the reported environment or Claude setting; do not force an overwrite. |
+| Routing conflict in the shell environment | Unset the reported variable in your shell startup file, open a new terminal, and retry. |
+| Old settings, a virtual key, or another gateway remain after setup | Run the installed helper's `configure` and choose `1` to back them up and start from scratch, then run `doctor`. |
+| `Claude settings contain ... from another setup` | Run `configure` and choose `1`; the previous settings are backed up first. |
+| `setup cancelled; the LiteLLM key and Claude configuration were not changed` | Nothing was changed. Run the command again and choose `1` when ready. |
+| `model_not_supported` for one model while others work | The employee's GitHub Copilot plan or organization policy does not enable that model. Enable it in Copilot settings or policies, or select another approved model with `/model`. |
 | No models are listed | Ask enterprise IT to verify the employee's approved catalog and account binding. |
 | Claude stopped working after an update | Run the installed helper's `doctor`; do not delete credentials or repeat enrollment unless Enterprise IT confirms a lifecycle condition above. |
 | A LiteLLM replica or gateway restarts | Run `doctor` and resume only through normal Claude behavior. Never replay an uncertain in-flight inference automatically. |
