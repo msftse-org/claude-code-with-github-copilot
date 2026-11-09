@@ -29,6 +29,15 @@ authentication (shared keys disabled), with blob versioning and 30-day soft
 delete. Secrets are write-only arguments, so Terraform state and plans never
 contain them.
 
+The state account has no open public endpoint. Network security perimeter
+`nsp-<prefix>-tfstate` enforces access to it, and its `terraform-state`
+profile holds one inbound rule per deployer (`deployer-<object-id>`) with
+that person's current public IPv4 address. `deploy.mjs` refreshes your rule
+on every Terraform run. The perimeter also satisfies Azure Policy that
+disables public network access on storage accounts without one, such as
+Microsoft's SFI-NS2.2.1 policy. Delete a former deployer's rule in the
+portal, under the perimeter's **Profiles**.
+
 There is no container registry, broker, or custom authentication. LiteLLM
 stores its models in PostgreSQL (`STORE_MODEL_IN_DB=True`). The per-user
 Copilot provider needs a placeholder token file to start. It is mounted from a
@@ -45,13 +54,16 @@ for two compute nodes, and at least two `D4` workload profile nodes.
   state storage account)
 - Terraform `1.11` or newer for the default engine, or Bicep CLI `0.48.1` or
   newer (`az bicep install --version v0.48.1`) for `--engine bicep`
+- For Terraform, outbound HTTPS to `https://api.ipify.org`, which reports the
+  public IPv4 address that the state perimeter admits. Without it, pass the
+  address with `--state-client-ip`.
 - Node.js 24 and a checkout of this repository
 - GitHub CLI signed in as an administrator of the repository that runs the
   employee-access workflow
 
 ## Deploy or update
 
-Preview first. Nothing changes without `--confirm-deploy`.
+Preview first. The solution does not change without `--confirm-deploy`.
 
 ```bash
 node scripts/deploy.mjs --subscription <subscription-id>
@@ -66,10 +78,11 @@ The confirmed run:
    password manager. **The salt key encrypts every stored GitHub connection
    and must never change for an existing database.** The script refuses to
    create new secrets for an existing resource group.
-2. With Terraform, creates the state storage if needed and runs
-   `terraform apply` in a temporary copy of `infra/terraform`. With
-   `--engine bicep`, runs `az deployment sub create` instead. Either way, the
-   secrets are passed in a temporary `0600` file, never on the command line.
+2. With Terraform, creates the state storage if needed, admits your public IP
+   through the state perimeter, and runs `terraform apply` in a temporary copy
+   of `infra/terraform`. With `--engine bicep`, runs
+   `az deployment sub create` instead. Either way, the secrets are passed in a
+   temporary `0600` file, never on the command line.
 3. Waits for `/health/readiness` to report the database connected.
 4. Registers the per-user credential `github-copilot-user` and the Claude
    model routes, then waits until every replica advertises them.
@@ -80,11 +93,15 @@ The confirmed run:
 
 The preview runs `terraform plan` (or `az deployment sub what-if` with
 `--engine bicep`). Before anything is deployed, it plans against empty local
-state and creates nothing, not even the state storage.
+state and creates nothing, not even the state storage. Once the state exists,
+its only write is refreshing your inbound rule in the state perimeter, and it
+plans without taking the state lock.
 
 Re-running is safe and is how you apply template or model changes. Useful
 options: `--engine bicep`, `--prefix`, `--location`,
-`--models claude-sonnet-5.5,...`, `--secrets-file`, and `--name-seed`.
+`--models claude-sonnet-5.5,...`, `--secrets-file`, `--name-seed`, and
+`--state-client-ip <ipv4>` when a VPN or proxy makes Azure see a different
+address than `https://api.ipify.org` reports.
 
 On a first deployment, the app's Key Vault references can fail while the new
 role assignment propagates. Run the same command again.
@@ -112,7 +129,8 @@ Terraform protects the resource group, PostgreSQL server, and Key Vault with
 `prevent_destroy`. If creating one of them fails, Terraform marks it tainted
 and the next apply stops with `Instance cannot be destroyed` instead of
 replacing it. Inspect the resource, then untaint it, using the state location
-that `deploy.mjs` prints:
+that `deploy.mjs` prints. Run a preview first so the state perimeter admits
+your current IP:
 
 ```bash
 export TF_DATA_DIR="$(mktemp -d)"
@@ -189,7 +207,9 @@ from the secrets file.
 | Revision fails with a Key Vault reference error | The role assignment was still propagating. Re-run the deploy. |
 | Terraform reports that a resource `already exists` and must be imported | The resource exists outside Terraform state, for example from a Bicep deployment. Use `--engine bicep` or import it. |
 | Terraform reports `Instance cannot be destroyed` | A protected resource is tainted after a failed create. See [Terraform and Bicep](#terraform-and-bicep). |
-| `Cannot read Terraform state` | Your Storage Blob Data Contributor role on the state account has not propagated yet, or you lack it. Wait and re-run. |
+| `Cannot read Terraform state` | Your Storage Blob Data Contributor role on the state account has not propagated yet, or you lack it. Wait and re-run. If Azure sees you at a different address than the one in the message (VPN, proxy, split tunnel), re-run with `--state-client-ip <ipv4>`. |
+| `Could not detect this machine's public IPv4 address` | `https://api.ipify.org` is blocked or returned something else. Re-run with `--state-client-ip <ipv4>`. |
+| Storage reports `publicNetworkAccess: Disabled` on the state account | Azure Policy reset it after a write that did not keep `SecuredByPerimeter`. Re-run the preview or deploy; it restores the setting and the perimeter association. |
 | Enrollment or inference fails with a GitHub error | Confirm the employee has a Copilot seat and that any GitHub organization IP allow list includes the egress IP. |
 | `model_not_supported` from GitHub | The model is not enabled for that Copilot account. There is no fallback. |
 | Employee setup reports a settings conflict | The script backs up Claude settings and replaces only the managed keys after explicit confirmation. |

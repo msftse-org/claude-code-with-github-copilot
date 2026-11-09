@@ -11,6 +11,7 @@ export interface DeployOptions {
   models: string[];
   secretsFile?: string;
   githubRepo?: string;
+  stateClientIp?: string;
   skipGithub: boolean;
   confirmDeploy: boolean;
 }

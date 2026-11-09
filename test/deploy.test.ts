@@ -9,6 +9,10 @@ import type { BootstrapOptions } from '../scripts/litellm-bootstrap.mjs';
 const subscription = '00000000-0000-4000-8000-000000000001';
 const tenant = '00000000-0000-4000-8000-000000000002';
 const storageBlobDataContributor = 'ba92f5b4-2d11-453d-a403-e96b0029c9fe';
+const stateAccountId = '/subscriptions/example/providers/Microsoft.Storage/storageAccounts/state';
+const perimeter = `/subscriptions/${subscription}/resourceGroups/rg-ccgc-pilot-tfstate`
+  + '/providers/Microsoft.Network/networkSecurityPerimeters/nsp-ccgc-pilot-tfstate';
+const perimeterProfile = `${perimeter}/profiles/terraform-state`;
 
 interface Command {
   command: string;
@@ -24,7 +28,13 @@ interface Command {
   parameterMode?: number;
 }
 
-function fakeCli({ groupExists = false, stateStorageExists = false, terraformState = '' } = {}) {
+function fakeCli({
+  groupExists = false,
+  stateStorageExists = false,
+  terraformState = '',
+  statePublicNetworkAccess = 'SecuredByPerimeter',
+  associationStates = ['Succeeded'],
+} = {}) {
   const commands: Command[] = [];
   const run = async (command: string, args: string[], options: { input?: string; env?: Record<string, string> } = {}) => {
     const entry: Command = { command, args, input: options.input, env: options.env };
@@ -50,10 +60,14 @@ function fakeCli({ groupExists = false, stateStorageExists = false, terraformSta
     if (line.startsWith('az group exists --name rg-ccgc-pilot-tfstate')) return String(stateStorageExists);
     if (line.startsWith('az group exists')) return String(groupExists);
     if (line.startsWith('az storage account list')) return stateStorageExists ? '1' : '0';
-    if (line.startsWith('az storage account create')) return '/subscriptions/example/providers/Microsoft.Storage/storageAccounts/state';
+    if (line.startsWith('az storage account create')) return stateAccountId;
+    if (line.startsWith('az storage account show')) {
+      return JSON.stringify({ id: stateAccountId, publicNetworkAccess: statePublicNetworkAccess });
+    }
+    if (line.startsWith('az rest --method get')) return associationStates.length > 1 ? associationStates.shift()! : associationStates[0]!;
     if (line.startsWith('az storage container-rm list') || line.startsWith('az role assignment list')) return '0';
     if (line.startsWith('az ad signed-in-user show')) return 'deployer-object-id';
-    if (/^az (group create|storage account blob-service-properties update|storage container-rm create|role assignment create|storage blob list) /.test(line)) return '';
+    if (/^az (group create|storage account (blob-service-properties )?update|storage container-rm create|role assignment create|storage blob list|rest --method put) /.test(line)) return '';
     if (line === 'terraform version -json') return JSON.stringify({ terraform_version: '1.14.3' });
     if (command === 'terraform' && args[1] === 'state') return terraformState;
     if (command === 'terraform' && args[1] === 'output') {
@@ -85,6 +99,18 @@ function terraform(commands: Command[], subcommand: string) {
 
 function argumentAfter(entry: Command | undefined, flag: string) {
   return entry?.args[entry.args.indexOf(flag) + 1];
+}
+
+function indexOf(commands: Command[], prefix: string) {
+  return commands.findIndex(entry => `${entry.command} ${entry.args.join(' ')}`.startsWith(prefix));
+}
+
+function perimeterWrites(commands: Command[]) {
+  return commands.filter(entry => entry.args.slice(0, 3).join(' ') === 'rest --method put').map(entry => ({
+    url: argumentAfter(entry, '--url')!,
+    body: JSON.parse(argumentAfter(entry, '--body')!),
+    index: commands.indexOf(entry),
+  }));
 }
 
 function options(directory: string, extra: string[] = []) {
@@ -166,7 +192,10 @@ test('deploy refuses to invent new secrets for an existing resource group', asyn
 });
 
 test('Terraform refuses a resource group that was deployed without Terraform state', async () => {
-  for (const [state, extra] of [[{ stateStorageExists: false }, []], [{ stateStorageExists: true }, ['--confirm-deploy']]] as const) {
+  for (const [state, extra] of [
+    [{ stateStorageExists: false }, []],
+    [{ stateStorageExists: true }, ['--confirm-deploy', '--state-client-ip', '203.0.113.7']],
+  ] as const) {
     const directory = await mkdtemp(join(tmpdir(), 'ccgc-deploy-test-'));
     try {
       await writeFile(join(directory, 'secrets.json'), JSON.stringify(generateSecrets()), { mode: 0o600 });
@@ -178,16 +207,61 @@ test('Terraform refuses a resource group that was deployed without Terraform sta
   }
 });
 
+test('Terraform preview of a deployment admits only the given caller IP through the state perimeter before planning', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'ccgc-deploy-test-'));
+  try {
+    await writeFile(join(directory, 'secrets.json'), JSON.stringify(generateSecrets()), { mode: 0o600 });
+    const cli = fakeCli({
+      groupExists: true, stateStorageExists: true, terraformState: 'azapi_resource.resource_group', statePublicNetworkAccess: 'Disabled',
+    });
+    const lookups: string[] = [];
+    const result = await deploy(options(directory, ['--state-client-ip', '203.0.113.7']), {
+      run: cli.run,
+      log: () => {},
+      sleep: async () => {},
+      fetcher: async input => { lookups.push(String(input)); throw new Error('unexpected network call'); },
+    });
+    assert.equal(result.deployed, false);
+    assert.deepEqual(lookups, []);
+    const update = cli.commands.find(entry => entry.args.slice(0, 3).join(' ') === 'storage account update');
+    assert.equal(argumentAfter(update, '--public-network-access'), 'SecuredByPerimeter');
+    const rule = perimeterWrites(cli.commands).find(write => write.url.includes('/accessRules/'));
+    assert.deepEqual(rule?.body, { properties: { direction: 'Inbound', addressPrefixes: ['203.0.113.7/32'] } });
+    assert.equal(cli.commands.some(entry => entry.command === 'az' && entry.args.includes('create')), false);
+    const init = terraform(cli.commands, 'init');
+    assert.ok(init?.args.includes('-backend-config=key=ccgc-pilot.tfstate'));
+    assert.ok(rule!.index < indexOf(cli.commands, 'az storage blob list') && indexOf(cli.commands, 'az storage blob list') < cli.commands.indexOf(init!));
+    assert.ok(terraform(cli.commands, 'plan')?.args.includes('-lock=false'));
+    assert.equal(terraform(cli.commands, 'apply'), undefined);
+  } finally { await rm(directory, { recursive: true, force: true }); }
+});
+
+test('Terraform opens nothing in the state perimeter when it cannot detect the caller IP', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'ccgc-deploy-test-'));
+  try {
+    await writeFile(join(directory, 'secrets.json'), JSON.stringify(generateSecrets()), { mode: 0o600 });
+    const cli = fakeCli({ groupExists: true, stateStorageExists: true, terraformState: 'azapi_resource.resource_group' });
+    await assert.rejects(deploy(options(directory), {
+      run: cli.run, log: () => {}, sleep: async () => {}, fetcher: async () => new Response('<html>proxy login</html>'),
+    }), /--state-client-ip/);
+    assert.equal(cli.commands.some(entry => entry.args[0] === 'rest' || entry.args.includes('update')), false);
+    assert.equal(terraform(cli.commands, 'init'), undefined);
+    assert.throws(() => options(directory, ['--state-client-ip', '2001:db8::7']), /IPv4/);
+  } finally { await rm(directory, { recursive: true, force: true }); }
+});
+
 test('confirmed Terraform deploy stores state in Azure, bootstraps LiteLLM, and gives GitHub the master key only on stdin', async () => {
   const directory = await mkdtemp(join(tmpdir(), 'ccgc-deploy-test-'));
   try {
-    const cli = fakeCli();
+    const cli = fakeCli({ associationStates: ['Creating', 'Succeeded'] });
     const bootstraps: BootstrapOptions[] = [];
     const result = await deploy(options(directory, ['--confirm-deploy', '--models', 'claude-sonnet-5.5']), {
       run: cli.run,
       log: () => {},
       sleep: async () => {},
-      fetcher: async () => new Response(JSON.stringify({ db: 'connected', litellm_version: '1.108.3' })),
+      fetcher: async input => new Response(String(input) === 'https://api.ipify.org'
+        ? '198.51.100.20\n'
+        : JSON.stringify({ db: 'connected', litellm_version: '1.108.3' })),
       bootstrap: async input => {
         bootstraps.push(input);
         return { createdCredential: true, createdModels: ['claude-sonnet-5.5'], models: ['claude-sonnet-5.5'] };
@@ -201,10 +275,26 @@ test('confirmed Terraform deploy stores state in Azure, bootstraps LiteLLM, and 
     const account = argumentAfter(storage, '--name')!;
     assert.match(account, /^[a-z0-9]{3,24}$/);
     assert.equal(argumentAfter(storage, '--allow-shared-key-access'), 'false');
+    assert.equal(argumentAfter(storage, '--public-network-access'), 'SecuredByPerimeter');
     const grant = cli.commands.find(entry => entry.args.slice(0, 3).join(' ') === 'role assignment create');
     assert.deepEqual([argumentAfter(grant, '--assignee-object-id'), argumentAfter(grant, '--role')],
       ['deployer-object-id', storageBlobDataContributor]);
+    const writes = perimeterWrites(cli.commands);
+    assert.deepEqual(writes.map(write => write.url), [
+      `${perimeter}?api-version=2026-01-01`,
+      `${perimeterProfile}?api-version=2026-01-01`,
+      `${perimeterProfile}/accessRules/deployer-deployer-object-id?api-version=2026-01-01`,
+      `${perimeter}/resourceAssociations/${account}?api-version=2026-01-01`,
+    ]);
+    assert.deepEqual(writes[2]!.body.properties.addressPrefixes, ['198.51.100.20/32']);
+    assert.deepEqual(writes[3]!.body, {
+      properties: { accessMode: 'Enforced', privateLinkResource: { id: stateAccountId }, profile: { id: perimeterProfile } },
+    });
+    assert.equal(cli.commands.filter(entry => entry.args.slice(0, 3).join(' ') === 'rest --method get').length, 2);
+    assert.equal(indexOf(cli.commands, 'az storage account update'), -1);
     const init = terraform(cli.commands, 'init');
+    assert.ok(writes[3]!.index < indexOf(cli.commands, 'az storage blob list')
+      && indexOf(cli.commands, 'az storage blob list') < cli.commands.indexOf(init!));
     assert.deepEqual(init?.args.filter(arg => arg.startsWith('-backend-config=')), [
       `-backend-config=storage_account_name=${account}`,
       '-backend-config=container_name=tfstate',

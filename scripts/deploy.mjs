@@ -1,6 +1,7 @@
 import { spawn } from 'node:child_process';
 import { createHash, randomBytes, randomInt } from 'node:crypto';
 import { cp, mkdir, mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises';
+import { isIPv4 } from 'node:net';
 import { homedir, tmpdir } from 'node:os';
 import { basename, dirname, join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
@@ -16,15 +17,21 @@ const ENGINES = ['terraform', 'bicep'];
 const MINIMUM_TERRAFORM = [1, 11];
 const STORAGE_BLOB_DATA_CONTRIBUTOR = 'ba92f5b4-2d11-453d-a403-e96b0029c9fe';
 const STATE_ACCESS_ATTEMPTS = 36;
+const STATE_PERIMETER_API = '2026-01-01';
+const STATE_PERIMETER_PROFILE = 'terraform-state';
+const CLIENT_IP_SERVICE = 'https://api.ipify.org';
 const PASSWORD_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789';
 
 export const USAGE = `Usage: node scripts/deploy.mjs --subscription <id> [options]
 
 Without --confirm-deploy, previews the Azure changes (terraform plan, or what-if
-with --engine bicep) and changes nothing. With --confirm-deploy, deploys LiteLLM,
-registers the GitHub Copilot models, and stores LITELLM_URL and LITELLM_MASTER_KEY
-in the ccgc-admin GitHub environment. Re-running is safe; it reuses the private
-secrets file and, with Terraform, the state in resource group rg-<prefix>-tfstate.
+with --engine bicep) and changes nothing in the solution. With --confirm-deploy,
+deploys LiteLLM, registers the GitHub Copilot models, and stores LITELLM_URL and
+LITELLM_MASTER_KEY in the ccgc-admin GitHub environment. Re-running is safe; it
+reuses the private secrets file and, with Terraform, the state in resource group
+rg-<prefix>-tfstate. That state is reachable only through a network security
+perimeter, so every Terraform run that reads it, previews included, first allows
+your current public IPv4 address through the perimeter.
 
 Options:
   --subscription <id>    Azure subscription ID (required)
@@ -35,6 +42,7 @@ Options:
   --models <list>        Comma-separated model IDs (default: ${DEFAULT_MODELS.join(',')})
   --secrets-file <path>  Private secrets file (default: ~/.config/ccgc/<subscription>/<prefix>.json)
   --github-repo <o/r>    Repository with the ccgc-admin environment (default: this checkout's repository)
+  --state-client-ip <ip> Public IPv4 address Azure sees for this machine (default: detected with ${CLIENT_IP_SERVICE})
   --skip-github          Do not configure the GitHub environment
   --confirm-deploy       Deploy instead of previewing
 `;
@@ -57,6 +65,7 @@ export function parseOptions(argv) {
       models: { type: 'string' },
       'secrets-file': { type: 'string' },
       'github-repo': { type: 'string' },
+      'state-client-ip': { type: 'string' },
       'skip-github': { type: 'boolean', default: false },
       'confirm-deploy': { type: 'boolean', default: false },
       help: { type: 'boolean', default: false },
@@ -75,6 +84,8 @@ export function parseOptions(argv) {
   if (githubRepo !== undefined && !/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(githubRepo)) {
     fail('--github-repo must be owner/repository.');
   }
+  const stateClientIp = values['state-client-ip'];
+  if (stateClientIp !== undefined && !isIPv4(stateClientIp)) fail('--state-client-ip must be an IPv4 address.');
   return {
     subscription: subscription.toLowerCase(),
     engine: values.engine,
@@ -84,6 +95,7 @@ export function parseOptions(argv) {
     models: validateModels(values.models === undefined ? [...DEFAULT_MODELS] : values.models.split(',').map(model => model.trim())),
     secretsFile: values['secrets-file'] === undefined ? undefined : resolve(values['secrets-file']),
     githubRepo,
+    stateClientIp,
     skipGithub: values['skip-github'],
     confirmDeploy: values['confirm-deploy'],
   };
@@ -247,6 +259,7 @@ function terraformStateLocation(options) {
     account: (`sttf${options.prefix.replace(/-/g, '')}`.slice(0, 14) + hash).slice(0, 24),
     container: 'tfstate',
     key: `${options.prefix}.tfstate`,
+    perimeter: `nsp-${options.prefix}-tfstate`,
   };
 }
 
@@ -279,17 +292,18 @@ async function signedInPrincipal(run, account) {
   return { id: await run('az', ['ad', 'signed-in-user', 'show', '--query', 'id', '--output', 'tsv']), type: 'User' };
 }
 
-async function ensureStateStorage(run, options, account, state, { log, sleep }) {
+async function ensureStateStorage(run, options, state, principal, tags, { log }) {
   const subscription = ['--subscription', options.subscription];
-  const settings = JSON.parse(await readFile(SOLUTION_SETTINGS, 'utf8'));
-  const tags = Object.entries(settings.tags).map(([name, value]) => `${name}=${value}`);
+  const tagArguments = Object.entries(tags).map(([name, value]) => `${name}=${value}`);
   await run('az', ['group', 'create', '--name', state.resourceGroup, '--location', options.location,
-    '--tags', ...tags, ...subscription, '--output', 'none']);
+    '--tags', ...tagArguments, ...subscription, '--output', 'none']);
+  // Tenant policy forces public network access off unless a network security perimeter secures the account.
   const accountId = await run('az', ['storage', 'account', 'create', '--name', state.account,
     '--resource-group', state.resourceGroup, '--location', options.location, '--kind', 'StorageV2',
     '--sku', 'Standard_ZRS', '--min-tls-version', 'TLS1_2', '--https-only', 'true',
     '--allow-blob-public-access', 'false', '--allow-shared-key-access', 'false',
-    '--allow-cross-tenant-replication', 'false', '--tags', ...tags, ...subscription, '--query', 'id', '--output', 'tsv']);
+    '--allow-cross-tenant-replication', 'false', '--public-network-access', 'SecuredByPerimeter',
+    '--tags', ...tagArguments, ...subscription, '--query', 'id', '--output', 'tsv']);
   await run('az', ['storage', 'account', 'blob-service-properties', 'update', '--account-name', state.account,
     '--resource-group', state.resourceGroup, '--enable-versioning', 'true', '--enable-delete-retention', 'true',
     '--delete-retention-days', '30', '--enable-container-delete-retention', 'true',
@@ -302,7 +316,6 @@ async function ensureStateStorage(run, options, account, state, { log, sleep }) 
   }
 
   // Shared keys are disabled, so Terraform reads and locks state with Microsoft Entra ID.
-  const principal = await signedInPrincipal(run, account);
   const assigned = await run('az', ['role', 'assignment', 'list', '--scope', accountId, '--include-inherited', ...subscription,
     '--query', `length([?principalId=='${principal.id}' && ends_with(roleDefinitionId, '${STORAGE_BLOB_DATA_CONTRIBUTOR}')])`,
     '--output', 'tsv']);
@@ -312,6 +325,58 @@ async function ensureStateStorage(run, options, account, state, { log, sleep }) 
       '--assignee-principal-type', principal.type, '--role', STORAGE_BLOB_DATA_CONTRIBUTOR, '--scope', accountId,
       ...subscription, '--output', 'none']);
   }
+}
+
+async function publicClientIp(options, fetcher) {
+  if (options.stateClientIp) return options.stateClientIp;
+  let address = '';
+  try {
+    const response = await fetcher(CLIENT_IP_SERVICE, { redirect: 'error', signal: AbortSignal.timeout(15_000) });
+    if (response.ok) address = (await response.text()).trim();
+  } catch {
+    // Reported below together with the manual alternative.
+  }
+  if (!isIPv4(address)) fail(`Could not detect this machine's public IPv4 address with ${CLIENT_IP_SERVICE}; pass it with --state-client-ip.`);
+  return address;
+}
+
+// The state account accepts public traffic only through an enforced network security perimeter.
+// Each deployer has one inbound rule that follows their current public IP.
+async function ensureStateAccess(run, options, state, principal, tags, { log, sleep, fetcher }) {
+  const subscription = ['--subscription', options.subscription];
+  const clientIp = await publicClientIp(options, fetcher);
+  const storage = JSON.parse(await run('az', ['storage', 'account', 'show', '--name', state.account,
+    '--resource-group', state.resourceGroup, ...subscription,
+    '--query', '{id:id, publicNetworkAccess:publicNetworkAccess}', '--output', 'json']));
+  if (storage.publicNetworkAccess !== 'SecuredByPerimeter') {
+    await run('az', ['storage', 'account', 'update', '--name', state.account, '--resource-group', state.resourceGroup,
+      '--public-network-access', 'SecuredByPerimeter', ...subscription, '--output', 'none']);
+  }
+  const perimeter = `/subscriptions/${options.subscription}/resourceGroups/${state.resourceGroup}`
+    + `/providers/Microsoft.Network/networkSecurityPerimeters/${state.perimeter}`;
+  const profile = `${perimeter}/profiles/${STATE_PERIMETER_PROFILE}`;
+  const association = `${perimeter}/resourceAssociations/${state.account}`;
+  const put = (id, body) => run('az', ['rest', '--method', 'put', '--url', `${id}?api-version=${STATE_PERIMETER_API}`,
+    '--body', JSON.stringify(body), '--output', 'none']);
+  await put(perimeter, { location: options.location, tags, properties: {} });
+  await put(profile, { properties: {} });
+  await put(`${profile}/accessRules/deployer-${principal.id}`, {
+    properties: { direction: 'Inbound', addressPrefixes: [`${clientIp}/32`] },
+  });
+  await put(association, {
+    properties: { accessMode: 'Enforced', privateLinkResource: { id: storage.id }, profile: { id: profile } },
+  });
+  for (let attempt = 1; ; attempt += 1) {
+    const status = await run('az', ['rest', '--method', 'get', '--url', `${association}?api-version=${STATE_PERIMETER_API}`,
+      '--query', 'properties.provisioningState', '--output', 'tsv']);
+    if (status === 'Succeeded') break;
+    if (status === 'Failed' || attempt >= STATE_ACCESS_ATTEMPTS) {
+      fail(`Network security perimeter association ${state.perimeter}/${state.account} is ${status || 'missing'}.`);
+    }
+    await sleep(5_000);
+  }
+  log(`Terraform state admits ${clientIp} through network security perimeter ${state.perimeter}.`);
+
   for (let attempt = 1; ; attempt += 1) {
     try {
       await run('az', ['storage', 'blob', 'list', '--account-name', state.account, '--container-name', state.container,
@@ -319,10 +384,12 @@ async function ensureStateStorage(run, options, account, state, { log, sleep }) 
       return;
     } catch (error) {
       if (attempt >= STATE_ACCESS_ATTEMPTS) {
-        fail(`Cannot read Terraform state in ${state.account}/${state.container} with Microsoft Entra ID: `
+        fail(`Cannot read Terraform state in ${state.account}/${state.container} from ${clientIp} with Microsoft Entra ID. `
+          + 'You need Storage Blob Data Contributor on the account (a confirmed deploy grants it), and Azure must see '
+          + 'this machine at that address (if a VPN or proxy changes it, pass --state-client-ip): '
           + `${error instanceof Error ? error.message : String(error)}`);
       }
-      // New role assignments take a few minutes to reach the storage data plane.
+      // New role assignments and perimeter rules take a few minutes to reach the storage data plane.
       await sleep(10_000);
     }
   }
@@ -339,7 +406,7 @@ async function terraformWorkspace(directory) {
   return config;
 }
 
-async function deployWithTerraform(options, account, secrets, { groupExists, run, log, sleep }) {
+async function deployWithTerraform(options, account, secrets, { groupExists, run, log, sleep, fetcher }) {
   await requireTerraform(run);
   const state = terraformStateLocation(options);
   const noState = `rg-${options.prefix}-enterprise exists, but Terraform state ${state.account}/${state.container}/${state.key} `
@@ -347,7 +414,12 @@ async function deployWithTerraform(options, account, secrets, { groupExists, run
     + 'or import its resources into Terraform state first.';
   const storageExists = await stateStorageExists(run, options, state);
   if (groupExists && !storageExists) fail(noState);
-  if (options.confirmDeploy) await ensureStateStorage(run, options, account, state, { log, sleep });
+  if (options.confirmDeploy || storageExists) {
+    const principal = await signedInPrincipal(run, account);
+    const { tags } = JSON.parse(await readFile(SOLUTION_SETTINGS, 'utf8'));
+    if (options.confirmDeploy) await ensureStateStorage(run, options, state, principal, tags, { log });
+    await ensureStateAccess(run, options, state, principal, tags, { log, sleep, fetcher });
+  }
   log(`Terraform state: ${state.account}/${state.container}/${state.key} in ${state.resourceGroup}.`);
 
   // A private temporary copy keeps provider downloads and backend settings out of the checkout.
@@ -425,9 +497,9 @@ export async function deploy(options, {
 
   const outputs = options.engine === 'bicep'
     ? await deployWithBicep(options, secrets, { run, log })
-    : await deployWithTerraform(options, account, secrets, { groupExists, run, log, sleep });
+    : await deployWithTerraform(options, account, secrets, { groupExists, run, log, sleep, fetcher });
   if (!options.confirmDeploy) {
-    log(`${options.engine === 'bicep' ? 'What-if' : 'Plan'} only; nothing changed. Review the changes and cost, then re-run with --confirm-deploy.`);
+    log(`${options.engine === 'bicep' ? 'What-if' : 'Plan'} only; the solution was not changed. Review the changes and cost, then re-run with --confirm-deploy.`);
     return { deployed: false, resourceGroup, secretsFile };
   }
 
