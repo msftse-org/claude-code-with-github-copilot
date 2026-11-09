@@ -187,9 +187,20 @@ from the secrets file.
 
 ## Rebuild from scratch
 
-1. Revoke employees if needed, then delete the resource group:
-   `az group delete --name rg-<prefix>-enterprise --yes`. Terraform's
-   `prevent_destroy` blocks `terraform destroy` on purpose. Keep
+1. Revoke employees if needed. Delete the `send-to-workspace` diagnostic
+   settings first: Azure Monitor keeps them after their resource is deleted
+   and attaches them to a new resource with the same ID, which makes
+   Terraform fail with `already exists`.
+
+   ```bash
+   rg=rg-<prefix>-enterprise
+   for id in $(az resource list -g "$rg" --query "[?type=='Microsoft.App/managedEnvironments' || type=='Microsoft.KeyVault/vaults'].id" -o tsv); do
+     az monitor diagnostic-settings delete --name send-to-workspace --resource "$id"
+   done
+   az group delete --name "$rg" --yes
+   ```
+
+   Terraform's `prevent_destroy` blocks `terraform destroy` on purpose. Keep
    `rg-<prefix>-tfstate`: the next Terraform run drops the deleted resources
    from its state.
 2. The Key Vault stays soft-deleted for 90 days with purge protection, which
@@ -205,7 +216,7 @@ from the secrets file.
 |---|---|
 | Readiness never reports the database connected | `az postgres flexible-server show` must report `Ready`; external automation can stop the server (`az postgres flexible-server start`). Then check `az containerapp logs show -n ca-<prefix>-litellm -g rg-<prefix>-enterprise`. |
 | Revision fails with a Key Vault reference error | The role assignment was still propagating. Re-run the deploy. |
-| Terraform reports that a resource `already exists` and must be imported | The resource exists outside Terraform state, for example from a Bicep deployment. Use `--engine bicep` or import it. |
+| Terraform reports that a resource `already exists` and must be imported | The resource exists outside Terraform state, for example from a Bicep deployment. Use `--engine bicep` or import it. A `diagnosticSettings/send-to-workspace` ID is a leftover from a deleted resource with the same ID: delete it with `az monitor diagnostic-settings delete --name send-to-workspace --resource <resource-id>` and re-run. |
 | Terraform reports `Instance cannot be destroyed` | A protected resource is tainted after a failed create. See [Terraform and Bicep](#terraform-and-bicep). |
 | `Cannot read Terraform state` | Your Storage Blob Data Contributor role on the state account has not propagated yet, or you lack it. Wait and re-run. If Azure sees you at a different address than the one in the message (VPN, proxy, split tunnel), re-run with `--state-client-ip <ipv4>`. |
 | `Could not detect this machine's public IPv4 address` | `https://api.ipify.org` is blocked or returned something else. Re-run with `--state-client-ip <ipv4>`. |
@@ -216,4 +227,29 @@ from the secrets file.
 
 ## Current deployment
 
-Deployment details are recorded here after each rebuild.
+Rebuilt from scratch with Terraform on 2026-11-09 (name seed `litellm2`).
+
+| Item | Value |
+|---|---|
+| LiteLLM | https://ca-ccgc-pilot-litellm.victorioussea-313182e6.swedencentral.azurecontainerapps.io |
+| Admin UI | https://ca-ccgc-pilot-litellm.victorioussea-313182e6.swedencentral.azurecontainerapps.io/ui/ |
+| Image | `ghcr.io/berriai/litellm:v1.108.3@sha256:f14d0a035d84d1a8bc98538faf5999e456641fd4cfa191822fd4be1934c1f4f6` |
+| Resource group | `rg-ccgc-pilot-enterprise` in `swedencentral` |
+| Egress IP | `4.223.110.167` |
+| Terraform state | `sttfccgcpilot9f38753bbf7/tfstate/ccgc-pilot.tfstate` in `rg-ccgc-pilot-tfstate`, behind `nsp-ccgc-pilot-tfstate` |
+
+Verified after deployment:
+
+- A Terraform plan reports no changes.
+- Readiness reports `healthy` with the database connected, and requests
+  without a key return 401.
+- `/v1/models` lists `claude-sonnet-5.5`, `claude-sonnet-5`, `claude-opus-5.5`,
+  `claude-haiku-5.5`, and `claude-haiku-4.5`. Each routes to
+  `github_copilot/<model>` through the per-user `github-copilot-user`
+  credential.
+- The `ccgc-admin` environment holds the new `LITELLM_URL` and
+  `LITELLM_MASTER_KEY`.
+- The LiteLLM identity holds only Key Vault Secrets User on its vault.
+
+Employees have not enrolled yet, so the live Claude Code results in the
+[README](../README.md#evidence) must be re-established.

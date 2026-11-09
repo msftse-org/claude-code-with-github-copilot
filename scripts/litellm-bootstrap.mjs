@@ -101,7 +101,10 @@ async function ensureCredential(call) {
 }
 
 async function ensureModels(call, models) {
-  const info = await call('/model/info');
+  // LiteLLM answers /model/info with HTTP 500 until its first model exists, so an
+  // empty model listing means there is nothing to inspect yet.
+  const listed = await call('/v1/models');
+  const info = Array.isArray(listed.data) && listed.data.length ? await call('/model/info') : { data: [] };
   const deployments = Array.isArray(info.data) ? info.data : [];
   const created = [];
   for (const model of models) {

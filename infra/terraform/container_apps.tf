@@ -47,10 +47,15 @@ resource "azapi_resource" "environment_diagnostics" {
   body = {
     properties = {
       workspaceId = azapi_resource.workspace.id
+      # Azure returns every category group in this order; listing the disabled one keeps plans clean.
       logs = [
         {
           categoryGroup = "allLogs"
           enabled       = true
+        },
+        {
+          categoryGroup = "audit"
+          enabled       = false
         },
       ]
       metrics = [
@@ -73,6 +78,9 @@ resource "azapi_resource" "litellm" {
   name      = local.litellm_name
   location  = var.location
   tags      = local.tags
+
+  # Azure returns ingress transport as "Http" although the API value is "http".
+  ignore_casing = true
 
   identity {
     type         = "UserAssigned"
@@ -154,19 +162,8 @@ resource "azapi_resource" "litellm" {
                 mountPath  = local.copilot_token_dir
               },
             ]
+            # Azure returns probes in this order; any other order shows as drift in every plan.
             probes = [
-              {
-                type = "Startup"
-                httpGet = {
-                  path   = "/health/liveliness"
-                  port   = 4000
-                  scheme = "HTTP"
-                }
-                initialDelaySeconds = 30
-                periodSeconds       = 20
-                failureThreshold    = 10
-                timeoutSeconds      = 5
-              },
               {
                 type = "Liveness"
                 httpGet = {
@@ -186,6 +183,18 @@ resource "azapi_resource" "litellm" {
                 }
                 periodSeconds  = 10
                 timeoutSeconds = 5
+              },
+              {
+                type = "Startup"
+                httpGet = {
+                  path   = "/health/liveliness"
+                  port   = 4000
+                  scheme = "HTTP"
+                }
+                initialDelaySeconds = 30
+                periodSeconds       = 20
+                failureThreshold    = 10
+                timeoutSeconds      = 5
               },
             ]
             resources = {

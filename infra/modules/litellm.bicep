@@ -321,10 +321,15 @@ resource vaultDiagnostics 'Microsoft.Insights/diagnosticSettings@2021-05-01-prev
   scope: vault
   properties: {
     workspaceId: workspace.id
+    // Listed as Azure returns them so Terraform plans of the same deployment stay clean.
     logs: [
       {
         categoryGroup: 'audit'
         enabled: true
+      }
+      {
+        categoryGroup: 'allLogs'
+        enabled: false
       }
     ]
   }
@@ -431,10 +436,15 @@ resource environmentDiagnostics 'Microsoft.Insights/diagnosticSettings@2021-05-0
   scope: environment
   properties: {
     workspaceId: workspace.id
+    // Listed as Azure returns them so Terraform plans of the same deployment stay clean.
     logs: [
       {
         categoryGroup: 'allLogs'
         enabled: true
+      }
+      {
+        categoryGroup: 'audit'
+        enabled: false
       }
     ]
     metrics: [
@@ -528,19 +538,8 @@ resource litellm 'Microsoft.App/containerApps@2025-01-01' = {
               mountPath: copilotTokenDir
             }
           ]
+          // Listed as Azure returns them so Terraform plans of the same deployment stay clean.
           probes: [
-            {
-              type: 'Startup'
-              httpGet: {
-                path: '/health/liveliness'
-                port: 4000
-                scheme: 'HTTP'
-              }
-              initialDelaySeconds: 30
-              periodSeconds: 20
-              failureThreshold: 10
-              timeoutSeconds: 5
-            }
             {
               type: 'Liveness'
               httpGet: {
@@ -559,6 +558,18 @@ resource litellm 'Microsoft.App/containerApps@2025-01-01' = {
                 scheme: 'HTTP'
               }
               periodSeconds: 10
+              timeoutSeconds: 5
+            }
+            {
+              type: 'Startup'
+              httpGet: {
+                path: '/health/liveliness'
+                port: 4000
+                scheme: 'HTTP'
+              }
+              initialDelaySeconds: 30
+              periodSeconds: 20
+              failureThreshold: 10
               timeoutSeconds: 5
             }
           ]

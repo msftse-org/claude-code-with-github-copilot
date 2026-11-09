@@ -3,7 +3,7 @@
 set -euo pipefail
 umask 077
 
-DEFAULT_GATEWAY='https://ca-ccgc-pilot-litellm.bluefield-2d967d14.swedencentral.azurecontainerapps.io'
+DEFAULT_GATEWAY='https://ca-ccgc-pilot-litellm.victorioussea-313182e6.swedencentral.azurecontainerapps.io'
 MINIMUM_CLAUDE_VERSION='2.1.296'
 INSTALL_PATH="$HOME/.local/share/ccgc/enterprise/ccgc-enterprise-macos.sh"
 PROFILE_PATH="$HOME/.local/share/ccgc/enterprise/profile.json"

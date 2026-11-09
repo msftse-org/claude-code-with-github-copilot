@@ -89,11 +89,12 @@ az bicep lint --file infra/main.bicep
 
 ## Deployment status
 
-The platform was rebuilt from scratch on the official
-`ghcr.io/berriai/litellm:v1.108.3` image, pinned by digest. The previous
-deployment (LiteLLM `1.108.0` with a separate broker and admission service)
-was deleted, so every employee must enroll again. Deployment endpoints and
-re-verification results are recorded in the
+The platform was rebuilt from scratch with Terraform on 2026-11-09 on the
+official `ghcr.io/berriai/litellm:v1.108.3` image, pinned by digest. It runs at
+https://ca-ccgc-pilot-litellm.victorioussea-313182e6.swedencentral.azurecontainerapps.io
+with egress IP `4.223.110.167`. The previous deployment (LiteLLM `1.108.0`
+with a separate broker and admission service) was deleted, so every employee
+must enroll again. Verification results are recorded in the
 [enterprise runbook](docs/ENTERPRISE.md#current-deployment).
 
 ## Evidence

@@ -42,14 +42,20 @@ function fakeLiteLLM({ credential, deployments = [], advertiseFrom = 1 }: {
       return credential ? json(credential) : json({ detail: 'Credential not found' }, 404);
     }
     if (url.pathname === '/credentials' && method === 'POST') return json({ success: true });
-    if (url.pathname === '/model/info') return json({ data: models });
+    if (url.pathname === '/model/info') {
+      // Like LiteLLM, fail until the first model exists.
+      return models.length
+        ? json({ data: models })
+        : json({ detail: { error: 'LLM Model List not loaded in.' } }, 500);
+    }
     if (url.pathname === '/model/new' && method === 'POST') {
       models.push(body as unknown as Deployment);
       return json({ model_id: 'generated' });
     }
     if (url.pathname === '/v1/models') {
+      // Existing models are listed at once; new ones reach every replica after a few listings.
       listings += 1;
-      return json({ data: listings >= advertiseFrom ? models.map(model => ({ id: model.model_name })) : [] });
+      return json({ data: (listings >= advertiseFrom ? models : deployments).map(model => ({ id: model.model_name })) });
     }
     return json({ error: { message: 'unexpected request' } }, 500);
   };
@@ -59,7 +65,7 @@ function fakeLiteLLM({ credential, deployments = [], advertiseFrom = 1 }: {
 const noWait = async () => {};
 
 test('bootstrap creates the per-user Copilot credential and only missing routes, then waits for discovery', async () => {
-  const litellm = fakeLiteLLM({ deployments: [copilotRoute('claude-sonnet-5.5')], advertiseFrom: 2 });
+  const litellm = fakeLiteLLM({ deployments: [copilotRoute('claude-sonnet-5.5')], advertiseFrom: 3 });
   const result = await bootstrapLiteLLM({
     litellmUrl,
     masterKey,
@@ -78,11 +84,28 @@ test('bootstrap creates the per-user Copilot credential and only missing routes,
   assert.deepEqual(credential?.body?.credential_info, { custom_llm_provider: 'github_copilot' });
   const created = litellm.calls.filter(call => call.url.pathname === '/model/new');
   assert.deepEqual(created.map(call => call.body), [copilotRoute('claude-haiku-4.5')]);
-  assert.equal(litellm.calls.filter(call => call.url.pathname === '/v1/models').length, 2);
+  assert.equal(litellm.calls.filter(call => call.url.pathname === '/v1/models').length, 3);
   for (const call of litellm.calls) {
     assert.equal(call.url.origin, litellmUrl);
     assert.equal(call.authorization, `Bearer ${masterKey}`);
   }
+});
+
+test('bootstrap provisions a fresh LiteLLM that has no models yet', async () => {
+  const litellm = fakeLiteLLM({});
+  const result = await bootstrapLiteLLM({
+    litellmUrl,
+    masterKey,
+    models: ['claude-sonnet-5.5', 'claude-haiku-4.5'],
+    fetcher: litellm.fetcher,
+    sleep: noWait,
+  });
+  assert.equal(result.createdCredential, true);
+  assert.deepEqual(result.createdModels, ['claude-sonnet-5.5', 'claude-haiku-4.5']);
+  assert.deepEqual(
+    litellm.calls.filter(call => call.url.pathname === '/model/new').map(call => call.body),
+    [copilotRoute('claude-sonnet-5.5'), copilotRoute('claude-haiku-4.5')],
+  );
 });
 
 test('bootstrap fails closed on a non-Copilot credential or a model routed elsewhere', async () => {

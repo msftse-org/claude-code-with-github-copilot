@@ -506,7 +506,7 @@ export async function deploy(options, {
   const litellmUrl = litellmOrigin(outputs?.litellmUrl ?? '');
   log(`Waiting for ${litellmUrl}/health/readiness ...`);
   const readiness = await waitForReadiness(litellmUrl, { fetcher, sleep });
-  log(`LiteLLM ${readiness.litellm_version ?? ''} is ready and connected to PostgreSQL.`);
+  log(`LiteLLM${readiness.litellm_version ? ` ${readiness.litellm_version}` : ''} is ready and connected to PostgreSQL.`);
   const catalog = await bootstrap({ litellmUrl, masterKey: secrets.litellmMasterKey, models: options.models, fetcher, sleep });
   log(`Credential github-copilot-user ${catalog.createdCredential ? 'created' : 'verified'}; models: ${catalog.models.join(', ')}.`);
 

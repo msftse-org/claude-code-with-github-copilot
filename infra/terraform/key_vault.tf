@@ -97,10 +97,15 @@ resource "azapi_resource" "vault_diagnostics" {
   body = {
     properties = {
       workspaceId = azapi_resource.workspace.id
+      # Azure returns every category group in this order; listing the disabled one keeps plans clean.
       logs = [
         {
           categoryGroup = "audit"
           enabled       = true
+        },
+        {
+          categoryGroup = "allLogs"
+          enabled       = false
         },
       ]
     }
