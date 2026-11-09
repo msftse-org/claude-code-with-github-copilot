@@ -2,7 +2,7 @@
 
 This runbook deploys and operates the central LiteLLM gateway that lets
 employees use Claude Code with their own GitHub Copilot seats. See the
-[README](../README.md) for the architecture and current evidence.
+[README](../README.md) for the architecture and compatibility guidance.
 
 ## What gets deployed
 
@@ -10,7 +10,11 @@ Terraform ([`infra/terraform`](../infra/terraform), the default) and Bicep
 ([`infra/main.bicep`](../infra/main.bicep)) are two equivalent definitions of
 the same platform. Both read their settings from
 [`infra/solution.json`](../infra/solution.json) and create resource group
-`rg-<prefix>-enterprise` (default prefix `ccgc-pilot`) in Sweden Central with:
+`rg-<prefix>-enterprise` in the selected Azure region. Defaults are prefix
+`ccgc-pilot` and region `swedencentral`; override them with `--prefix` and
+`--location`.
+
+The shared configuration defines these resource defaults:
 
 | Resource | Configuration |
 |---|---|
@@ -220,32 +224,3 @@ from the secrets file.
 | Enrollment or inference fails with a GitHub error | Confirm the employee has a Copilot seat and that any GitHub organization IP allow list includes the egress IP. |
 | `model_not_supported` from GitHub | The model is not enabled for that Copilot account. There is no fallback. |
 | Employee setup reports a settings conflict | The script backs up Claude settings and replaces only the managed keys after explicit confirmation. |
-
-## Current deployment
-
-Rebuilt from scratch with Terraform on 2026-11-09 (name seed `litellm2`).
-
-| Item | Value |
-|---|---|
-| LiteLLM | https://ca-ccgc-pilot-litellm.victorioussea-313182e6.swedencentral.azurecontainerapps.io |
-| Admin UI | https://ca-ccgc-pilot-litellm.victorioussea-313182e6.swedencentral.azurecontainerapps.io/ui/ |
-| Image | `ghcr.io/berriai/litellm:v1.108.3@sha256:f14d0a035d84d1a8bc98538faf5999e456641fd4cfa191822fd4be1934c1f4f6` |
-| Resource group | `rg-ccgc-pilot-enterprise` in `swedencentral` |
-| Egress IP | `4.223.110.167` |
-| Terraform state | `sttfccgcpilot9f38753bbf7/tfstate/ccgc-pilot.tfstate` in `rg-ccgc-pilot-tfstate`, behind `nsp-ccgc-pilot-tfstate` |
-
-Verified after deployment:
-
-- A Terraform plan reports no changes.
-- Readiness reports `healthy` with the database connected, and requests
-  without a key return 401.
-- `/v1/models` lists `claude-sonnet-5.5`, `claude-sonnet-5`, `claude-opus-5.5`,
-  `claude-haiku-5.5`, and `claude-haiku-4.5`. Each routes to
-  `github_copilot/<model>` through the per-user `github-copilot-user`
-  credential.
-- The `ccgc-admin` environment holds the new `LITELLM_URL` and
-  `LITELLM_MASTER_KEY`.
-- The LiteLLM identity holds only Key Vault Secrets User on its vault.
-
-Employees have not enrolled yet, so the live Claude Code results in the
-[README](../README.md#evidence) must be re-established.

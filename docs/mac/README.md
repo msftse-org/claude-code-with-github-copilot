@@ -44,13 +44,15 @@ through an approved private channel.
 
 Enterprise IT distributes the tracked script through the approved software
 channel. An administrator with an authenticated GitHub CLI session can
-retrieve it from the private organization repository:
+retrieve it from the approved repository containing this solution. Replace
+`<owner>/<repository>` below with that repository:
 
 ```bash
+repository='<owner>/<repository>'
 gh auth status
 gh api \
   -H 'Accept: application/vnd.github.raw+json' \
-  repos/msftse-org/claude-code-with-github-copilot/contents/scripts/ccgc-enterprise-macos.sh \
+  "repos/$repository/contents/scripts/ccgc-enterprise-macos.sh" \
   > "$HOME/Downloads/ccgc-enterprise-macos.sh"
 chmod 600 "$HOME/Downloads/ccgc-enterprise-macos.sh"
 
@@ -84,9 +86,9 @@ Run the enrollment command from the Actions run summary. It has this form:
 bash "$HOME/Downloads/ccgc-enterprise-macos.sh" enroll --gateway https://LITELLM_FQDN
 ```
 
-Use the LiteLLM HTTPS origin from Enterprise IT, without a path. Running the
-script without arguments enrolls against the deployed pilot LiteLLM endpoint
-built into the script.
+Use the LiteLLM HTTPS origin from Enterprise IT, without a path, with
+`--gateway`. Running the script without arguments uses its built-in default,
+which may not match your deployment.
 
 1. The script checks the Claude Code version and your existing Claude
    settings. A conflicting shell environment variable stops enrollment; unset
@@ -95,10 +97,12 @@ built into the script.
    `CLAUDE_CODE_OAUTH_TOKEN`, or a different `ANTHROPIC_BASE_URL`, the script
    asks before the key is used whether to back up and replace only those
    settings after verification, or cancel.
-2. Paste your personal key when prompted. Input is hidden, and the key does
+2. Paste your personal key from the enrollment workflow when prompted, not
+   the LiteLLM administrator/master key. Input is hidden, and the key does
    not go into shell history.
-3. The script checks LiteLLM health, the key owner, the employee role, the key
-   expiry, and the Claude models available to the key.
+3. The script checks LiteLLM readiness and its database connection, the key
+   owner, the employee role, the key expiry, and the Claude models available
+   to the key.
 4. GitHub's device page opens automatically in your browser. Enter the code
    that the script displays and approve with your own GitHub account that has
    Copilot; the script names the expected account. With `--no-browser`, open
@@ -297,15 +301,15 @@ version but does not verify Desktop routing.
 
 ## 10. Supported and unsupported behavior
 
-Broader Claude Code features (Edit, Bash, subagents, hooks, compaction, image
-and PDF input, adaptive thinking) were exercised against earlier gateway
-architectures and must be re-verified on the current LiteLLM deployment before
-you rely on them. The root README's [Evidence](../../README.md#evidence)
-section records what has been verified and at which evidence level.
+Feature support depends on the Claude Code version and the models enabled
+for your Copilot account. Enrollment and `doctor` verify discovery and a
+bounded inference request, not every client feature. See the root README's
+[Compatibility](../../README.md#compatibility) section and verify the
+workflows you need in your environment.
 
 | Feature | Status | Employee impact |
 |---|---|---|
-| Explicit fixed-budget thinking | Not supported by the current model | Use adaptive thinking; the current Sonnet model rejects explicit thinking budgets. |
+| Explicit fixed-budget thinking | Model-dependent | Use adaptive thinking for models that reject explicit thinking budgets. |
 | Advisor | Anthropic API only | Claude Code omits the Advisor server tool when configured with this custom Copilot gateway. |
 
 Auto mode is not the default. Start or select it only under the organization's
@@ -353,6 +357,7 @@ Do not delete or edit the profile to bypass an identity conflict.
 
 | Symptom | Action |
 |---|---|
+| LiteLLM health check fails | Ask IT to check gateway reachability and confirm `/health/readiness` reports `status: healthy` and `db: connected`. A gateway health failure does not require a new personal key. |
 | Enrollment returns HTTP 401 | Check the key, LiteLLM URL, and whether the key has expired or been revoked; ask IT to issue a new key if needed. |
 | Enrollment rejects the GitHub identity | Approve as the exact account named by the script; do not use another person's Copilot seat. |
 | Enrollment says the LiteLLM user is connected to a different GitHub account | Contact Enterprise IT; do not approve with another account. |

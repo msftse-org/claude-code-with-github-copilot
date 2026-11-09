@@ -15,8 +15,8 @@ gateway on Azure.
   workflow. Employees run one macOS script, paste the key, and approve GitHub
   in their browser.
 
-> The GitHub Copilot route is unofficial for this use. Organization and
-> vendor-policy approval is required before production use.
+> The GitHub Copilot route is unofficial for this use. Review applicable
+> organization and vendor policies before using it.
 
 ## Architecture
 
@@ -31,9 +31,9 @@ flowchart LR
     ACT["Actions: CCGC employee access<br/>environment ccgc-admin"]
     COP["GitHub Copilot API"]
   end
-  subgraph AZ["Azure (Sweden Central)"]
-    LL["LiteLLM v1.108.3<br/>Container Apps, 2-10 replicas"]
-    PG[("PostgreSQL 16<br/>private, zone-redundant HA")]
+  subgraph AZ["Azure"]
+    LL["LiteLLM<br/>Azure Container Apps"]
+    PG[("PostgreSQL<br/>private, zone-redundant HA")]
     KV["Key Vault<br/>private endpoint"]
     NAT["NAT gateway<br/>static egress IP"]
   end
@@ -73,6 +73,11 @@ flowchart LR
   key from Enterprise IT. No checkout, Node.js, or LiteLLM password is
   needed.
 
+Choose the Azure subscription, region, and resource prefix through the
+deployment options. Image and sizing defaults live in
+[`infra/solution.json`](infra/solution.json). Use the gateway URL printed by
+your deployment for employee setup.
+
 Development checks (Node.js 24, Terraform 1.11 or newer, Azure CLI with Bicep):
 
 ```bash
@@ -87,46 +92,22 @@ az bicep build --file infra/main.bicep --stdout >/dev/null
 az bicep lint --file infra/main.bicep
 ```
 
-## Deployment status
+## Compatibility
 
-The platform was rebuilt from scratch with Terraform on 2026-11-09 on the
-official `ghcr.io/berriai/litellm:v1.108.3` image, pinned by digest. It runs at
-https://ca-ccgc-pilot-litellm.victorioussea-313182e6.swedencentral.azurecontainerapps.io
-with egress IP `4.223.110.167`. The previous deployment (LiteLLM `1.108.0`
-with a separate broker and admission service) was deleted, so every employee
-must enroll again. Verification results are recorded in the
-[enterprise runbook](docs/ENTERPRISE.md#current-deployment).
+Model availability depends on each employee's GitHub Copilot entitlement and
+organization policy. The default catalog is defined in
+[`scripts/litellm-bootstrap.mjs`](scripts/litellm-bootstrap.mjs); administrators
+can select models with the deploy script's `--models` option. A model listed by
+LiteLLM is not a guarantee of upstream access. Unsupported models fail without
+falling back to another provider or account.
 
-## Evidence
+Synthetic tests cover deployment, bootstrap, enrollment, and macOS behavior
+with fake services. Enrollment and `doctor` check live model discovery and
+inference for the selected default model. Other Claude Code features depend
+on the client version and model; verify the workflows you need in your
+environment.
 
-Evidence levels are kept separate. **Synthetic tests** cover the deploy,
-bootstrap, enrollment, and macOS scripts with fake services. **Live evidence**
-below was collected on the previous `1.108.0` deployment on 2026-11-08 with the
-same LiteLLM per-user Copilot provider and direct personal keys. It must be
-re-established on the rebuilt deployment and is not a claim about every
-Copilot account.
-
-| Client model ID | LiteLLM route | Previous live result |
-|---|---|---|
-| `claude-sonnet-5.5` | `github_copilot/claude-sonnet-5.5` | Messages API, Claude Code CLI Read workflow, and Desktop Code Read workflow passed |
-| `claude-sonnet-5` | `github_copilot/claude-sonnet-5` | Messages API and CLI Read workflow passed |
-| `claude-haiku-5.5` | `github_copilot/claude-haiku-5.5` | Messages API and CLI Read workflow passed |
-| `claude-haiku-4.5` | `github_copilot/claude-haiku-4.5` | Messages API and CLI Read workflow passed |
-| `claude-opus-5.5` | `github_copilot/claude-opus-5.5` | **Blocked upstream:** GitHub returned `model_not_supported` for the tested account; there is no fallback |
-
-Other previous live results with direct keys: `/v1/models`, Anthropic
-Messages, Chat Completions, and Responses passed. Claude Code `2.1.319` and
-Claude Desktop `4.23118.0` (Gateway mode, Code tab) completed Read workflows.
-A model outside the key's allowlist returned 403, a TPM limit returned 429,
-spend was recorded, a revoked key returned 401, and an unconnected second user
-returned 401 without reaching another user's connection.
-
-Broader Claude Code features (Edit, Bash, subagents, hooks, compaction, image
-and PDF input, adaptive thinking) were exercised against earlier gateway
-architectures. Re-run them against the rebuilt gateway before relying on
-them. Known model or client limits:
-
-- Explicit fixed-budget thinking is rejected by the current Sonnet models, which require adaptive thinking.
+- Models that require adaptive thinking reject explicit fixed-budget thinking.
 - Claude Code omits the Advisor server tool whenever `ANTHROPIC_BASE_URL` points to a custom gateway.
 - Auto mode uses Claude Code's local classifier (`CLAUDE_CODE_AUTO_MODE_SERVER=0`) instead of Anthropic-only server verdicts.
 
@@ -146,12 +127,3 @@ them. Known model or client limits:
   NAT IP that GitHub organization IP allow lists can permit.
 - The issued key is visible to readers of the Actions run summary. Restrict
   repository access and deliver keys through a private channel.
-
-## Production gates
-
-This is an enterprise pilot, not a production service. Production requires:
-
-1. Organization and vendor approval for the unofficial Copilot route
-2. Live re-verification on the rebuilt deployment, including two-user isolation, load, replica failure, and restore
-3. Monitoring, privacy, cost, and capacity approval
-4. Release, rollback, backup, disaster-recovery, and support runbooks
