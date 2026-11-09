@@ -243,8 +243,8 @@ test('macOS doctor covers local security, conflicts, Keychain, binding and live 
 
 test('macOS gateway failures include safe server-side error messages', async () => {
   const source = await readFile(script, 'utf8');
-  assert.match(source, /json_raw "\$output_file" error\.message/);
-  assert.match(source, /enterprise gateway returned HTTP \$code: \$message/);
+  assert.match(source, /json_raw "\$2" error\.message/);
+  assert.match(source, /enterprise gateway returned HTTP \$1: \$message/);
 });
 
 const standaloneKey = `sk-${'k'.repeat(32)}`;
@@ -274,7 +274,15 @@ request_json_status() {
       fixture=health
       [ "$CCGC_TEST_MODE" != health-unavailable ] || status=503
       ;;
-    'GET https://gateway.example/key/info') fixture=key ;;
+    'GET https://gateway.example/key/info')
+      fixture=key
+      case "$CCGC_TEST_MODE" in
+        gateway-expired-key) fixture=expired-key-error; status=401 ;;
+        revoked-key) fixture=revoked-key-error; status=401 ;;
+        admin-key) fixture=admin-key-error; status=404 ;;
+        key-info-unavailable) fixture=server-error; status=500 ;;
+      esac
+      ;;
     'GET https://gateway.example/user/info') fixture=user ;;
     'GET https://gateway.example/credentials/user_connections')
       events="$(/bin/cat "$HOME/events")"
@@ -325,7 +333,11 @@ async function standaloneFixture(mode: string): Promise<string> {
     flow_handle: 'opaque-flow-handle==', interval: 1, expires_in: 900,
   };
   const poll: Record<string, unknown> = { status: 'connected', github_login: 'example-user' };
-  const key = { info: { user_id: standaloneUser, expires: new Date(Date.now() + 90 * 86_400_000).toISOString() } };
+  // LiteLLM 1.108 /key/info serializes expiry with microseconds and a +00:00 offset.
+  const liteLLMExpiry = (offsetMs: number) => new Date(Date.now() + offsetMs).toISOString().replace(/Z$/, '000+00:00');
+  const key: { info: { user_id: string; expires: string | null } } = {
+    info: { user_id: standaloneUser, expires: liteLLMExpiry(90 * 86_400_000) },
+  };
   const connection = { connections: [{
     credential_name: standaloneCredential, provider: 'github_copilot', connected: true, github_login: 'Example-User',
   }] };
@@ -339,6 +351,9 @@ async function standaloneFixture(mode: string): Promise<string> {
   if (mode === 'wrong-account') poll.github_login = 'another-user';
   if (mode === 'wrong-owner') key.info.user_id = '99999999-2222-4333-8444-555555555555';
   if (mode === 'wrong-connection') connection.connections[0]!.github_login = 'another-user';
+  if (mode === 'key-expired') key.info.expires = liteLLMExpiry(-60_000);
+  if (mode === 'key-invalid-expiry') key.info.expires = '2027-02-07 sometime';
+  if (mode === 'key-no-expiry') key.info.expires = null;
   if (mode === 'unsafe-url') start.verification_uri = 'https://example.net/login/device';
   if (mode === 'expired') poll.status = 'expired';
   if (mode === 'no-seat') poll.status = 'no_copilot_seat';
@@ -352,6 +367,16 @@ async function standaloneFixture(mode: string): Promise<string> {
     health: { status: 'healthy', db: mode === 'database-disconnected' ? 'disconnected' : 'connected' },
     disconnected: { status: 'disconnected' },
     'empty-connection': { connections: [] },
+    // Error bodies captured from LiteLLM 1.108.3.
+    'expired-key-error': { error: {
+      message: 'Authentication Error - Expired Key. Key Expiry time 2026-11-09 06:26:18.546000+00:00',
+      type: 'expired_key', param: 'sk-...15c4', code: '401',
+    } },
+    'revoked-key-error': { error: {
+      message: 'Authentication Error, Invalid API key provided.', type: 'auth_error', param: 'None', code: '401',
+    } },
+    'admin-key-error': { error: { message: 'Key not found in database', type: 'not_found', code: '404' } },
+    'server-error': { error: { message: 'Internal Server Error', type: 'internal_server_error', code: '500' } },
     user: { user_info: {
       user_id: standaloneUser, user_role: 'internal_user', user_alias: 'example-user',
       metadata: { github_login: 'example-user' },
@@ -436,6 +461,13 @@ test('standalone enrollment rejects health, identity, routing and authorization 
     ['expired', /GitHub authorization expired/],
     ['no-seat', /no GitHub Copilot entitlement/],
     ['write-failure', /could not install/],
+    ['key-expired', /supplied LiteLLM key has expired/],
+    ['key-invalid-expiry', /gateway returned an invalid credential expiry/],
+    ['key-no-expiry', /LiteLLM key has no expiry/],
+    ['gateway-expired-key', /supplied LiteLLM key has expired; ask your administrator for a new key/],
+    ['revoked-key', /supplied LiteLLM key was rejected \(revoked, blocked, or mistyped\)/],
+    ['admin-key', /not a personal employee key; .*never the administrator key/],
+    ['key-info-unavailable', /enterprise gateway returned HTTP 500: Internal Server Error/],
   ] as const) {
     await t.test(mode, async () => {
       const home = await standaloneFixture(mode);
@@ -443,6 +475,8 @@ test('standalone enrollment rejects health, identity, routing and authorization 
         await assert.rejects(runStandalone(home, mode), error => {
           const stderr = String((error as { stderr?: string }).stderr);
           assert.match(stderr, message);
+          assert.doesNotMatch(stderr, /integer expression|unbound variable|syntax error|command not found/);
+          assert.equal(stderr.split('\n').filter(line => line.startsWith('ERROR:')).length, 1);
           assert.equal(stderr.includes(standaloneKey), false);
           return true;
         });
@@ -456,6 +490,30 @@ test('standalone enrollment rejects health, identity, routing and authorization 
         await rm(home, { recursive: true, force: true });
       }
     });
+  }
+});
+
+test('expiry parser accepts every LiteLLM timestamp form and rejects malformed values', {
+  skip: process.platform !== 'darwin',
+}, async () => {
+  const epoch = 1801981149;
+  const accepted = [
+    '2027-02-07T06:19:09Z', '2027-02-07T06:19:09.232Z', '2027-02-07T06:19:09.232000Z',
+    '2027-02-07T06:19:09.232000+00:00', '2027-02-07T06:19:09+00:00', '2027-02-07T06:19:09+0000',
+    '2027-02-07T08:19:09.5+02:00', '2027-02-06T22:19:09-08:00', '2027-02-07 06:19:09.232000+00:00',
+    '2027-02-07T06:19:09', '2027-02-07T06:19:09.123456789Z',
+  ];
+  const rejected = [
+    '', 'never', '1801981149', '2027-02-07', '2027-02-07T06:19', '2027-13-45T06:19:09Z',
+    '2027-02-07T06:19:09+00:00 trailing', '2027-02-07T06:19:09+2', '2027-02-07T06:19:09.Z', '\n2027-02-07T06:19:09Z',
+  ];
+  const harness = `source "$1"; shift; for value in "$@"; do printf '%s\\n' "$(expiry_epoch "$value" || printf rejected)"; done`;
+  for (const timezone of ['UTC', 'Asia/Jerusalem', 'America/Los_Angeles']) {
+    const run = (values: string[]) => exec('/bin/bash', ['-c', harness, 'bash', script.pathname, ...values], {
+      env: { ...process.env, TZ: timezone },
+    });
+    assert.deepEqual((await run(accepted)).stdout.trim().split('\n'), accepted.map(() => String(epoch)), timezone);
+    assert.deepEqual((await run(rejected)).stdout.trim().split('\n'), rejected.map(() => 'rejected'), timezone);
   }
 });
 

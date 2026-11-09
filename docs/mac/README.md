@@ -358,7 +358,9 @@ Do not delete or edit the profile to bypass an identity conflict.
 | Symptom | Action |
 |---|---|
 | LiteLLM health check fails | Ask IT to check gateway reachability and confirm `/health/readiness` reports `status: healthy` and `db: connected`. A gateway health failure does not require a new personal key. |
-| Enrollment returns HTTP 401 | Check the key, LiteLLM URL, and whether the key has expired or been revoked; ask IT to issue a new key if needed. |
+| `the supplied LiteLLM key has expired` | The personal key passed its expiry. Ask IT to run the enrollment workflow again and use the new key. |
+| `the supplied LiteLLM key was rejected (revoked, blocked, or mistyped)` | Re-copy the key from the workflow summary without extra characters. If it still fails, the key was revoked; ask IT for a new one. |
+| `the supplied key is not a personal employee key` | The administrator (master) key was entered. Use only the personal key from the enrollment workflow summary. |
 | Enrollment rejects the GitHub identity | Approve as the exact account named by the script; do not use another person's Copilot seat. |
 | Enrollment says the LiteLLM user is connected to a different GitHub account | Contact Enterprise IT; do not approve with another account. |
 | GitHub authorization expired | Run `enroll` again with the same key and approve the displayed code promptly. |

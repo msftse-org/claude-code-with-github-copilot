@@ -231,21 +231,43 @@ request_json() {
   local output_file="$5"
   local timeout="${6:-30}"
   local code
-  local message
 
   code="$(request_json_status "$method" "$url" "$bearer" "$body_file" "$output_file" "$timeout")"
   case "$code" in
     2??) ;;
-    *)
-      if valid_json "$output_file"; then
-        message="$(json_raw "$output_file" error.message 2>/dev/null || true)"
-        [ -z "$message" ] || fail "enterprise gateway returned HTTP $code: $message"
-      fi
-      fail "enterprise gateway returned HTTP $code"
-      ;;
+    *) fail_http "$code" "$output_file" ;;
   esac
   valid_json "$output_file" ||
     fail 'enterprise gateway returned invalid JSON'
+}
+
+fail_http() {
+  local message
+  if valid_json "$2"; then
+    message="$(json_raw "$2" error.message 2>/dev/null || true)"
+    [ -z "$message" ] || fail "enterprise gateway returned HTTP $1: $message"
+  fi
+  fail "enterprise gateway returned HTTP $1"
+}
+
+request_personal_key_info() {
+  local code
+  local error_type=''
+  code="$(request_json_status GET "$1/key/info" "$2" '' "$3")"
+  case "$code" in
+    2??)
+      valid_json "$3" || fail 'enterprise gateway returned invalid JSON'
+      return
+      ;;
+    401|403)
+      ! valid_json "$3" || error_type="$(json_raw "$3" error.type 2>/dev/null || true)"
+      [ "$error_type" != 'expired_key' ] ||
+        fail 'the supplied LiteLLM key has expired; ask your administrator for a new key'
+      fail 'the supplied LiteLLM key was rejected (revoked, blocked, or mistyped); ask your administrator for a new key'
+      ;;
+    404) fail 'the supplied key is not a personal employee key; use the key from your enrollment workflow, never the administrator key' ;;
+    *) fail_http "$code" "$3" ;;
+  esac
 }
 
 validate_gateway() {
@@ -411,8 +433,8 @@ prepare_litellm_profile() {
     index=$(( index + 1 ))
   done
   [ "$index" -gt 0 ] || fail 'gateway returned no approved Claude models'
-  [ "$(expiry_millis "$(json_value "$enrollment" apiKeyExpiresAt)")" -gt $(( $(/bin/date +%s) * 1000 )) ] ||
-    fail 'gateway returned an expired personal key'
+  require_unexpired "$(json_raw "$enrollment" apiKeyExpiresAt 2>/dev/null || true)" \
+    'the enrolled LiteLLM key has expired; ask your administrator for a new key and rerun setup'
 
   printf '{"authMethod":"litellmKey","inferenceAuthentication":"directKey"}\n' >"$output"
   /usr/bin/plutil -insert gateway -string "$gateway" "$output"
@@ -447,7 +469,7 @@ verify_litellm_profile() {
   login="$(json_value "$expected" githubLogin)"
   validate_github_login "$login"
   credential="$(json_value "$expected" copilotCredentialName)"
-  request_json GET "$gateway/key/info" "$api_key" '' "$tmp_dir/key-info.json"
+  request_personal_key_info "$gateway" "$api_key" "$tmp_dir/key-info.json"
   request_json GET "$gateway/user/info" "$api_key" '' "$tmp_dir/info.json"
   [ "$(json_value "$tmp_dir/key-info.json" info.user_id)" = "$user_id" ] &&
     [ "$(json_value "$tmp_dir/info.json" user_info.user_id)" = "$user_id" ] ||
@@ -900,7 +922,7 @@ enroll() {
   trap 'exit 143' TERM
 
   verify_gateway_health "$gateway" "$tmp_dir/health.json"
-  request_json GET "$gateway/key/info" "$api_key" '' "$tmp_dir/key-info.json"
+  request_personal_key_info "$gateway" "$api_key" "$tmp_dir/key-info.json"
   request_json GET "$gateway/user/info" "$api_key" '' "$tmp_dir/info.json"
   user_id="$(json_value "$tmp_dir/key-info.json" info.user_id | lowercase)"
   [[ "$user_id" =~ ^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$ ]] ||
@@ -915,9 +937,7 @@ enroll() {
     || json_value "$tmp_dir/info.json" user_info.user_alias)"
   validate_github_login "$expected_login"
   expiry="$(json_raw "$tmp_dir/key-info.json" info.expires 2>/dev/null || true)"
-  [ -n "$expiry" ] || fail 'LiteLLM key has no expiry'
-  [ "$(expiry_millis "$expiry")" -gt $(( $(/bin/date +%s) * 1000 )) ] ||
-    fail 'the supplied LiteLLM key has expired'
+  require_unexpired "$expiry" 'the supplied LiteLLM key has expired; ask your administrator for a new key'
 
   request_json GET "$gateway/v1/models" "$api_key" '' "$tmp_dir/models.json"
   while model="$(json_raw "$tmp_dir/models.json" "data.$index.id" 2>/dev/null)"; do
@@ -1038,13 +1058,26 @@ enroll() {
   printf 'Restart existing Claude sessions, then run: claude\n'
 }
 
-expiry_millis() {
-  local normalized
+# LiteLLM emits ISO 8601 as ...Z (/key/list) or ...+00:00 with microseconds (/key/info).
+expiry_epoch() {
+  local pattern='^([0-9]{4}-[0-9]{2}-[0-9]{2})[T ]([0-9]{2}:[0-9]{2}:[0-9]{2})(\.[0-9]{1,9})?(Z|[+-][0-9]{2}:?[0-9]{2})?$'
+  local zone
   local seconds
-  normalized="$(printf '%s' "$1" | /usr/bin/sed -E 's/\.[0-9]+Z$/Z/; s/Z$/+0000/')"
-  seconds="$(/bin/date -j -f '%Y-%m-%dT%H:%M:%S%z' "$normalized" '+%s' 2>/dev/null)" ||
-    fail 'gateway returned an invalid credential expiry'
-  printf '%s000' "$seconds"
+  [[ "$1" =~ $pattern ]] || return 1
+  zone="${BASH_REMATCH[4]:-Z}"
+  [ "$zone" = 'Z' ] && zone='+0000'
+  zone="${zone/:/}"
+  seconds="$(/bin/date -j -f '%Y-%m-%dT%H:%M:%S%z' "${BASH_REMATCH[1]}T${BASH_REMATCH[2]}$zone" '+%s' 2>/dev/null)" ||
+    return 1
+  [[ "$seconds" =~ ^[0-9]+$ ]] || return 1
+  printf '%s' "$seconds"
+}
+
+require_unexpired() {
+  local seconds
+  [ -n "$1" ] || fail 'LiteLLM key has no expiry'
+  seconds="$(expiry_epoch "$1")" || fail 'gateway returned an invalid credential expiry'
+  [ "$seconds" -gt "$(/bin/date +%s)" ] || fail "$2"
 }
 
 token() {
