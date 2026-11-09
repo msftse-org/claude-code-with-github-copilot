@@ -51,6 +51,15 @@ flowchart LR
 | Use | Claude Code sends the key to LiteLLM. LiteLLM authenticates it, applies model, budget, and rate policy, records spend under that user, and calls Copilot with that user's own GitHub connection. |
 | Revoke | **Actions > CCGC employee access > revoke** disconnects the user's GitHub connection and deletes the LiteLLM user with all its keys. |
 
+### Illustrative SSO flow
+
+The image below depicts an SSO-based variant, not the implemented enrollment
+flow. This repository uses GitHub Actions enrollment and personal 90-day
+LiteLLM keys; SSO and `lite login --pkce` are not configured. Model names in
+the image are illustrative, not the supported catalog.
+
+![Conceptual SSO onboarding and Claude Code requests through LiteLLM using each employee's GitHub Copilot connection](docs/images/sso-onboarding-concept.jpeg)
+
 ## Repository layout
 
 | Path | Purpose |
