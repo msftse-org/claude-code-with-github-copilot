@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { execFile } from 'node:child_process';
-import { chmod, mkdir, mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises';
+import { chmod, mkdir, mkdtemp, readFile, readdir, rename, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
@@ -18,9 +18,9 @@ test('macOS enrollment script documents the managed-device-safe flow', async () 
   assert.match(stdout, /stores the\s+90-day personal LiteLLM key in macOS Keychain/);
   assert.match(stdout, /No repository checkout, Node\.js, npm/);
   assert.match(stdout, /GitHub opens automatically/);
-  assert.match(stdout, /Claude Desktop requires separate third-party gateway configuration/);
+  assert.match(stdout, /configures installed Claude Desktop's local Gateway profile/);
   const source = await readFile(script, 'utf8');
-  assert.match(source, /CLI settings do not select its provider/);
+  assert.match(source, /Claude Desktop gateway configuration updated automatically/);
   assert.match(stdout, /does not\s+disable Gatekeeper/);
   assert.match(stdout, /do not repeat enrollment for routine service/i);
   assert.match(stdout, /Enroll again only with a new personal key/);
@@ -237,7 +237,7 @@ test('macOS doctor covers local security, conflicts, Keychain, binding and live 
   assert.match(source, /Claude settings retain a conflicting default model/);
   assert.match(source, /enterprise profile models changed; run configure to refresh them/);
   assert.match(source, /doctor\(\)[\s\S]*verify_gateway_access "\$gateway" "\$api_key" "\$default_model" "\$tmp_dir"/);
-  assert.match(source, /Claude Desktop: %s \(installed; gateway routing is not verified by CLI doctor\)/);
+  assert.match(source, /verify_desktop_config "\$gateway"/);
   assert.match(source, /CCGC doctor passed/);
 });
 
@@ -253,6 +253,11 @@ const standaloneCredential = 'github-copilot-user';
 const standaloneHarness = `
 source "$1"
 claude() { printf '2.1.319 (Claude Code)\\n'; }
+desktop_installed() { [ "$CCGC_TEST_MODE" != no-desktop ]; }
+claude_desktop_version() { printf '4.23118.0'; }
+if [ "$CCGC_TEST_MODE" = managed-desktop ]; then
+  require_local_desktop_policy() { fail 'Claude Desktop has managed policy'; }
+fi
 read_litellm_key() { printf '%s' "$CCGC_TEST_KEY"; }
 open_github() { printf 'browser-opened\\n' >> "$HOME/events"; }
 keychain_get() { /bin/cat "$HOME/keychain/$1" 2>/dev/null; }
@@ -395,6 +400,30 @@ async function standaloneFixture(mode: string): Promise<string> {
   await writeFile(join(home, '.local/share/ccgc/enterprise/profile.json'), '{"previousProfile":true}', { mode: 0o600 });
   await writeFile(join(home, '.claude/settings.json'), '{"unrelatedSetting":true,"permissions":{"defaultMode":"manual"}}', { mode: 0o600 });
   await writeFile(join(home, 'keychain', 'previous-key'), 'previous-personal-key', { mode: 0o600 });
+  if (!['fresh-desktop', 'no-desktop'].includes(mode)) {
+    const library = join(home, 'Library/Application Support/Claude-3p/configLibrary');
+    await mkdir(library, { recursive: true, mode: 0o700 });
+    await writeFile(join(library, '_meta.json'), JSON.stringify({
+      appliedId: mode === 'desktop-invalid-id' ? '../escape' : standaloneUser,
+      entries: [{ id: standaloneUser, name: 'Existing gateway' }],
+      ...(mode === 'desktop-remote' ? { hybridPointer: 'https://config.example' } : {}),
+    }), { mode: 0o600 });
+    await writeFile(join(library, `${standaloneUser}.json`), JSON.stringify({
+      inferenceProvider: 'gateway', inferenceGatewayBaseUrl: 'https://retired.example',
+      inferenceCredentialHelper: '/old/node', inferenceCredentialHelperArgs: ['/old/enterprise-cli.ts', 'token'],
+      inferenceGatewayApiKey: 'old-key', inferenceModels: [{ id: 'old-model' }],
+      chatTabEnabled: true,
+    }), { mode: 0o600 });
+    await writeFile(join(library, '../claude_desktop_config.json'), JSON.stringify({
+      deploymentMode: '3p', preferences: { keepThis: true },
+    }), { mode: 0o600 });
+    if (mode === 'desktop-invalid-json') await writeFile(join(library, '_meta.json'), '{invalid');
+    if (mode === 'desktop-symlink') {
+      await rename(join(library, `${standaloneUser}.json`), join(library, 'original.json'));
+      await symlink('original.json', join(library, `${standaloneUser}.json`));
+    }
+    if (mode === 'desktop-write-failure') await chmod(library, 0o500);
+  }
   if (mode === 'write-failure') await chmod(join(home, '.claude'), 0o500);
   return home;
 }
@@ -440,11 +469,33 @@ test('standalone default enrollment opens GitHub and installs a verified direct 
     assert.doesNotMatch(events, /ccgc\/|admissions|enterprise\/info/);
     assert.match(result.stdout, /Enrollment complete for GitHub account example-user/);
     assert.match(result.stdout, /CCGC doctor passed/);
+    const library = join(home, 'Library/Application Support/Claude-3p/configLibrary');
+    const active = JSON.parse(await readFile(join(library, `${standaloneUser}.json`), 'utf8'));
+    assert.equal(active.inferenceGatewayBaseUrl, 'https://gateway.example');
+    assert.equal(active.inferenceCredentialHelper, '/bin/bash');
+    assert.deepEqual(active.inferenceCredentialHelperArgs, desktop.inferenceCredentialHelperArgs);
+    assert.equal(active.chatTabEnabled, true);
+    assert.equal(active.inferenceGatewayApiKey, undefined);
+    assert.equal(active.inferenceModels, undefined);
+    assert.deepEqual(JSON.parse(await readFile(join(library, '../claude_desktop_config.json'), 'utf8')).preferences, { keepThis: true });
+    const backups = (await readdir(library)).filter(name => name.includes('.ccgc-backup.'));
+    assert.equal(backups.length, 1, 'configure should not create repeated backups when unchanged');
+    assert.equal(JSON.parse(await readFile(join(library, backups[0]!), 'utf8')).inferenceCredentialHelper, '/old/node');
     for (const output of [result.stdout, result.stderr, JSON.stringify(profile), JSON.stringify(settings), JSON.stringify(desktop)]) {
       assert.equal(output.includes(standaloneKey), false);
     }
     assert.equal(await readFile(join(home, 'keychain/previous-key'), 'utf8'), 'previous-personal-key');
     assert.deepEqual(await readdir(join(home, 'temp')), []);
+    active.inferenceCredentialHelper = '/old/node';
+    await writeFile(join(library, `${standaloneUser}.json`), JSON.stringify(active));
+    await assert.rejects(exec('/bin/bash', ['-c', `
+source "$1"
+desktop_installed() { return 0; }
+verify_desktop_config https://gateway.example
+`, 'bash', script.pathname], { env: { ...process.env, HOME: home } }), error => {
+      assert.match(String((error as { stderr?: string }).stderr), /Desktop gateway or credential helper is outdated/);
+      return true;
+    });
   } finally { await rm(home, { recursive: true, force: true }); }
 });
 
@@ -472,6 +523,12 @@ test('standalone enrollment rejects health, identity, routing and authorization 
     ['revoked-key', /supplied LiteLLM key was rejected \(revoked, blocked, or mistyped\)/],
     ['admin-key', /not a personal employee key; .*never the administrator key/],
     ['key-info-unavailable', /enterprise gateway returned HTTP 500: Internal Server Error/],
+    ['desktop-invalid-id', /Desktop active configuration ID is invalid/],
+    ['desktop-remote', /Desktop uses remote configuration/],
+    ['managed-desktop', /Desktop has managed policy/],
+    ['desktop-write-failure', /could not install/],
+    ['desktop-invalid-json', /Desktop configuration is invalid JSON/],
+    ['desktop-symlink', /Desktop active configuration must be a non-symlink regular file/],
   ] as const) {
     await t.test(mode, async () => {
       const home = await standaloneFixture(mode);
@@ -489,11 +546,36 @@ test('standalone enrollment rejects health, identity, routing and authorization 
         assert.equal(await readFile(join(home, 'keychain/previous-key'), 'utf8'), 'previous-personal-key');
         assert.deepEqual(await readdir(join(home, 'keychain')), ['previous-key']);
         assert.deepEqual(await readdir(join(home, 'temp')), []);
+        const active = JSON.parse(await readFile(join(home, `Library/Application Support/Claude-3p/configLibrary/${standaloneUser}.json`), 'utf8'));
+        assert.equal(active.inferenceCredentialHelper, '/old/node');
+        assert.equal(active.inferenceGatewayBaseUrl, 'https://retired.example');
       } finally {
         await chmod(join(home, '.claude'), 0o700);
+        await chmod(join(home, 'Library/Application Support/Claude-3p/configLibrary'), 0o700);
         await rm(home, { recursive: true, force: true });
       }
     });
+  }
+});
+
+test('Desktop configuration is created for a fresh install and skipped when Desktop is absent', {
+  skip: process.platform !== 'darwin',
+}, async () => {
+  for (const mode of ['fresh-desktop', 'no-desktop']) {
+    const home = await standaloneFixture(mode);
+    try {
+      await runStandalone(home, mode);
+      const metaPath = join(home, 'Library/Application Support/Claude-3p/configLibrary/_meta.json');
+      if (mode === 'no-desktop') {
+        await assert.rejects(readFile(metaPath), { code: 'ENOENT' });
+      } else {
+        const meta = JSON.parse(await readFile(metaPath, 'utf8'));
+        const active = JSON.parse(await readFile(join(home, `Library/Application Support/Claude-3p/configLibrary/${meta.appliedId}.json`), 'utf8'));
+        assert.equal(active.inferenceCredentialHelper, '/bin/bash');
+        assert.equal(active.inferenceGatewayBaseUrl, 'https://gateway.example');
+        assert.deepEqual(meta.entries, [{ id: meta.appliedId, name: 'GitHub Copilot via LiteLLM' }]);
+      }
+    } finally { await rm(home, { recursive: true, force: true }); }
   }
 });
 

@@ -7,7 +7,8 @@ connection. Employees get a key from Enterprise IT, run one script, paste the
 key, and approve GitHub in the browser that opens automatically. No checkout,
 Node.js, npm, or LiteLLM dashboard login is required. See also the
 [root README](../../README.md#getting-started).
-CLI settings and this guide's `doctor` do not establish Desktop routing.
+Enrollment and `configure` also update an installed Desktop's local Gateway
+profile. Restart Desktop after configuration changes.
 
 ## What is installed or stored on the Mac
 
@@ -18,7 +19,7 @@ CLI settings and this guide's `doctor` do not establish Desktop routing.
 | Personal LiteLLM key in macOS Keychain | Authenticates that employee's inference requests directly for up to 90 days. | Use a newly issued key for renewal. |
 | `~/.claude/settings.json` | Routes Claude to LiteLLM and installs the Keychain credential helper. | Enrollment applies a conflict-checked update. |
 | Enterprise profile | Stores the gateway, verified LiteLLM/GitHub identity, credential reference, and model catalog; no secrets. | Let the helper create it; do not hand-edit it. |
-| `desktop-gateway.json` | Secret-free import file for Desktop's separate Gateway mode. | Import through Developer > Configure Third-Party Inference and relaunch. |
+| `desktop-gateway.json` | Secret-free copy of Desktop's Gateway configuration. | The script applies it to the local Desktop profile; restart Desktop afterward. |
 
 GitHub OAuth and Copilot tokens do not belong on the Mac. LiteLLM encrypts the
 GitHub connection in its private PostgreSQL schema. The employee's personal
@@ -118,7 +119,8 @@ which may not match your deployment.
    human-readable model name, the approved output limit, and one real bounded
    inference response.
 7. It then stores the key in macOS Keychain, writes the non-secret profile,
-   configures Claude Code, and writes the Desktop import file.
+   configures Claude Code, and applies the Desktop Gateway configuration
+   when Desktop is installed. Changed Desktop files are backed up privately.
 
 Failed identity or routing verification does not replace the previous local
 profile or credentials. When the script prints `Enrollment complete`, restart
@@ -193,7 +195,8 @@ configuration later, run:
 ```
 
 This re-verifies the enrollment with LiteLLM, refreshes the approved model
-catalog in the profile, rewrites `desktop-gateway.json`, and updates
+catalog in the profile, rewrites `desktop-gateway.json`, applies the local
+Desktop Gateway configuration, and updates
 `~/.claude/settings.json`. The settings update:
 
 - sets the enrolled LiteLLM gateway as `ANTHROPIC_BASE_URL`
@@ -258,6 +261,8 @@ The doctor fails closed and reports the first actionable problem. It verifies:
 - the approved model ID and human-readable discovery name
 - the Sonnet 5.5 128K output limit
 - one real bounded inference response
+- Desktop's saved gateway, credential helper, discovery setting, and local
+  third-party mode when Desktop is installed
 
 It never prints the personal key.
 
@@ -285,8 +290,11 @@ provider keys or override the LiteLLM gateway URL.
 ## 9. Claude Desktop
 
 CLI settings do not select Claude Desktop's inference provider; Desktop needs
-its own third-party inference configuration. Enrollment and `configure` write
-a secret-free import file:
+its own third-party inference configuration. Enrollment and `configure`
+automatically update its active local profile under
+`~/Library/Application Support/Claude-3p/configLibrary/`. A fresh installation
+gets a new profile. Unrelated preferences and other saved profiles are retained;
+changed files get private `.ccgc-backup.*` copies. A secret-free copy is also kept:
 
 ```text
 ~/.local/share/ccgc/enterprise/desktop-gateway.json
@@ -294,10 +302,15 @@ a secret-free import file:
 
 It selects Gateway mode with the enrolled LiteLLM URL, bearer authentication,
 and model discovery, and uses the installed helper's `token` command as the
-credential helper; it contains no key. Import it through Developer > Configure
-Third-Party Inference, then relaunch Desktop. When Desktop is installed,
-enrollment prints this reminder. `doctor` reports the installed Desktop
-version but does not verify Desktop routing.
+credential helper; it contains no key. Quit and reopen Desktop after the script
+finishes. No manual import, replacement key, or repeat GitHub approval is needed
+for this configuration update. The script does not forcibly close active sessions.
+
+The script refuses to override managed policy or remote/bootstrap configuration;
+IT must update those through the existing management channel. It also rejects
+unsafe paths and invalid configuration rather than replacing them blindly.
+`doctor` detects stale saved Desktop URLs and helpers, but does not claim that a
+running Desktop process has reloaded them or that Desktop-specific features work.
 
 ## 10. Supported and unsupported behavior
 
@@ -357,6 +370,7 @@ Do not delete or edit the profile to bypass an identity conflict.
 
 | Symptom | Action |
 |---|---|
+| Desktop cannot load the organization's model list | Run the updated script's `configure` command, then quit and reopen Desktop. It replaces stale local gateway URLs and retired credential-helper paths without re-enrollment. If policy is managed, contact IT. |
 | LiteLLM health check fails | Ask IT to check gateway reachability and confirm `/health/readiness` reports `status: healthy` and `db: connected`. A gateway health failure does not require a new personal key. |
 | `the supplied LiteLLM key has expired` | The personal key passed its expiry. Ask IT to run the enrollment workflow again and use the new key. |
 | `the supplied LiteLLM key was rejected (revoked, blocked, or mistyped)` | Re-copy the key from the workflow summary without extra characters. If it still fails, the key was revoked; ask IT for a new one. |

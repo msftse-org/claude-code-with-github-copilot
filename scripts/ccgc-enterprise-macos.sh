@@ -9,6 +9,8 @@ INSTALL_PATH="$HOME/.local/share/ccgc/enterprise/ccgc-enterprise-macos.sh"
 PROFILE_PATH="$HOME/.local/share/ccgc/enterprise/profile.json"
 SETTINGS_PATH="$HOME/.claude/settings.json"
 DESKTOP_PATH="$HOME/.local/share/ccgc/enterprise/desktop-gateway.json"
+DESKTOP_DATA_PATH="$HOME/Library/Application Support/Claude-3p"
+DESKTOP_ACTIVE_PATH=''
 JSON_SETUP_MARKER='__ccgc_setup_719ee977'
 TEMP_DIR=''
 PREAPPROVED_SETTING_CONFLICTS=''
@@ -33,9 +35,15 @@ cleanup_temp() {
     "$TEMP_DIR/routes.json" \
     "$TEMP_DIR/verified-profile.json" \
     "$TEMP_DIR/desktop.json" \
+    "$TEMP_DIR/desktop-active.json" \
+    "$TEMP_DIR/desktop-meta.json" \
+    "$TEMP_DIR/desktop-preferences.json" \
     "$TEMP_DIR/previous-0.json" \
     "$TEMP_DIR/previous-1.json" \
     "$TEMP_DIR/previous-2.json" \
+    "$TEMP_DIR/previous-3.json" \
+    "$TEMP_DIR/previous-4.json" \
+    "$TEMP_DIR/previous-5.json" \
     "$TEMP_DIR/models.json" \
     "$TEMP_DIR/probe.json" \
     "$TEMP_DIR/probe-body.json" \
@@ -66,8 +74,8 @@ No repository checkout, Node.js, npm, or LiteLLM login is needed.
 Claude Code must already be installed.
 The enrollment command verifies the LiteLLM user and connection, stores the
 90-day personal LiteLLM key in macOS Keychain, and configures the Claude Code CLI.
-Claude Desktop requires separate third-party gateway configuration; enrollment
-writes a secret-free desktop-gateway.json import file beside the profile. This script
+Enrollment also configures installed Claude Desktop's local Gateway profile,
+backing up changed files and retaining a secret-free desktop-gateway.json. This script
 does not disable Gatekeeper, remove quarantine attributes, or change MDM policy.
 Existing employees do not repeat enrollment for routine service, model, script,
 or Claude Code updates. Run doctor first; use models or configure when needed.
@@ -534,6 +542,131 @@ prepare_desktop_config() {
   /usr/bin/plutil -convert json "$output"
 }
 
+desktop_installed() {
+  [ -d '/Applications/Claude.app' ]
+}
+
+require_local_desktop_policy() {
+  local policy
+  for policy in \
+    '/Library/Managed Preferences/com.anthropic.claudefordesktop.plist' \
+    "/Library/Managed Preferences/$(/usr/bin/id -un)/com.anthropic.claudefordesktop.plist"; do
+    [ ! -e "$policy" ] && [ ! -L "$policy" ] ||
+      fail 'Claude Desktop has managed policy; ask IT to configure its gateway, local policy will not be overridden'
+  done
+}
+
+desktop_active_path() {
+  local meta="$DESKTOP_DATA_PATH/configLibrary/_meta.json"
+  local id
+  [ -f "$meta" ] || fail 'Claude Desktop gateway is not configured; run configure'
+  valid_json "$meta" || fail 'Claude Desktop config library is invalid'
+  [ -z "$(json_raw "$meta" hybridPointer || true)" ] ||
+    fail 'Claude Desktop uses remote configuration; ask IT to update it'
+  id="$(json_value "$meta" appliedId)"
+  [[ "$id" =~ ^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$ ]] ||
+    fail 'Claude Desktop active configuration ID is invalid'
+  DESKTOP_ACTIVE_PATH="$DESKTOP_DATA_PATH/configLibrary/$id.json"
+}
+
+require_desktop_paths() {
+  local path="$DESKTOP_DATA_PATH/configLibrary"
+  while [ "$path" != "$HOME" ] && [ "$path" != '/' ]; do
+    [ ! -L "$path" ] || fail 'Claude Desktop configuration directories must not be symlinks'
+    if [ -e "$path" ]; then
+      [ -d "$path" ] && [ "$(file_stat '%u' '%u' "$path")" = "$(/usr/bin/id -u)" ] ||
+        fail 'Claude Desktop configuration directories must be owned by the current user'
+      [ $(( 8#$(file_stat '%Lp' '%a' "$path") & 0022 )) -eq 0 ] ||
+        fail 'Claude Desktop configuration directories must not be writable by other users'
+    fi
+    path="$(dirname "$path")"
+  done
+}
+
+prepare_desktop_install() {
+  local tmp_dir="$1"
+  local meta="$DESKTOP_DATA_PATH/configLibrary/_meta.json"
+  local preferences="$DESKTOP_DATA_PATH/claude_desktop_config.json"
+  local id key path
+  desktop_installed || return 0
+  claude_desktop_version >/dev/null
+  require_local_desktop_policy
+  require_desktop_paths
+  for path in "$meta" "$preferences"; do
+    [ ! -L "$path" ] || fail 'Claude Desktop configuration must not be a symlink'
+    if [ -e "$path" ]; then
+      require_private_file "$path" 'Claude Desktop configuration'
+      valid_json "$path" || fail 'Claude Desktop configuration is invalid JSON'
+    fi
+  done
+  if [ -f "$meta" ]; then
+    desktop_active_path
+    require_private_file "$DESKTOP_ACTIVE_PATH" 'Claude Desktop active configuration'
+    valid_json "$DESKTOP_ACTIVE_PATH" || fail 'Claude Desktop active configuration is invalid JSON'
+    for key in bootstrapUrl selfHostedUrl; do
+      [ -z "$(json_raw "$DESKTOP_ACTIVE_PATH" "$key" || true)" ] ||
+        fail 'Claude Desktop uses remote configuration; ask IT to update it'
+    done
+    /bin/cp "$meta" "$tmp_dir/desktop-meta.json"
+    /bin/cp "$DESKTOP_ACTIVE_PATH" "$tmp_dir/desktop-active.json"
+  else
+    id="$(/usr/bin/uuidgen | lowercase)"
+    DESKTOP_ACTIVE_PATH="$DESKTOP_DATA_PATH/configLibrary/$id.json"
+    printf '{"appliedId":"%s","entries":[{"id":"%s","name":"GitHub Copilot via LiteLLM"}]}\n' \
+      "$id" "$id" >"$tmp_dir/desktop-meta.json"
+    /bin/cp "$tmp_dir/desktop.json" "$tmp_dir/desktop-active.json"
+  fi
+  for key in inferenceGatewayApiKey inferenceGatewayOidc inferenceCustomHeaders inferenceModels; do
+    /usr/bin/plutil -remove "$key" "$tmp_dir/desktop-active.json" >/dev/null 2>&1 || true
+  done
+  for key in inferenceProvider inferenceGatewayBaseUrl inferenceGatewayAuthScheme \
+    inferenceCredentialKind inferenceCredentialHelper; do
+    plist_set_string "$tmp_dir/desktop-active.json" "$key" "$(json_value "$tmp_dir/desktop.json" "$key")"
+  done
+  for key in inferenceCredentialHelperArgs modelDiscoveryEnabled; do
+    /usr/bin/plutil -remove "$key" "$tmp_dir/desktop-active.json" >/dev/null 2>&1 || true
+  done
+  /usr/bin/plutil -insert inferenceCredentialHelperArgs -json \
+    "$(json_array "$tmp_dir/desktop.json" inferenceCredentialHelperArgs)" "$tmp_dir/desktop-active.json"
+  /usr/bin/plutil -insert modelDiscoveryEnabled -bool true "$tmp_dir/desktop-active.json"
+  if [ -f "$preferences" ]; then
+    /bin/cp "$preferences" "$tmp_dir/desktop-preferences.json"
+    plist_set_string "$tmp_dir/desktop-preferences.json" deploymentMode 3p
+  else
+    printf '{"deploymentMode":"3p"}\n' >"$tmp_dir/desktop-preferences.json"
+  fi
+  for path in desktop-active desktop-meta desktop-preferences; do
+    /usr/bin/plutil -convert json "$tmp_dir/$path.json"
+    /bin/chmod 0600 "$tmp_dir/$path.json"
+  done
+  /bin/mkdir -p "$DESKTOP_DATA_PATH/configLibrary"
+}
+
+verify_desktop_config() {
+  local gateway="$1" key
+  desktop_installed || return 0
+  require_local_desktop_policy
+  require_desktop_paths
+  require_private_file "$DESKTOP_DATA_PATH/configLibrary/_meta.json" 'Claude Desktop config library'
+  desktop_active_path
+  require_private_file "$DESKTOP_ACTIVE_PATH" 'Claude Desktop active configuration'
+  [ "$(json_raw "$DESKTOP_ACTIVE_PATH" inferenceGatewayBaseUrl || true)" = "$gateway" ] &&
+    [ "$(json_raw "$DESKTOP_ACTIVE_PATH" inferenceProvider || true)" = gateway ] &&
+    [ "$(json_raw "$DESKTOP_ACTIVE_PATH" inferenceCredentialKind || true)" = helper-script ] &&
+    [ "$(json_raw "$DESKTOP_ACTIVE_PATH" inferenceGatewayAuthScheme || true)" = bearer ] &&
+    [ "$(json_raw "$DESKTOP_ACTIVE_PATH" inferenceCredentialHelper || true)" = /bin/bash ] &&
+    [ "$(json_raw "$DESKTOP_ACTIVE_PATH" inferenceCredentialHelperArgs.0 || true)" = "$INSTALL_PATH" ] &&
+    [ "$(json_raw "$DESKTOP_ACTIVE_PATH" inferenceCredentialHelperArgs.1 || true)" = token ] &&
+    ! json_raw "$DESKTOP_ACTIVE_PATH" inferenceCredentialHelperArgs.2 >/dev/null 2>&1 &&
+    [ "$(json_raw "$DESKTOP_ACTIVE_PATH" modelDiscoveryEnabled || true)" = true ] &&
+    [ "$(json_raw "$DESKTOP_DATA_PATH/claude_desktop_config.json" deploymentMode || true)" = 3p ] ||
+      fail 'Claude Desktop gateway or credential helper is outdated; run configure, then restart Desktop'
+  for key in bootstrapUrl selfHostedUrl inferenceGatewayApiKey inferenceGatewayOidc inferenceCustomHeaders inferenceModels; do
+    ! /usr/bin/plutil -type "$key" "$DESKTOP_ACTIVE_PATH" >/dev/null 2>&1 ||
+      fail 'Claude Desktop has conflicting gateway configuration; run configure or contact IT'
+  done
+}
+
 install_enrollment_files() {
   local tmp_dir="$1"
   local index
@@ -541,8 +674,13 @@ install_enrollment_files() {
   local sources=("$tmp_dir/verified-profile.json" "$tmp_dir/settings.json" "$tmp_dir/desktop.json")
   local targets=("$PROFILE_PATH" "$SETTINGS_PATH" "$DESKTOP_PATH")
   local existed=()
+  local backup
+  if [ -f "$tmp_dir/desktop-active.json" ]; then
+    sources+=("$tmp_dir/desktop-active.json" "$tmp_dir/desktop-meta.json" "$tmp_dir/desktop-preferences.json")
+    targets+=("$DESKTOP_ACTIVE_PATH" "$DESKTOP_DATA_PATH/configLibrary/_meta.json" "$DESKTOP_DATA_PATH/claude_desktop_config.json")
+  fi
 
-  for index in 0 1 2; do
+  for (( index=0; index<${#sources[@]}; index++ )); do
     [ ! -L "${targets[$index]}" ] || return 1
     existed[index]=0
     if [ -e "${targets[$index]}" ]; then
@@ -550,9 +688,15 @@ install_enrollment_files() {
         [ "$(file_stat '%u' '%u' "${targets[$index]}")" = "$(/usr/bin/id -u)" ] || return 1
       /bin/cp "${targets[$index]}" "$tmp_dir/previous-$index.json" || return 1
       existed[index]=1
+      if [ "$index" -ge 3 ] &&
+        [ "$(/usr/bin/plutil -convert xml1 -o - "${sources[$index]}")" != \
+          "$(/usr/bin/plutil -convert xml1 -o - "${targets[$index]}")" ]; then
+        backup="$(/usr/bin/mktemp "${targets[$index]}.ccgc-backup.XXXXXX")" || return 1
+        /bin/cp "${targets[$index]}" "$backup" && /bin/chmod 0600 "$backup" || return 1
+      fi
     fi
   done
-  for index in 0 1 2; do
+  for (( index=0; index<${#sources[@]}; index++ )); do
     if ! /bin/mv "${sources[$index]}" "${targets[$index]}"; then
       for (( restore=0; restore<=index; restore++ )); do
         if [ "${existed[$restore]}" -eq 1 ]; then
@@ -1038,6 +1182,7 @@ enroll() {
   verify_gateway_access "$gateway" "$api_key" "$default_model" "$tmp_dir"
   prepare_settings "$gateway" "$default_model" "$tmp_dir/settings.json"
   prepare_desktop_config "$gateway" "$tmp_dir/desktop.json"
+  prepare_desktop_install "$tmp_dir"
 
   service="ccgc.remote.$(json_value "$tmp_dir/verified-profile.json" keychainId)"
   previous_key="$(keychain_get "$service" || true)"
@@ -1052,8 +1197,7 @@ enroll() {
   printf 'Configured %s approved model(s). The employee key expires at %s.\n' \
     "$model_count" "$expiry"
   if [ -d '/Applications/Claude.app' ]; then
-    printf 'Claude Desktop requires separate configuration through Developer > Configure Third-Party Inference; CLI settings do not select its provider.\n'
-    printf 'Import %s and relaunch Desktop.\n' "$DESKTOP_PATH"
+    printf 'Claude Desktop gateway configuration updated automatically. Quit and reopen Desktop to apply it.\n'
   fi
   printf 'Restart existing Claude sessions, then run: claude\n'
 }
@@ -1129,14 +1273,14 @@ configure() {
   gateway="$(json_value "$PROFILE_PATH" gateway)"
   default_model="$(json_value "$PROFILE_PATH" models.0)"
   prepare_settings "$gateway" "$default_model" "$tmp_dir/settings.json"
-  /bin/mkdir -p "$(dirname "$SETTINGS_PATH")"
-  /bin/mv "$tmp_dir/settings.json" "$SETTINGS_PATH"
   prepare_desktop_config "$gateway" "$tmp_dir/desktop.json"
-  [ ! -L "$DESKTOP_PATH" ] || fail 'Desktop import file must not be a symlink'
-  /bin/mv "$tmp_dir/desktop.json" "$DESKTOP_PATH"
+  prepare_desktop_install "$tmp_dir"
+  /bin/cp "$PROFILE_PATH" "$tmp_dir/verified-profile.json"
+  /bin/mkdir -p "$(dirname "$SETTINGS_PATH")"
+  install_enrollment_files "$tmp_dir" || fail 'could not install Claude configuration'
   printf 'Claude Code configuration updated.\n'
   if [ -d '/Applications/Claude.app' ]; then
-    printf 'Claude Desktop requires separate configuration through Developer > Configure Third-Party Inference; CLI settings do not select its provider.\n'
+    printf 'Claude Desktop gateway configuration updated automatically. Quit and reopen Desktop to apply it.\n'
   fi
 }
 
@@ -1210,12 +1354,13 @@ doctor() {
   [ "$(json_array "$PROFILE_PATH" models)" = "$(json_array "$tmp_dir/verified-profile.json" models)" ] ||
     fail 'enterprise profile models changed; run configure to refresh them'
   verify_gateway_access "$gateway" "$api_key" "$default_model" "$tmp_dir"
+  verify_desktop_config "$gateway"
 
   printf 'CCGC doctor passed.\n'
   printf 'Claude Code: %s (minimum supported: %s)\n' \
     "$DETECTED_CLAUDE_VERSION" "$MINIMUM_CLAUDE_VERSION"
   if desktop_version="$(claude_desktop_version)"; then
-    printf 'Claude Desktop: %s (installed; gateway routing is not verified by CLI doctor)\n' "$desktop_version"
+    printf 'Claude Desktop: %s (saved gateway and helper verified; restart required after configuration changes)\n' "$desktop_version"
   else
     printf 'Claude Desktop Code: not installed; CLI profile verified\n'
   fi
