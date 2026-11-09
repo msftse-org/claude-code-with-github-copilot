@@ -262,13 +262,18 @@ request_json_status() {
   local method="$1" url="$2" bearer="$3" body="$4" output="$5"
   local fixture='' status=200 events
   printf '%s %s\\n' "$method" "$url" >> "$HOME/events"
-  [ "$url" = https://gateway.example/health/liveliness ] && [ -z "$bearer" ] && {
-    fixture=health
-  } || {
-    [ "$bearer" = "$CCGC_TEST_KEY" ] || fail 'wrong LiteLLM credential'
-  }
+  case "$url" in
+    https://gateway.example/health/liveliness|https://gateway.example/health/readiness)
+      [ -z "$bearer" ] || fail 'health check must not send a credential'
+      ;;
+    *) [ "$bearer" = "$CCGC_TEST_KEY" ] || fail 'wrong LiteLLM credential' ;;
+  esac
   case "$method $url" in
-    'GET https://gateway.example/health/liveliness') fixture=health ;;
+    'GET https://gateway.example/health/liveliness') fixture=liveness ;;
+    'GET https://gateway.example/health/readiness')
+      fixture=health
+      [ "$CCGC_TEST_MODE" != health-unavailable ] || status=503
+      ;;
     'GET https://gateway.example/key/info') fixture=key ;;
     'GET https://gateway.example/user/info') fixture=user ;;
     'GET https://gateway.example/credentials/user_connections')
@@ -343,7 +348,8 @@ async function standaloneFixture(mode: string): Promise<string> {
   });
   const fixtures = {
     start, poll, key, connection, routes,
-    health: { status: 'healthy' },
+    liveness: "I'm alive!",
+    health: { status: 'healthy', db: mode === 'database-disconnected' ? 'disconnected' : 'connected' },
     disconnected: { status: 'disconnected' },
     'empty-connection': { connections: [] },
     user: { user_info: {
@@ -355,6 +361,9 @@ async function standaloneFixture(mode: string): Promise<string> {
   };
   for (const [name, value] of Object.entries(fixtures)) {
     await writeFile(join(home, 'fixtures', `${name}.json`), JSON.stringify(value), { mode: 0o600 });
+  }
+  if (mode === 'invalid-health') {
+    await writeFile(join(home, 'fixtures/health.json'), '<html>Proxy error</html>', { mode: 0o600 });
   }
   await writeFile(join(home, '.local/share/ccgc/enterprise/profile.json'), '{"previousProfile":true}', { mode: 0o600 });
   await writeFile(join(home, '.claude/settings.json'), '{"unrelatedSetting":true,"permissions":{"defaultMode":"manual"}}', { mode: 0o600 });
@@ -412,10 +421,13 @@ test('standalone default enrollment opens GitHub and installs a verified direct 
   } finally { await rm(home, { recursive: true, force: true }); }
 });
 
-test('standalone enrollment rejects identity, routing and authorization failures without replacing local credentials', {
+test('standalone enrollment rejects health, identity, routing and authorization failures without replacing local credentials', {
   skip: process.platform !== 'darwin',
 }, async t => {
   for (const [mode, message] of [
+    ['database-disconnected', /LiteLLM is not ready or its database is disconnected/],
+    ['health-unavailable', /LiteLLM health check returned HTTP 503/],
+    ['invalid-health', /LiteLLM returned invalid health JSON/],
     ['wrong-account', /approving GitHub account does not match/],
     ['wrong-owner', /key and user information do not match/],
     ['wrong-connection', /connected to a different GitHub account/],

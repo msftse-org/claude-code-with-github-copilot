@@ -564,10 +564,14 @@ verify_gateway_health() {
   local gateway="$1"
   local output="$2"
   local status
-  status="$(request_json_status GET "$gateway/health/liveliness" '' '' "$output")"
+  # Liveness returns a JSON string; readiness also checks PostgreSQL.
+  status="$(request_json_status GET "$gateway/health/readiness" '' '' "$output")"
   case "$status" in
     2??)
       valid_json "$output" || fail 'LiteLLM returned invalid health JSON'
+      [ "$(json_raw "$output" status || true)" = 'healthy' ] &&
+        [ "$(json_raw "$output" db || true)" = 'connected' ] ||
+        fail 'LiteLLM is not ready or its database is disconnected'
       ;;
     *)
       fail "LiteLLM health check returned HTTP $status"
