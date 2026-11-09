@@ -9,6 +9,7 @@
   },
   "scripts": {
     "deploy": "node scripts/deploy.mjs",
+    "installer": "node scripts/build-installer.mjs",
     "check": "tsc --noEmit",
     "test": "node --test test/*.test.ts"
   },

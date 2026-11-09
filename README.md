@@ -47,7 +47,7 @@ flowchart LR
 | Step | What happens |
 |---|---|
 | Enroll | An administrator runs **Actions > CCGC employee access > enroll** with the employee's GitHub username. The workflow resolves the immutable GitHub account ID, creates or reuses a LiteLLM `internal_user`, and issues a 90-day key restricted to the Claude models and inference routes. |
-| Set up | The employee runs `ccgc-enterprise-macos.sh enroll`, pastes the key, and approves GitHub's device flow, which the script starts through LiteLLM. The script checks that the connected GitHub login matches the key owner, verifies the model routes with a small inference request, stores the key in Keychain, and configures Claude Code. |
+| Set up | The employee runs the setup file from Enterprise IT, which is the macOS script with the deployment's LiteLLM URL built in, pastes the key, and approves GitHub's device flow, which the script starts through LiteLLM. The script checks that the connected GitHub login matches the key owner, verifies the model routes with a small inference request, stores the key in Keychain, and configures Claude Code. |
 | Use | Claude Code sends the key to LiteLLM. LiteLLM authenticates it, applies model, budget, and rate policy, records spend under that user, and calls Copilot with that user's own GitHub connection. |
 | Revoke | **Actions > CCGC employee access > revoke** disconnects the user's GitHub connection and deletes the LiteLLM user with all its keys. |
 
@@ -70,7 +70,8 @@ the image are illustrative, not the supported catalog.
 | [`scripts/deploy.mjs`](scripts/deploy.mjs) | Administrator deploy: Terraform state storage behind a network security perimeter, plan or what-if preview, deployment, readiness, bootstrap, GitHub environment |
 | [`scripts/litellm-bootstrap.mjs`](scripts/litellm-bootstrap.mjs) | Idempotently registers the per-user Copilot credential and Claude model routes |
 | [`.github/workflows/ccgc-employee-access.yml`](.github/workflows/ccgc-employee-access.yml) and [`scripts/enterprise-actions-access.mjs`](scripts/enterprise-actions-access.mjs) | Employee enrollment and revocation |
-| [`scripts/ccgc-enterprise-macos.sh`](scripts/ccgc-enterprise-macos.sh) | Standalone employee setup for macOS: `enroll`, `doctor`, `models`, `configure`, and `token` (Claude's key helper) |
+| [`scripts/ccgc-enterprise-macos.sh`](scripts/ccgc-enterprise-macos.sh) | Standalone employee setup for macOS: `enroll`, `doctor`, `models`, `configure`, and `token` (Claude's key helper). It has no gateway built in. |
+| [`scripts/build-installer.mjs`](scripts/build-installer.mjs) | `npm run installer`: builds the employee setup file, the macOS script with a deployment's LiteLLM URL built in |
 | [`test/`](test) | Synthetic tests for every script |
 
 ## Getting started
@@ -79,13 +80,14 @@ the image are illustrative, not the supported catalog.
   deploy, configure GitHub, and enroll or revoke employees.
 - **Employees:** follow the [Mac guide](docs/mac/README.md). You need macOS,
   Claude Code `2.1.296` or newer, a Copilot-entitled GitHub account, and the
-  key from Enterprise IT. No checkout, Node.js, or LiteLLM password is
-  needed.
+  setup file and key from Enterprise IT. No checkout, Node.js, or LiteLLM
+  password is needed.
 
 Choose the Azure subscription, region, and resource prefix through the
 deployment options. Image and sizing defaults live in
-[`infra/solution.json`](infra/solution.json). Use the gateway URL printed by
-your deployment for employee setup.
+[`infra/solution.json`](infra/solution.json). A confirmed deployment writes
+the [employee setup file](docs/ENTERPRISE.md#employee-setup-file) with its
+gateway URL built in.
 
 Development checks (Node.js 24, Terraform 1.11 or newer, Azure CLI with Bicep):
 

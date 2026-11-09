@@ -38,6 +38,15 @@ test('macOS enrollment script rejects malformed virtual keys before network acce
   );
 });
 
+test('macOS enrollment script without a built-in gateway stops before asking for the key', async () => {
+  await assert.rejects(exec('/bin/bash', [script.pathname]), error => {
+    const stderr = String((error as { stderr?: string }).stderr);
+    assert.match(stderr, /no LiteLLM gateway built in; use the setup file from your administrator/);
+    assert.doesNotMatch(stderr, /LiteLLM key/i);
+    return true;
+  });
+});
+
 test('macOS enrollment script never removes quarantine or changes Gatekeeper policy', async () => {
   const source = await readFile(script, 'utf8');
   assert.doesNotMatch(source, /xattr\s+-[a-zA-Z]*d|spctl\s+--master-disable|defaults\s+write.*Gatekeeper/i);

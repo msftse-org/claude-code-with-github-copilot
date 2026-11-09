@@ -94,6 +94,10 @@ The confirmed run:
    GitHub environment, creating the environment restricted to `main` if
    needed. Use `--skip-github` to configure it yourself, or `--github-repo
    owner/repo` to target another repository.
+6. Writes the [employee setup file](#employee-setup-file)
+   `dist/ccgc-enterprise-setup.command` with this deployment's LiteLLM URL
+   built in, and prints its path and SHA-256. Use `--installer <path>` to
+   write it elsewhere.
 
 The preview runs `terraform plan` (or `az deployment sub what-if` with
 `--engine bicep`). Before anything is deployed, it plans against empty local
@@ -123,7 +127,8 @@ Both definitions deploy the same resources, names, and settings:
   assignment name are identical.
 - `npm test` fails if resource types, API versions, defaults, or outputs
   drift (`test/iac-parity.test.ts`). `terraform test` checks Terraform's names
-  against the names Azure assigned to a Bicep deployment.
+  against Bicep's own `uniqueString()` and `guid()` results for a synthetic
+  subscription.
 
 Use one engine per deployment. Terraform refuses a resource group that exists
 without Terraform state, for example one deployed with Bicep: keep using
@@ -144,6 +149,32 @@ terraform -chdir=infra/terraform init -backend-config=storage_account_name=<stat
 terraform -chdir=infra/terraform untaint azapi_resource.postgres
 ```
 
+## Employee setup file
+
+The repository's `scripts/ccgc-enterprise-macos.sh` has no gateway built in.
+Without `--gateway`, it stops before asking for a key. Employees instead run
+`ccgc-enterprise-setup.command`: the same script with your LiteLLM URL written
+into its `DEFAULT_GATEWAY` line. It contains no secrets. Get it in one of
+these ways:
+
+- The confirmed `deploy.mjs` run writes it to `dist/` (step 6 above).
+- `npm run installer` rebuilds it from the `LITELLM_URL` variable of the
+  `ccgc-admin` GitHub environment. Pass `--gateway https://<litellm-host>`
+  to skip GitHub, `--github-repo owner/repo` to read another repository, or
+  `--output <path>` to write it elsewhere.
+- Each enroll run of the employee-access workflow attaches it as the
+  `ccgc-enterprise-setup` artifact, built from `main` and kept for 30 days.
+
+Every build prints the file's SHA-256. Publish it so employees can check the
+file with `shasum -a 256`. Employees run the file with
+`bash "$HOME/Downloads/ccgc-enterprise-setup.command"`, which works without
+the executable bit that the zipped artifact drops.
+
+Rebuild the file after updating the repository so new enrollments get the
+current script. Enrolled Macs keep the gateway they enrolled with. If the
+LiteLLM URL changes, issue new keys and have employees enroll again with the
+rebuilt file.
+
 ## Enroll and revoke employees
 
 Run **Actions > CCGC employee access** from `main`, or use the CLI:
@@ -156,9 +187,10 @@ gh workflow run ccgc-employee-access.yml -f action=revoke -f github_username=<lo
 - **Enroll** creates or reuses the LiteLLM user that matches the GitHub
   account ID and issues a 90-day key. The key covers the Claude models
   LiteLLM currently advertises and is limited to inference, model-info, and
-  own-connection routes. The run summary shows the key and the setup command.
-  Send both to the employee privately; anyone who can read the run can use
-  the key.
+  own-connection routes. The run summary shows the key and the employee's
+  setup command, and links the setup file built for your gateway. Send the
+  key and the file to the employee privately; anyone who can read the run can
+  use the key.
 - **Renew** by enrolling again. Earlier keys stay valid until they expire or
   are deleted on the LiteLLM UI's **Virtual Keys** page.
 - **Revoke** disconnects the employee's GitHub connection and deletes the
@@ -207,8 +239,9 @@ from the secrets file.
    reserves its name. Deploy with a new `--name-seed` to get new Key Vault and
    PostgreSQL names.
 3. Every employee must enroll again because their users and connections lived
-   in the deleted database. The egress IP also changes, so update GitHub
-   organization IP allow lists.
+   in the deleted database. The LiteLLM URL changes too, so send the setup
+   file that the new deployment writes. The egress IP also changes, so update
+   GitHub organization IP allow lists.
 
 ## Troubleshooting
 

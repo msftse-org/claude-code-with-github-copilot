@@ -3,7 +3,8 @@
 set -euo pipefail
 umask 077
 
-DEFAULT_GATEWAY='https://ca-ccgc-pilot-litellm.victorioussea-313182e6.swedencentral.azurecontainerapps.io'
+# Empty in the repository; scripts/build-installer.mjs builds each deployment's setup file with its LiteLLM URL.
+DEFAULT_GATEWAY=''
 MINIMUM_CLAUDE_VERSION='2.1.296'
 INSTALL_PATH="$HOME/.local/share/ccgc/enterprise/ccgc-enterprise-macos.sh"
 PROFILE_PATH="$HOME/.local/share/ccgc/enterprise/profile.json"
@@ -74,8 +75,10 @@ Usage:
   bash ccgc-enterprise-macos.sh doctor
 
 Running without arguments starts enrollment and asks for your personal LiteLLM
-key from your administrator (input is hidden). GitHub opens automatically in
-your browser; enter the displayed device code and approve with your Copilot account.
+key from your administrator (input is hidden). The setup file from your
+administrator has your organization's LiteLLM gateway built in; a copy without
+one needs enroll --gateway HTTPS_URL. GitHub opens automatically in your
+browser; enter the displayed device code and approve with your Copilot account.
 No repository checkout, Node.js, npm, or LiteLLM login is needed.
 Claude Code must already be installed.
 The enrollment command verifies the LiteLLM user and connection, stores the
@@ -1174,6 +1177,8 @@ enroll() {
     esac
   done
 
+  [ -n "$gateway" ] ||
+    fail 'this script has no LiteLLM gateway built in; use the setup file from your administrator, or pass --gateway https://LITELLM_HOST'
   validate_gateway "$gateway"
   require_macos_tools
   require_claude_version

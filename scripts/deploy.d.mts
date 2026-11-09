@@ -1,3 +1,4 @@
+import type { Installer } from './build-installer.mjs';
 import type { BootstrapOptions, BootstrapResult } from './litellm-bootstrap.mjs';
 
 export const USAGE: string;
@@ -12,6 +13,7 @@ export interface DeployOptions {
   secretsFile?: string;
   githubRepo?: string;
   stateClientIp?: string;
+  installerFile: string;
   skipGithub: boolean;
   confirmDeploy: boolean;
 }
@@ -43,6 +45,7 @@ export interface DeployResult {
   litellmUrl?: string;
   repo?: string;
   models?: string[];
+  installer?: Installer;
 }
 
 export function parseOptions(argv: string[]): DeployOptions | { help: true };

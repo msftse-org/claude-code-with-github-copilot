@@ -3,10 +3,10 @@
 This guide covers standalone macOS enrollment with a personal LiteLLM key.
 Claude Code calls the enterprise LiteLLM gateway directly with that key, and
 LiteLLM serves each request through the employee's own GitHub Copilot
-connection. Employees get a key from Enterprise IT, run one script, paste the
-key, and approve GitHub in the browser that opens automatically. No checkout,
-Node.js, npm, or LiteLLM dashboard login is required. See also the
-[root README](../../README.md#getting-started).
+connection. Employees get a key and a setup file from Enterprise IT, run the
+file, paste the key, and approve GitHub in the browser that opens
+automatically. No checkout, Node.js, npm, or LiteLLM dashboard login is
+required. See also the [root README](../../README.md#getting-started).
 Enrollment and `configure` also update an installed Desktop's local Gateway
 profile. Restart Desktop after configuration changes.
 
@@ -25,46 +25,39 @@ GitHub OAuth and Copilot tokens do not belong on the Mac. LiteLLM encrypts the
 GitHub connection in its private PostgreSQL schema. The employee's personal
 LiteLLM key is saved in macOS Keychain.
 
-## 1. Get your personal key and the script
+## 1. Get your personal key and the setup file
 
 Required:
 
 - macOS
 - Official Claude Code `2.1.296` or newer
 - Your own GitHub account with GitHub Copilot access
-- The repository's `scripts/ccgc-enterprise-macos.sh` enrollment script
-- The LiteLLM HTTPS URL and your 90-day personal key from Enterprise IT
+- The setup file `ccgc-enterprise-setup.command` and your 90-day personal key
+  from Enterprise IT
 
 Enterprise IT issues the key with the `CCGC employee access` GitHub Actions
 workflow (`enroll` action). The workflow creates or reuses your LiteLLM user
 and a new 90-day key. Its protected run summary shows the key, its expiry, the
-approved models, and the exact enrollment command with the LiteLLM URL.
+approved models, and your setup command, and attaches the setup file built
+for your organization's gateway.
 Anyone who can read that workflow run can use the key until it expires or is
 revoked, so IT keeps repository read access limited and sends the key only
 through an approved private channel.
 
-Enterprise IT distributes the tracked script through the approved software
-channel. An administrator with an authenticated GitHub CLI session can
-retrieve it from the approved repository containing this solution. Replace
-`<owner>/<repository>` below with that repository:
+The setup file is the repository's `scripts/ccgc-enterprise-macos.sh` with
+your organization's LiteLLM URL built in, so you run it without options. IT
+builds it as described in the
+[enterprise runbook](../ENTERPRISE.md#employee-setup-file) and publishes its
+SHA-256 checksum. Accept the file only through a channel IT approves, not
+from an unverified source or fork. Save it in Downloads, then check it:
 
 ```bash
-repository='<owner>/<repository>'
-gh auth status
-gh api \
-  -H 'Accept: application/vnd.github.raw+json' \
-  "repos/$repository/contents/scripts/ccgc-enterprise-macos.sh" \
-  > "$HOME/Downloads/ccgc-enterprise-macos.sh"
-chmod 600 "$HOME/Downloads/ccgc-enterprise-macos.sh"
-
+shasum -a 256 "$HOME/Downloads/ccgc-enterprise-setup.command"
 claude --version
-/bin/bash "$HOME/Downloads/ccgc-enterprise-macos.sh" help
+/bin/bash "$HOME/Downloads/ccgc-enterprise-setup.command" help
 ```
 
-Enterprise IT can instead distribute the same repository file through the
-approved corporate software channel. Employees should not accept a script from
-chat, email, or an unverified fork. If IT publishes a SHA-256 checksum, verify
-it with `shasum -a 256` before enrollment.
+Compare the checksum with the one from IT before enrollment.
 
 If Claude Code is missing or older than the minimum supported version:
 
@@ -81,15 +74,18 @@ IT must distribute the script through the corporate software channel.
 
 ## 2. Enroll with your personal key
 
-Run the enrollment command from the Actions run summary. It has this form:
+Run the setup file:
 
 ```bash
-bash "$HOME/Downloads/ccgc-enterprise-macos.sh" enroll --gateway https://LITELLM_FQDN
+bash "$HOME/Downloads/ccgc-enterprise-setup.command"
 ```
 
-Use the LiteLLM HTTPS origin from Enterprise IT, without a path, with
-`--gateway`. Running the script without arguments uses its built-in default,
-which may not match your deployment.
+Run it with `bash` as shown. Double-clicking a downloaded file can be blocked
+by Gatekeeper, and a file extracted from the workflow artifact is not
+executable. If IT gave you the generic repository script instead, pass the
+LiteLLM HTTPS origin, without a path:
+`bash ccgc-enterprise-macos.sh enroll --gateway https://LITELLM_HOST`.
+Without a gateway, the script stops before asking for your key.
 
 1. The script checks the Claude Code version and your existing Claude
    configuration. A conflicting shell environment variable stops enrollment;

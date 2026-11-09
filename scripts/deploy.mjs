@@ -7,6 +7,7 @@ import { basename, dirname, join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { parseArgs } from 'node:util';
 import { bootstrapLiteLLM, DEFAULT_MODELS, litellmOrigin, validateModels } from './litellm-bootstrap.mjs';
+import { DEFAULT_INSTALLER, describeInstaller, writeInstaller } from './build-installer.mjs';
 
 const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const BICEP_TEMPLATE = join(REPO_ROOT, 'infra', 'main.bicep');
@@ -26,8 +27,9 @@ export const USAGE = `Usage: node scripts/deploy.mjs --subscription <id> [option
 
 Without --confirm-deploy, previews the Azure changes (terraform plan, or what-if
 with --engine bicep) and changes nothing in the solution. With --confirm-deploy,
-deploys LiteLLM, registers the GitHub Copilot models, and stores LITELLM_URL and
-LITELLM_MASTER_KEY in the ccgc-admin GitHub environment. Re-running is safe; it
+deploys LiteLLM, registers the GitHub Copilot models, stores LITELLM_URL and
+LITELLM_MASTER_KEY in the ccgc-admin GitHub environment, and writes the employee
+setup file with the LiteLLM URL built in. Re-running is safe; it
 reuses the private secrets file and, with Terraform, the state in resource group
 rg-<prefix>-tfstate. That state is reachable only through a network security
 perimeter, so every Terraform run that reads it, previews included, first allows
@@ -43,6 +45,7 @@ Options:
   --secrets-file <path>  Private secrets file (default: ~/.config/ccgc/<subscription>/<prefix>.json)
   --github-repo <o/r>    Repository with the ccgc-admin environment (default: this checkout's repository)
   --state-client-ip <ip> Public IPv4 address Azure sees for this machine (default: detected with ${CLIENT_IP_SERVICE})
+  --installer <path>     Employee setup file to write (default: dist/ccgc-enterprise-setup.command)
   --skip-github          Do not configure the GitHub environment
   --confirm-deploy       Deploy instead of previewing
 `;
@@ -66,6 +69,7 @@ export function parseOptions(argv) {
       'secrets-file': { type: 'string' },
       'github-repo': { type: 'string' },
       'state-client-ip': { type: 'string' },
+      installer: { type: 'string' },
       'skip-github': { type: 'boolean', default: false },
       'confirm-deploy': { type: 'boolean', default: false },
       help: { type: 'boolean', default: false },
@@ -96,6 +100,7 @@ export function parseOptions(argv) {
     secretsFile: values['secrets-file'] === undefined ? undefined : resolve(values['secrets-file']),
     githubRepo,
     stateClientIp,
+    installerFile: resolve(values.installer ?? DEFAULT_INSTALLER),
     skipGithub: values['skip-github'],
     confirmDeploy: values['confirm-deploy'],
   };
@@ -553,15 +558,19 @@ export async function deploy(options, {
     await configureGitHub(run, repo, litellmUrl, secrets.litellmMasterKey);
     log(`Configured ${repo} environment ${ADMIN_ENVIRONMENT}: variable LITELLM_URL and secret LITELLM_MASTER_KEY.`);
   }
+  const installer = await writeInstaller({ gateway: litellmUrl, output: options.installerFile });
   log([
     '',
     `LiteLLM:      ${litellmUrl}`,
     `Admin UI:     ${litellmUrl}/ui/ (user admin, password = litellmMasterKey in ${secretsFile})`,
     `Egress IP:    ${outputs?.egressIp ?? 'unknown'}`,
     `Resources:    ${outputs?.resourceGroupName ?? resourceGroup}`,
+    '',
+    describeInstaller(installer),
+    '',
     'Next: enroll employees from GitHub Actions > CCGC employee access.',
   ].join('\n'));
-  return { deployed: true, resourceGroup, secretsFile, litellmUrl, repo, models: catalog.models };
+  return { deployed: true, resourceGroup, secretsFile, litellmUrl, repo, models: catalog.models, installer };
 }
 
 async function main() {

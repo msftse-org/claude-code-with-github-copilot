@@ -14,7 +14,8 @@
 - `infra/terraform` (azapi provider only, the default) and `infra/main.bicep` with `infra/modules/litellm.bicep` are two equivalent definitions that deploy the official, digest-pinned LiteLLM image on Azure Container Apps with private PostgreSQL, a private Key Vault, and NAT egress. Both read `infra/solution.json`. Change them together: same ARM types, API versions, names, and bodies. `test/iac-parity.test.ts` and `terraform test` enforce parity.
 - `scripts/deploy.mjs` previews or deploys the infrastructure with Terraform (state in `rg-<prefix>-tfstate`, Entra ID auth only, reachable through network security perimeter `nsp-<prefix>-tfstate`, which admits each deployer's current public IPv4 address) or `--engine bicep`, then `scripts/litellm-bootstrap.mjs` registers the per-user credential and the Claude model routes. Terraform secrets are write-only variables passed in a private 0600 file.
 - `.github/workflows/ccgc-employee-access.yml` runs `scripts/enterprise-actions-access.mjs` to enroll (user plus 90-day key) or revoke an employee. It uses the `ccgc-admin` environment, which holds `LITELLM_URL` and the `LITELLM_MASTER_KEY` secret.
-- `scripts/ccgc-enterprise-macos.sh` is the standalone employee setup. It stores the key in macOS Keychain, starts the GitHub device flow through LiteLLM, verifies the connection and model routes, and configures Claude Code.
+- `scripts/ccgc-enterprise-macos.sh` is the standalone employee setup. It stores the key in macOS Keychain, starts the GitHub device flow through LiteLLM, verifies the connection and model routes, and configures Claude Code. Its tracked `DEFAULT_GATEWAY` stays empty; never commit a deployment URL into it.
+- `scripts/build-installer.mjs` (`npm run installer`) writes the employee setup file `dist/ccgc-enterprise-setup.command`, the macOS script with one deployment's LiteLLM URL stamped into `DEFAULT_GATEWAY`. `deploy.mjs` writes it after a confirmed deploy, and the enroll workflow attaches it to the run.
 
 ## Commands
 
@@ -25,6 +26,7 @@ npm run check                 # strict TypeScript check of tests and script decl
 npm test                      # synthetic tests
 node --test test/deploy.test.ts
 node scripts/deploy.mjs --help
+node scripts/build-installer.mjs --gateway https://litellm.example --output "$(mktemp -d)/setup.command"
 az bicep build --file infra/main.bicep --stdout >/dev/null && az bicep lint --file infra/main.bicep
 terraform fmt -check -recursive infra/terraform && terraform -chdir=infra/terraform init -backend=false && terraform -chdir=infra/terraform validate && terraform -chdir=infra/terraform test
 bash -n scripts/ccgc-enterprise-macos.sh

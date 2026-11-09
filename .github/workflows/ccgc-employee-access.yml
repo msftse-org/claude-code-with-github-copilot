@@ -49,6 +49,13 @@ jobs:
       - name: Check out access workflow
         uses: actions/checkout@v4
 
+      - name: Build employee setup file
+        if: inputs.action == 'enroll'
+        run: |
+          set -euo pipefail
+          node scripts/build-installer.mjs --gateway "$LITELLM_URL" \
+            --output "$RUNNER_TEMP/ccgc-setup/ccgc-enterprise-setup.command"
+
       - name: Provision access directly in LiteLLM
         env:
           LITELLM_MASTER_KEY: ${{ secrets.LITELLM_MASTER_KEY }}
@@ -58,3 +65,30 @@ jobs:
           [[ "$LITELLM_MASTER_KEY" =~ ^sk-[A-Za-z0-9._-]{16,}$ ]] \
             || { echo '::error::Set the ccgc-admin environment secret LITELLM_MASTER_KEY.'; exit 1; }
           node scripts/enterprise-actions-access.mjs >> "$GITHUB_STEP_SUMMARY"
+
+      # Contains no secret: the employee script with this deployment's LiteLLM URL built in.
+      - name: Attach employee setup file
+        id: setup-file
+        if: inputs.action == 'enroll'
+        uses: actions/upload-artifact@v4
+        with:
+          name: ccgc-enterprise-setup
+          path: ${{ runner.temp }}/ccgc-setup/ccgc-enterprise-setup.command
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Link employee setup file
+        if: inputs.action == 'enroll'
+        env:
+          ARTIFACT_URL: ${{ steps.setup-file.outputs.artifact-url }}
+        run: |
+          set -euo pipefail
+          sha256="$(sha256sum "$RUNNER_TEMP/ccgc-setup/ccgc-enterprise-setup.command" | cut -d ' ' -f 1)"
+          {
+            echo
+            echo '### Employee setup file'
+            echo
+            echo "Download [ccgc-enterprise-setup]($ARTIFACT_URL), unzip it, and send \`ccgc-enterprise-setup.command\` with the key."
+            echo
+            echo "SHA-256: \`$sha256\`"
+          } >> "$GITHUB_STEP_SUMMARY"

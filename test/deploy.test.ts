@@ -263,7 +263,9 @@ test('confirmed Terraform deploy stores state in Azure, bootstraps LiteLLM, and 
   try {
     const cli = fakeCli({ associationStates: ['Creating', 'Succeeded'] });
     const bootstraps: BootstrapOptions[] = [];
-    const result = await deploy(options(directory, ['--confirm-deploy', '--models', 'claude-sonnet-5.5']), {
+    const result = await deploy(options(directory, [
+      '--confirm-deploy', '--models', 'claude-sonnet-5.5', '--installer', join(directory, 'setup.command'),
+    ]), {
       run: cli.run,
       log: () => {},
       sleep: async () => {},
@@ -278,6 +280,9 @@ test('confirmed Terraform deploy stores state in Azure, bootstraps LiteLLM, and 
     const masterKey = JSON.parse(await readFile(join(directory, 'secrets.json'), 'utf8')).litellmMasterKey as string;
     assert.equal(result.deployed, true);
     assert.equal(result.litellmUrl, 'https://litellm.example');
+    assert.equal(result.installer?.path, join(directory, 'setup.command'));
+    assert.match(await readFile(join(directory, 'setup.command'), 'utf8'), /^DEFAULT_GATEWAY='https:\/\/litellm\.example'$/m);
+    assert.equal((await stat(join(directory, 'setup.command'))).mode & 0o777, 0o700);
 
     const storage = cli.commands.find(entry => entry.args.slice(0, 3).join(' ') === 'storage account create');
     const account = argumentAfter(storage, '--name')!;
@@ -340,7 +345,7 @@ function diagnosticSettingCreate(address: string, parentId: string | null) {
 }
 
 async function confirmedDeploy(directory: string, cli: ReturnType<typeof fakeCli>) {
-  return deploy(options(directory, ['--confirm-deploy']), {
+  return deploy(options(directory, ['--confirm-deploy', '--installer', join(directory, 'setup.command')]), {
     run: cli.run,
     log: () => {},
     sleep: async () => {},
