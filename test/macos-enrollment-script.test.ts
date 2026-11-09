@@ -353,6 +353,8 @@ async function standaloneFixture(mode: string): Promise<string> {
   if (mode === 'wrong-connection') connection.connections[0]!.github_login = 'another-user';
   if (mode === 'key-expired') key.info.expires = liteLLMExpiry(-60_000);
   if (mode === 'key-invalid-expiry') key.info.expires = '2027-02-07 sometime';
+  if (mode === 'key-impossible-expiry') key.info.expires = '2027-02-31T06:19:09.232000+00:00';
+  if (mode === 'key-invalid-offset') key.info.expires = '2027-02-07T06:19:09+00:60';
   if (mode === 'key-no-expiry') key.info.expires = null;
   if (mode === 'unsafe-url') start.verification_uri = 'https://example.net/login/device';
   if (mode === 'expired') poll.status = 'expired';
@@ -463,6 +465,8 @@ test('standalone enrollment rejects health, identity, routing and authorization 
     ['write-failure', /could not install/],
     ['key-expired', /supplied LiteLLM key has expired/],
     ['key-invalid-expiry', /gateway returned an invalid credential expiry/],
+    ['key-impossible-expiry', /gateway returned an invalid credential expiry/],
+    ['key-invalid-offset', /gateway returned an invalid credential expiry/],
     ['key-no-expiry', /LiteLLM key has no expiry/],
     ['gateway-expired-key', /supplied LiteLLM key has expired; ask your administrator for a new key/],
     ['revoked-key', /supplied LiteLLM key was rejected \(revoked, blocked, or mistyped\)/],
@@ -493,7 +497,7 @@ test('standalone enrollment rejects health, identity, routing and authorization 
   }
 });
 
-test('expiry parser accepts every LiteLLM timestamp form and rejects malformed values', {
+test('expiry parser handles LiteLLM timestamp formats independently of the local timezone', {
   skip: process.platform !== 'darwin',
 }, async () => {
   const epoch = 1801981149;
@@ -501,11 +505,15 @@ test('expiry parser accepts every LiteLLM timestamp form and rejects malformed v
     '2027-02-07T06:19:09Z', '2027-02-07T06:19:09.232Z', '2027-02-07T06:19:09.232000Z',
     '2027-02-07T06:19:09.232000+00:00', '2027-02-07T06:19:09+00:00', '2027-02-07T06:19:09+0000',
     '2027-02-07T08:19:09.5+02:00', '2027-02-06T22:19:09-08:00', '2027-02-07 06:19:09.232000+00:00',
+    '2027-02-07T12:04:09+05:45', '2027-02-07T02:49:09-03:30', '2027-02-07T06:19:09-00:00',
     '2027-02-07T06:19:09', '2027-02-07T06:19:09.123456789Z',
   ];
   const rejected = [
     '', 'never', '1801981149', '2027-02-07', '2027-02-07T06:19', '2027-13-45T06:19:09Z',
     '2027-02-07T06:19:09+00:00 trailing', '2027-02-07T06:19:09+2', '2027-02-07T06:19:09.Z', '\n2027-02-07T06:19:09Z',
+    '2027-02-31T06:19:09Z', '2027-02-29T06:19:09Z', '2028-04-31T06:19:09Z',
+    '2027-02-07T06:19:09+24:00', '2027-02-07T06:19:09+00:60', '2027-02-07T06:19:09-08:99',
+    '2027-02-07T24:19:09Z', '2027-02-07T06:60:09Z', '2027-02-07T06:19:60Z',
   ];
   const harness = `source "$1"; shift; for value in "$@"; do printf '%s\\n' "$(expiry_epoch "$value" || printf rejected)"; done`;
   for (const timezone of ['UTC', 'Asia/Jerusalem', 'America/Los_Angeles']) {
@@ -514,6 +522,8 @@ test('expiry parser accepts every LiteLLM timestamp form and rejects malformed v
     });
     assert.deepEqual((await run(accepted)).stdout.trim().split('\n'), accepted.map(() => String(epoch)), timezone);
     assert.deepEqual((await run(rejected)).stdout.trim().split('\n'), rejected.map(() => 'rejected'), timezone);
+    const leapDay = '2028-02-29T23:59:59Z';
+    assert.equal((await run([leapDay])).stdout.trim(), String(Date.parse(leapDay) / 1000), timezone);
   }
 });
 

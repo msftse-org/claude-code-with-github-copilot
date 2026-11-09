@@ -1062,14 +1062,27 @@ enroll() {
 expiry_epoch() {
   local pattern='^([0-9]{4}-[0-9]{2}-[0-9]{2})[T ]([0-9]{2}:[0-9]{2}:[0-9]{2})(\.[0-9]{1,9})?(Z|[+-][0-9]{2}:?[0-9]{2})?$'
   local zone
+  local timestamp
+  local parsed
   local seconds
+  local offset
   [[ "$1" =~ $pattern ]] || return 1
+  timestamp="${BASH_REMATCH[1]}T${BASH_REMATCH[2]}"
   zone="${BASH_REMATCH[4]:-Z}"
   [ "$zone" = 'Z' ] && zone='+0000'
   zone="${zone/:/}"
-  seconds="$(/bin/date -j -f '%Y-%m-%dT%H:%M:%S%z' "${BASH_REMATCH[1]}T${BASH_REMATCH[2]}$zone" '+%s' 2>/dev/null)" ||
+  [[ "$zone" =~ ^[+-](0[0-9]|1[0-9]|2[0-3])[0-5][0-9]$ ]] || return 1
+  parsed="$(TZ=UTC /bin/date -j -f '%Y-%m-%dT%H:%M:%S' "$timestamp" '+%s %Y-%m-%dT%H:%M:%S' 2>/dev/null)" ||
     return 1
-  [[ "$seconds" =~ ^[0-9]+$ ]] || return 1
+  # BSD date normalizes impossible calendar dates; require an exact round trip.
+  [ "${parsed#* }" = "$timestamp" ] || return 1
+  seconds="${parsed%% *}"
+  [[ "$seconds" =~ ^-?[0-9]+$ ]] || return 1
+  offset=$(( 10#${zone:1:2} * 3600 + 10#${zone:3:2} * 60 ))
+  case "$zone" in
+    +*) seconds=$(( seconds - offset )) ;;
+    -*) seconds=$(( seconds + offset )) ;;
+  esac
   printf '%s' "$seconds"
 }
 
