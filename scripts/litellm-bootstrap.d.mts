@@ -3,6 +3,13 @@ export const DEFAULT_MODELS: readonly string[];
 
 export function litellmOrigin(value: string): string;
 export function validateModels(models: readonly string[]): string[];
+export function parsePromptStorage(value?: string): boolean | undefined;
+export function configurePromptStorage(options: {
+  litellmUrl: string;
+  masterKey: string;
+  enabled: boolean;
+  fetcher?: typeof fetch;
+}): Promise<{ storeModelInDb: boolean; storePromptsInSpendLogs: boolean }>;
 
 export interface BootstrapOptions {
   litellmUrl: string;
@@ -12,6 +19,7 @@ export interface BootstrapOptions {
   sleep?: (milliseconds: number) => Promise<void>;
   attempts?: number;
   delayMs?: number;
+  storePromptsInSpendLogs?: boolean;
 }
 
 export interface BootstrapResult {

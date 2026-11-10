@@ -9,6 +9,9 @@ MINIMUM_CLAUDE_VERSION='2.1.296'
 INSTALL_PATH="$HOME/.local/share/ccgc/enterprise/ccgc-enterprise-macos.sh"
 PROFILE_PATH="$HOME/.local/share/ccgc/enterprise/profile.json"
 SETTINGS_PATH="$HOME/.claude/settings.json"
+CLAUDE_STATE_PATH="$HOME/.claude.json"
+GH_INSTALL_PATH="$HOME/.local/share/ccgc/enterprise/bin/gh"
+GH_VERSION='2.103.3'
 DESKTOP_PATH="$HOME/.local/share/ccgc/enterprise/desktop-gateway.json"
 DESKTOP_DATA_PATH="$HOME/Library/Application Support/Claude-3p"
 DESKTOP_ACTIVE_PATH=''
@@ -51,6 +54,10 @@ cleanup_temp() {
     "$TEMP_DIR/previous-3.json" \
     "$TEMP_DIR/previous-4.json" \
     "$TEMP_DIR/previous-5.json" \
+    "$TEMP_DIR/previous-6.json" \
+    "$TEMP_DIR/mcp-state.json" \
+    "$TEMP_DIR/mcp-probe.json" \
+    "$TEMP_DIR/mcp-body.json" \
     "$TEMP_DIR/models.json" \
     "$TEMP_DIR/probe.json" \
     "$TEMP_DIR/probe-body.json" \
@@ -69,6 +76,7 @@ CCGC enterprise macOS enrollment
 Usage:
   bash ccgc-enterprise-macos.sh
   bash ccgc-enterprise-macos.sh enroll [--gateway HTTPS_URL] [--no-browser]
+  bash ccgc-enterprise-macos.sh mcp-headers
   bash ccgc-enterprise-macos.sh token
   bash ccgc-enterprise-macos.sh models
   bash ccgc-enterprise-macos.sh configure
@@ -95,6 +103,14 @@ Enroll again only with a new personal key from Enterprise IT for credential,
 identity, workstation, or explicitly announced migration recovery.
 The doctor command checks local configuration, gateway health, model discovery,
 and a real bounded inference request without printing credentials.
+Every enrollment includes read-only GitHub MCP web search through LiteLLM.
+Setup reuses GitHub CLI (gh), or installs a verified official copy for this user
+if missing. A matching gh login is reused; otherwise setup opens GitHub CLI's
+browser login. This is separate from the Copilot device flow. If interrupted,
+rerun the same setup file: installed tools and completed logins are reused.
+Setup finishes only after both inference and MCP verification pass. No GitHub
+token is saved in Claude JSON files. Existing keys need IT to grant MCP access
+before setup can finish; configure includes MCP without a separate option.
 EOF
 }
 
@@ -507,7 +523,7 @@ preflight_fresh_start() {
 }
 
 preflight_enrollment_settings() {
-  preflight_fresh_start "$1" full enroll
+  preflight_fresh_start "$1" "${2:-full}" enroll
 }
 
 require_private_file() {
@@ -525,7 +541,7 @@ prepare_private_directories() {
   local directory
   local mode
   for directory in "$HOME/.local" "$HOME/.local/share" "$HOME/.local/share/ccgc" \
-    "$(dirname "$PROFILE_PATH")" "$(dirname "$SETTINGS_PATH")"; do
+    "$(dirname "$PROFILE_PATH")" "$(dirname "$SETTINGS_PATH")" "$(dirname "$GH_INSTALL_PATH")"; do
     [ ! -L "$directory" ] || fail 'configuration directories must not be symlinks'
     if [ ! -e "$directory" ]; then
       /bin/mkdir -m 700 "$directory"
@@ -857,6 +873,15 @@ report_backups() {
   fi
 }
 
+configuration_files_equal() {
+  if [ "$2" = "$CLAUDE_STATE_PATH" ]; then
+    # Claude's state can contain JSON null, which XML property lists cannot represent.
+    /usr/bin/cmp -s "$1" "$2"
+  else
+    [ "$(/usr/bin/plutil -convert xml1 -o - "$1")" = "$(/usr/bin/plutil -convert xml1 -o - "$2")" ]
+  fi
+}
+
 install_enrollment_files() {
   local tmp_dir="$1"
   local index
@@ -873,6 +898,11 @@ install_enrollment_files() {
     fi
   fi
 
+  if [ -f "$tmp_dir/mcp-state.json" ]; then
+    sources+=("$tmp_dir/mcp-state.json")
+    targets+=("$CLAUDE_STATE_PATH")
+  fi
+
   for (( index=0; index<${#sources[@]}; index++ )); do
     [ ! -L "${targets[$index]}" ] || return 1
     existed[index]=0
@@ -881,15 +911,15 @@ install_enrollment_files() {
         [ "$(file_stat '%u' '%u' "${targets[$index]}")" = "$(/usr/bin/id -u)" ] || return 1
       /bin/cp "${targets[$index]}" "$tmp_dir/previous-$index.json" || return 1
       existed[index]=1
-      if [ "$index" -eq 1 ] && [ "$SETTINGS_RESET" -eq 1 ]; then
+      if [ "$index" -eq 1 ] && { [ "$SETTINGS_RESET" -eq 1 ] ||
+        { [ -f "$tmp_dir/mcp-state.json" ] && ! configuration_files_equal "${sources[$index]}" "${targets[$index]}"; }; }; then
         SETTINGS_BACKUP_PATH="$(/usr/bin/mktemp \
           "$SETTINGS_PATH.ccgc-backup.$(/bin/date -u '+%Y%m%dT%H%M%SZ').XXXXXX")" || return 1
         /bin/cp "${targets[$index]}" "$SETTINGS_BACKUP_PATH" &&
           /bin/chmod 0600 "$SETTINGS_BACKUP_PATH" || return 1
-      elif [ "$index" -ge 3 ] && { [ "$DESKTOP_RESET" -eq 0 ] || [ "$index" -eq 5 ]; } &&
+      elif { [ "${targets[$index]}" = "$CLAUDE_STATE_PATH" ] || [ "$index" -ge 3 ]; } && { [ "$DESKTOP_RESET" -eq 0 ] || [ "$index" -eq 5 ] || [ "${targets[$index]}" = "$CLAUDE_STATE_PATH" ]; } &&
         ! json_is_empty_object "${targets[$index]}" &&
-        [ "$(/usr/bin/plutil -convert xml1 -o - "${sources[$index]}")" != \
-          "$(/usr/bin/plutil -convert xml1 -o - "${targets[$index]}")" ]; then
+        ! configuration_files_equal "${sources[$index]}" "${targets[$index]}"; then
         backup="$(/usr/bin/mktemp "${targets[$index]}.ccgc-backup.XXXXXX")" || return 1
         /bin/cp "${targets[$index]}" "$backup" && /bin/chmod 0600 "$backup" || return 1
       fi
@@ -1138,6 +1168,7 @@ open_github() {
 
 enroll() {
   local gateway="$DEFAULT_GATEWAY"
+  local enrollment_mode=full
   local api_key=''
   local tmp_dir
   local response
@@ -1183,7 +1214,15 @@ enroll() {
   require_macos_tools
   require_claude_version
   reset_fresh_start_state
-  preflight_enrollment_settings "$gateway"
+  # A completed enrollment for this gateway may be rerun without resetting
+  # personal preferences. Credential and identity checks still run below.
+  if [ -f "$PROFILE_PATH" ] && [ ! -L "$PROFILE_PATH" ] &&
+    [ "$(json_raw "$PROFILE_PATH" authMethod 2>/dev/null || true)" = litellmKey ] &&
+    [ "$(json_raw "$PROFILE_PATH" gateway 2>/dev/null || true)" = "$gateway" ]; then
+    enrollment_mode=routing
+  fi
+  preflight_enrollment_settings "$gateway" "$enrollment_mode"
+  ensure_github_cli
   api_key="$(read_litellm_key)"
 
   tmp_dir="$(/usr/bin/mktemp -d "${TMPDIR:-/tmp}/ccgc-enroll.XXXXXX")"
@@ -1224,6 +1263,7 @@ enroll() {
   [ "$models_json" != '[' ] || fail 'LiteLLM has no approved Claude models available to this key'
   models_json="${models_json}]"
 
+  ensure_github_cli_login "$expected_login"
   install_self
   request_json GET "$gateway/credentials/user_connections" "$api_key" '' "$tmp_dir/connections.json"
   index=0
@@ -1309,9 +1349,12 @@ enroll() {
   verify_litellm_profile "$gateway" "$api_key" "$tmp_dir/profile.json" "$tmp_dir" "$tmp_dir/verified-profile.json"
   default_model="$(json_value "$tmp_dir/verified-profile.json" models.0)"
   verify_gateway_access "$gateway" "$api_key" "$default_model" "$tmp_dir"
-  prepare_settings "$gateway" "$default_model" "$tmp_dir/settings.json" full
+  prepare_settings "$gateway" "$default_model" "$tmp_dir/settings.json" "$enrollment_mode"
   prepare_desktop_config "$gateway" "$tmp_dir/desktop.json"
-  prepare_desktop_install "$tmp_dir" full
+  prepare_desktop_install "$tmp_dir" "$enrollment_mode"
+  verify_github_mcp "$gateway" "$api_key" "$tmp_dir"
+  /usr/bin/plutil -insert githubMcpEnabled -bool true "$tmp_dir/verified-profile.json"
+  prepare_github_mcp "$gateway" "$tmp_dir"
 
   service="ccgc.remote.$(json_value "$tmp_dir/verified-profile.json" keychainId)"
   previous_key="$(keychain_get "$service" || true)"
@@ -1408,6 +1451,11 @@ configure() {
   prepare_desktop_config "$gateway" "$tmp_dir/desktop.json"
   prepare_desktop_install "$tmp_dir" routing
   /bin/cp "$PROFILE_PATH" "$tmp_dir/verified-profile.json"
+  ensure_github_cli_login "$(json_value "$PROFILE_PATH" githubLogin)"
+  verify_github_mcp "$gateway" "$(direct_profile_key)" "$tmp_dir"
+  /usr/bin/plutil -remove githubMcpEnabled "$tmp_dir/verified-profile.json" >/dev/null 2>&1 || true
+  /usr/bin/plutil -insert githubMcpEnabled -bool true "$tmp_dir/verified-profile.json"
+  prepare_github_mcp "$gateway" "$tmp_dir"
   /bin/mkdir -p "$(dirname "$SETTINGS_PATH")"
   install_enrollment_files "$tmp_dir" || fail 'could not install Claude configuration'
   printf 'Claude Code configuration updated.\n'
@@ -1491,6 +1539,11 @@ doctor() {
     fail 'enterprise profile models changed; run configure to refresh them'
   verify_gateway_access "$gateway" "$api_key" "$default_model" "$tmp_dir"
   verify_desktop_config "$gateway"
+  [ "$(json_raw "$PROFILE_PATH" githubMcpEnabled 2>/dev/null || true)" = true ] ||
+    fail 'GitHub MCP configuration is missing; run configure'
+  [ "$(json_value "$CLAUDE_STATE_PATH" mcpServers.github.url)" = "$gateway/github/mcp" ] ||
+    fail 'GitHub MCP is not routed through the enrolled gateway; run configure'
+  verify_github_mcp "$gateway" "$api_key" "$tmp_dir"
 
   printf 'CCGC doctor passed.\n'
   printf 'Claude Code: %s (minimum supported: %s)\n' \
@@ -1505,11 +1558,202 @@ doctor() {
   printf 'Local settings, Keychain, binding, model discovery, output limit, and inference are healthy.\n'
 }
 
+# The GitHub CLI token is separate from LiteLLM's server-side Copilot connection.
+# No token is written to the profile, settings, or command arguments.
+github_cli_path() {
+  if command -v gh >/dev/null 2>&1; then
+    command -v gh
+    return 0
+  fi
+  local candidate
+  for candidate in /opt/homebrew/bin/gh /usr/local/bin/gh "$GH_INSTALL_PATH"; do
+    if [ -x "$candidate" ] && [ ! -d "$candidate" ]; then
+      printf '%s' "$candidate"
+      return 0
+    fi
+  done
+  return 1
+}
+
+github_cli() {
+  local executable
+  executable="$(github_cli_path)" || fail 'GitHub CLI is missing; rerun setup'
+  "$executable" "$@"
+}
+
+# Pin official cli/cli release assets and their SHA-256 digests. No package
+# manager, sudo, shell startup changes, or downloaded install script is needed.
+github_cli_archive() {
+  case "$(uname -m)" in
+    arm64) printf 'gh_%s_macOS_arm64.zip %s\n' "$GH_VERSION" 'd700207eae9ae98fe2b89535c2c087c07823d4628c56364695a5a07ef311c062' ;;
+    x86_64) printf 'gh_%s_macOS_amd64.zip %s\n' "$GH_VERSION" 'a2f86418f4350ae6e9ec60d5000bdf7665728436946a97fc27fe50e6ae752682' ;;
+    *) fail 'automatic GitHub CLI installation supports Apple Silicon and Intel Macs' ;;
+  esac
+}
+
+download_github_cli() {
+  /usr/bin/curl --fail --silent --show-error --location --proto '=https' --proto-redir '=https' \
+    --connect-timeout 10 --max-time 180 --max-filesize 104857600 --output "$2" "$1"
+}
+
+install_github_cli() (
+  # A subshell gives the download its own cleanup traps without replacing
+  # enrollment's credential/configuration cleanup. Install only after validation.
+  [ "$(uname -s)" = Darwin ] || fail 'automatic GitHub CLI installation supports macOS only'
+  prepare_private_directories
+  [ ! -L "$GH_INSTALL_PATH" ] || fail 'managed GitHub CLI must not be a symlink'
+  if [ -e "$GH_INSTALL_PATH" ]; then
+    [ -f "$GH_INSTALL_PATH" ] && [ "$(file_stat '%u' '%u' "$GH_INSTALL_PATH")" = "$(/usr/bin/id -u)" ] ||
+      fail 'managed GitHub CLI must be a regular file owned by the current user'
+  fi
+  local spec asset expected actual version
+  spec="$(github_cli_archive)" || exit 1
+  asset="${spec%% *}"
+  expected="${spec#* }"
+  gh_install_staging="$(/usr/bin/mktemp -d "$(dirname "$GH_INSTALL_PATH")/.gh-install.XXXXXX")" ||
+    fail 'could not create the GitHub CLI installation directory'
+  trap '/bin/rm -f "$gh_install_staging/archive.zip" "$gh_install_staging/gh" "$gh_install_staging/LICENSE"; /bin/rmdir "$gh_install_staging" 2>/dev/null || true' EXIT
+  trap 'exit 130' INT
+  trap 'exit 143' TERM
+  printf 'Installing official GitHub CLI %s for this user...\n' "$GH_VERSION" >&2
+  download_github_cli "https://github.com/cli/cli/releases/download/v$GH_VERSION/$asset" "$gh_install_staging/archive.zip" ||
+    fail 'GitHub CLI download did not finish; check your connection and rerun the same setup file'
+  actual="$(/usr/bin/shasum -a 256 "$gh_install_staging/archive.zip")" || fail 'could not verify GitHub CLI download'
+  [ "${actual%% *}" = "$expected" ] || fail 'GitHub CLI checksum mismatch; no executable was installed; rerun setup'
+  /usr/bin/unzip -p "$gh_install_staging/archive.zip" "${asset%.zip}/bin/gh" >"$gh_install_staging/gh" ||
+    fail 'GitHub CLI archive is invalid; rerun setup'
+  /usr/bin/unzip -p "$gh_install_staging/archive.zip" "${asset%.zip}/LICENSE" >"$gh_install_staging/LICENSE" ||
+    fail 'GitHub CLI archive has no license; rerun setup'
+  /bin/chmod 0700 "$gh_install_staging/gh" || fail 'could not prepare GitHub CLI executable'
+  version="$("$gh_install_staging/gh" --version)" || fail 'GitHub CLI could not run; contact IT or rerun setup after resolving the reported error'
+  case "$version" in "gh version $GH_VERSION "*) ;; *) fail 'GitHub CLI version did not match the verified release' ;; esac
+  /bin/mv "$gh_install_staging/LICENSE" "$(dirname "$GH_INSTALL_PATH")/gh-LICENSE" || fail 'could not install GitHub CLI license'
+  /bin/mv "$gh_install_staging/gh" "$GH_INSTALL_PATH" || fail 'could not install GitHub CLI; rerun setup'
+  printf 'GitHub CLI installed. Setup will find it automatically on future runs.\n' >&2
+)
+
+ensure_github_cli() {
+  if github_cli_path >/dev/null; then return 0; fi
+  install_github_cli || fail 'GitHub CLI installation did not complete; rerun the same setup file to continue'
+  github_cli_path >/dev/null || fail 'installed GitHub CLI could not be found; rerun setup'
+}
+
+github_cli_token() {
+  local expected="$1"
+  local actual
+  local credential
+  github_cli_path >/dev/null || fail 'GitHub CLI is missing; rerun setup to install it'
+  credential="$(github_cli auth token --hostname github.com 2>/dev/null)" ||
+    fail 'GitHub CLI is not signed in; run gh auth login --hostname github.com --web'
+  [[ "$credential" =~ ^[A-Za-z0-9_]+$ ]] && [ "${#credential}" -ge 20 ] && [ "${#credential}" -le 512 ] || fail 'GitHub CLI returned an invalid token'
+  actual="$(github_cli api --hostname github.com user --jq .login 2>/dev/null)" ||
+    fail 'could not verify the GitHub CLI account'
+  [ "$(printf '%s' "$actual" | lowercase)" = "$(printf '%s' "$expected" | lowercase)" ] ||
+    fail 'GitHub CLI account differs from the enrolled employee; use gh auth switch --hostname github.com --user YOUR_LOGIN'
+  printf '%s' "$credential"
+}
+
+ensure_github_cli_login() {
+  ensure_github_cli
+  if ! github_cli auth token --hostname github.com >/dev/null 2>&1; then
+    printf 'GitHub web search needs a GitHub CLI login as %s. This is separate from Copilot authorization.\n' "$1"
+    github_cli auth login --hostname github.com --git-protocol https --web || fail 'GitHub CLI sign-in was not completed; rerun the same setup file to continue'
+  fi
+  github_cli_token "$1" >/dev/null
+}
+
+mcp_headers() {
+  local gateway
+  local key
+  local github_token
+  require_private_file "$PROFILE_PATH" 'enterprise profile'
+  require_direct_profile
+  [ "$(json_raw "$PROFILE_PATH" githubMcpEnabled 2>/dev/null || true)" = true ] ||
+    fail 'GitHub MCP is not enabled in this profile; run configure'
+  gateway="$(json_value "$PROFILE_PATH" gateway)"
+  validate_gateway "$gateway"
+  # Claude supplies these at connect time. Refuse a copied helper at a different URL.
+  [ "${CLAUDE_CODE_MCP_SERVER_URL-}" = "$gateway/github/mcp" ] ||
+    fail 'MCP credential helper must be used only with the enrolled gateway GitHub endpoint'
+  [ "${CLAUDE_CODE_MCP_SERVER_NAME-}" = github ] || fail 'unexpected MCP server name'
+  key="$(token)"
+  github_token="$(github_cli_token "$(json_value "$PROFILE_PATH" githubLogin)")"
+  printf '{"x-litellm-api-key":"Bearer %s","x-mcp-github-authorization":"Bearer %s"}\n' "$key" "$github_token"
+}
+
+append_permission() {
+  local file="$1" path="$2" rule="$3" index=0 existing
+  if ! /usr/bin/plutil -type "$path" "$file" >/dev/null 2>&1; then
+    /usr/bin/plutil -insert "$path" -array "$file"
+  fi
+  [ "$(/usr/bin/plutil -type "$path" "$file")" = array ] || fail "$path must be an array"
+  while existing="$(json_raw "$file" "$path.$index" 2>/dev/null)"; do
+    [ "$existing" != "$rule" ] || return 0
+    index=$(( index + 1 ))
+  done
+  /usr/bin/plutil -insert "$path.$index" -string "$rule" "$file"
+}
+
+prepare_github_mcp() {
+  local gateway="$1" tmp_dir="$2"
+  local output="$tmp_dir/mcp-state.json"
+  local helper
+  [ ! -L "$CLAUDE_STATE_PATH" ] || fail 'Claude user configuration must not be a symlink'
+  if [ -e "$CLAUDE_STATE_PATH" ]; then
+    [ -f "$CLAUDE_STATE_PATH" ] && [ "$(file_stat '%u' '%u' "$CLAUDE_STATE_PATH")" = "$(/usr/bin/id -u)" ] ||
+      fail 'Claude user configuration must be a regular file owned by the current user'
+    valid_json "$CLAUDE_STATE_PATH" || fail 'Claude user configuration is invalid JSON'
+    /usr/bin/plutil -convert json -o "$output" "$CLAUDE_STATE_PATH"
+  else
+    printf '{"mcpServers":{}}\n' >"$output"
+  fi
+  # plutil cannot edit a bare {}.
+  json_is_empty_object "$output" && printf '{"mcpServers":{}}\n' >"$output"
+  if ! /usr/bin/plutil -type mcpServers "$output" >/dev/null 2>&1; then
+    /usr/bin/plutil -insert mcpServers -dictionary "$output"
+  fi
+  [ "$(/usr/bin/plutil -type mcpServers "$output")" = dictionary ] || fail 'mcpServers must be an object'
+  /usr/bin/plutil -remove mcpServers.github "$output" >/dev/null 2>&1 || true
+  /usr/bin/plutil -insert mcpServers.github -dictionary "$output"
+  /usr/bin/plutil -insert mcpServers.github.type -string http "$output"
+  /usr/bin/plutil -insert mcpServers.github.url -string "$gateway/github/mcp" "$output"
+  helper="$(shell_quote /bin/bash) $(shell_quote "$INSTALL_PATH") mcp-headers"
+  /usr/bin/plutil -insert mcpServers.github.headersHelper -string "$helper" "$output"
+  append_permission "$tmp_dir/settings.json" permissions.allow 'mcp__github__github-web_search'
+  append_permission "$tmp_dir/settings.json" permissions.deny WebSearch
+  /bin/chmod 0600 "$output"
+}
+
+verify_github_mcp() {
+  local gateway="$1" key="$2" tmp_dir="$3"
+  local github_token code
+  local expected
+  expected="$(json_raw "$tmp_dir/verified-profile.json" githubLogin 2>/dev/null || json_value "$PROFILE_PATH" githubLogin)"
+  github_token="$(github_cli_token "$expected")"
+  printf '{"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}\n' >"$tmp_dir/mcp-body.json"
+  code="$(printf 'header = "x-litellm-api-key: Bearer %s"\nheader = "x-mcp-github-authorization: Bearer %s"\n' "$key" "$github_token" |
+    /usr/bin/curl --silent --show-error --proto '=https' --connect-timeout 10 --max-time 45 \
+      --max-filesize 1048576 --request POST --url "$gateway/github/mcp" \
+      --header 'Content-Type: application/json' --header 'Accept: application/json, text/event-stream' \
+      --data-binary "@$tmp_dir/mcp-body.json" --config - --output "$tmp_dir/mcp-probe.json" --write-out '%{http_code}')" ||
+    fail 'GitHub MCP connection failed'
+  [ "$code" = 200 ] || fail "GitHub MCP returned HTTP $code; ask IT to check this key's MCP route and server access"
+  if ! valid_json "$tmp_dir/mcp-probe.json"; then
+    /usr/bin/sed -n 's/^data: //p' "$tmp_dir/mcp-probe.json" >"$tmp_dir/mcp-body.json"
+    /bin/mv "$tmp_dir/mcp-body.json" "$tmp_dir/mcp-probe.json"
+  fi
+  [ "$(json_raw "$tmp_dir/mcp-probe.json" result.tools.0.name 2>/dev/null || true)" = github-web_search ] &&
+    ! json_raw "$tmp_dir/mcp-probe.json" result.tools.1.name >/dev/null 2>&1 ||
+    fail 'GitHub MCP must expose exactly github-web_search; check the LiteLLM tool allowlist and GitHub entitlement'
+  printf 'GitHub MCP verified: read-only web search through the enterprise gateway.\n'
+}
+
 main() {
   local command="${1:-enroll}"
   if [ "$#" -gt 0 ]; then shift; fi
   case "$command" in
     enroll|setup) enroll "$@" ;;
+    mcp-headers) [ "$#" -eq 0 ] || fail 'mcp-headers does not accept options'; mcp_headers ;;
     token) [ "$#" -eq 0 ] || fail 'token does not accept options'; token ;;
     models) [ "$#" -eq 0 ] || fail 'models does not accept options'; models ;;
     configure) [ "$#" -eq 0 ] || fail 'configure does not accept options'; configure ;;

@@ -64,6 +64,30 @@ function fakeLiteLLM({ credential, deployments = [], advertiseFrom = 1 }: {
 
 const noWait = async () => {};
 
+test('bootstrap applies an explicit logging policy after model discovery', async () => {
+  const litellm = fakeLiteLLM({});
+  const settings: Record<string, boolean> = {};
+  let writes = 0;
+  const fetcher: typeof fetch = async (input, init) => {
+    const url = new URL(String(input));
+    if (url.pathname === '/config/update') {
+      assert.ok(litellm.calls.some(call => call.url.pathname === '/model/new'));
+      Object.assign(settings, JSON.parse(String(init?.body)).general_settings);
+      writes += 1;
+      return json({ message: 'updated' });
+    }
+    if (url.pathname === '/config/field/info') {
+      const field = url.searchParams.get('field_name')!;
+      return json({ field_name: field, field_value: settings[field] });
+    }
+    return litellm.fetcher(input, init);
+  };
+  await bootstrapLiteLLM({ litellmUrl, masterKey, models: ['claude-sonnet-5.5'], fetcher,
+    storePromptsInSpendLogs: false, sleep: noWait });
+  assert.equal(writes, 1);
+  assert.deepEqual(settings, { store_model_in_db: true, store_prompts_in_spend_logs: false });
+});
+
 test('bootstrap creates the per-user Copilot credential and only missing routes, then waits for discovery', async () => {
   const litellm = fakeLiteLLM({ deployments: [copilotRoute('claude-sonnet-5.5')], advertiseFrom: 3 });
   const result = await bootstrapLiteLLM({
@@ -89,6 +113,8 @@ test('bootstrap creates the per-user Copilot credential and only missing routes,
     assert.equal(call.url.origin, litellmUrl);
     assert.equal(call.authorization, `Bearer ${masterKey}`);
   }
+  assert.equal(litellm.calls.some(call => call.url.pathname.startsWith('/config/')), false,
+    'omitting the logging flag must preserve the existing policy');
 });
 
 test('bootstrap provisions a fresh LiteLLM that has no models yet', async () => {
