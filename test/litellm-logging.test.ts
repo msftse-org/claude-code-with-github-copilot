@@ -11,9 +11,12 @@ const litellmUrl = 'https://litellm.example';
 const masterKey = `sk-${'m'.repeat(32)}`;
 const subscription = '00000000-0000-4000-8000-000000000001';
 
-function fakeConfig({ mismatch = false, failWrite = false } = {}) {
+function fakeConfig({ mismatch = false, failWrite = false, staleReads = 0, unsetReads = 0 } = {}) {
   const db: Record<string, unknown> = { unrelated_setting: 'preserve', store_prompts_in_spend_logs: false };
   const patches: unknown[] = [];
+  let stale = staleReads;
+  let unset = unsetReads;
+  let readbacks = 0;
   const fetcher: typeof fetch = async (input, init) => {
     const url = new URL(String(input));
     assert.equal(url.origin, litellmUrl);
@@ -27,10 +30,19 @@ function fakeConfig({ mismatch = false, failWrite = false } = {}) {
       return Response.json({ message: 'Config updated successfully' });
     }
     assert.equal(url.pathname, '/config/field/info');
+    readbacks += 1;
     const field = url.searchParams.get('field_name')!;
+    if (unset > 0) {
+      unset -= 1;
+      return Response.json({ detail: 'Field is not available yet.' }, { status: 400 });
+    }
+    if (stale > 0) {
+      stale -= 1;
+      return Response.json({ field_name: field, field_value: false });
+    }
     return Response.json({ field_name: field, field_value: mismatch ? null : db[field] });
   };
-  return { db, patches, fetcher };
+  return { db, patches, fetcher, get readbacks() { return readbacks; } };
 }
 
 test('prompt logging toggles and reruns preserve other settings and keep DB model storage enabled', async () => {
@@ -45,9 +57,22 @@ test('prompt logging toggles and reruns preserve other settings and keep DB mode
 
 test('logging fails if the admin write is denied or configuration readback differs', async () => {
   for (const options of [{ failWrite: true }, { mismatch: true }]) {
-    await assert.rejects(configurePromptStorage({ litellmUrl, masterKey, enabled: true, fetcher: fakeConfig(options).fetcher }),
-      /HTTP 403|did not confirm/);
+    const fake = fakeConfig(options);
+    await assert.rejects(configurePromptStorage({
+      litellmUrl, masterKey, enabled: true, fetcher: fake.fetcher, attempts: 2, sleep: async () => {},
+    }), /HTTP 403|did not confirm/);
+    if ('mismatch' in options) assert.equal(fake.readbacks, 4);
   }
+});
+
+test('logging readback retries stale settings and temporarily unavailable fields', async () => {
+  const fake = fakeConfig({ staleReads: 1, unsetReads: 1 });
+  let waits = 0;
+  await configurePromptStorage({
+    litellmUrl, masterKey, enabled: true, fetcher: fake.fetcher, attempts: 3,
+    sleep: async () => { waits += 1; },
+  });
+  assert.equal(waits, 1);
 });
 
 test('feature flag distinguishes omitted, enabled and disabled, and rejects ambiguous values', () => {

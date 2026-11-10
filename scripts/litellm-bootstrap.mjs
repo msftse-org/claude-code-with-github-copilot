@@ -35,7 +35,9 @@ export function validateModels(models) {
   return [...new Set(models)];
 }
 
-async function request(fetcher, origin, masterKey, path, { method = 'GET', body, allowNotFound = false } = {}) {
+async function request(fetcher, origin, masterKey, path, {
+  method = 'GET', body, allowNotFound = false, retryableStatuses = [],
+} = {}) {
   let response;
   try {
     response = await fetcher(new URL(path, origin), {
@@ -54,6 +56,7 @@ async function request(fetcher, origin, masterKey, path, { method = 'GET', body,
   }
   if (allowNotFound && response.status === 404) return undefined;
   const text = await response.text();
+  if (!response.ok && retryableStatuses.includes(response.status)) return undefined;
   let value;
   try {
     value = text ? JSON.parse(text) : {};
@@ -157,7 +160,15 @@ function validateMasterKey(masterKey) {
   }
 }
 
-export async function configurePromptStorage({ litellmUrl, masterKey, enabled, fetcher = fetch }) {
+export async function configurePromptStorage({
+  litellmUrl,
+  masterKey,
+  enabled,
+  fetcher = fetch,
+  sleep = milliseconds => new Promise(resolve => setTimeout(resolve, milliseconds)),
+  attempts = 24,
+  delayMs = 5_000,
+}) {
   const origin = litellmOrigin(litellmUrl);
   validateMasterKey(masterKey);
   if (typeof enabled !== 'boolean') fail('Prompt storage must be an explicit boolean.');
@@ -167,11 +178,20 @@ export async function configurePromptStorage({ litellmUrl, masterKey, enabled, f
   await request(fetcher, origin, masterKey, '/config/update', {
     method: 'POST', body: { general_settings: settings },
   });
-  for (const [field, expected] of Object.entries(settings)) {
-    const result = await request(fetcher, origin, masterKey, `/config/field/info?field_name=${field}`);
-    if (result.field_name !== field || result.field_value !== expected) {
-      fail(`LiteLLM did not confirm ${field}; check Admin Settings before sending requests.`);
+  const pending = new Set(Object.keys(settings));
+  for (let attempt = 1; attempt <= attempts; attempt += 1) {
+    for (const [field, expected] of Object.entries(settings)) {
+      const result = await request(fetcher, origin, masterKey, `/config/field/info?field_name=${field}`, {
+        retryableStatuses: [400, 404, 429, 500, 502, 503, 504],
+      });
+      if (result?.field_name === field && result.field_value === expected) pending.delete(field);
+      else pending.add(field);
     }
+    if (!pending.size) break;
+    if (attempt < attempts) await sleep(delayMs);
+  }
+  if (pending.size) {
+    fail(`LiteLLM did not confirm ${[...pending].join(', ')}; check Admin Settings before sending requests.`);
   }
   return { storeModelInDb: true, storePromptsInSpendLogs: enabled };
 }
@@ -195,7 +215,9 @@ export async function bootstrapLiteLLM({
   await waitForModels(call, approved, { attempts, delayMs, sleep });
   // Omission preserves existing UI/DB policy; a fresh gateway defaults to off.
   if (storePromptsInSpendLogs !== undefined) {
-    await configurePromptStorage({ litellmUrl: origin, masterKey, enabled: storePromptsInSpendLogs, fetcher });
+    await configurePromptStorage({
+      litellmUrl: origin, masterKey, enabled: storePromptsInSpendLogs, fetcher, sleep, attempts, delayMs,
+    });
   }
   return { createdCredential, createdModels, models: approved };
 }
