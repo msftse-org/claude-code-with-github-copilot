@@ -9,6 +9,9 @@ export function configurePromptStorage(options: {
   masterKey: string;
   enabled: boolean;
   fetcher?: typeof fetch;
+  sleep?: (milliseconds: number) => Promise<void>;
+  attempts?: number;
+  delayMs?: number;
 }): Promise<{ storeModelInDb: boolean; storePromptsInSpendLogs: boolean }>;
 
 export interface BootstrapOptions {
