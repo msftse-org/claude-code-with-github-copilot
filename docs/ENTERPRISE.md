@@ -63,7 +63,8 @@ for two compute nodes, and at least two `D4` workload profile nodes.
   address with `--state-client-ip`.
 - Node.js 24 and a checkout of this repository
 - GitHub CLI signed in as an administrator of the repository that runs the
-  employee-access workflow
+  employee-access workflow (`npm run access` needs it only to read
+  `LITELLM_URL` when you don't pass `--gateway`)
 
 ## Deploy or update
 
@@ -184,13 +185,40 @@ gh workflow run ccgc-employee-access.yml -f action=enroll -f github_username=<lo
 gh workflow run ccgc-employee-access.yml -f action=revoke -f github_username=<login>
 ```
 
+### From your computer
+
+`npm run access` does the same from a checkout of this repository, without
+GitHub Actions:
+
+```bash
+npm run access -- enroll <login>
+npm run access -- revoke <login>
+```
+
+It reads the master key from the secrets file that `deploy.mjs` wrote
+(`~/.config/ccgc/<subscription-id>/<prefix>.json`) and the gateway from the
+`ccgc-admin` `LITELLM_URL` variable. Enroll prints the key in your terminal
+and writes the employee setup file to `dist/`. Options:
+
+- `--prefix`, `--subscription`, or `--secrets-file` choose the secrets file
+  when you have several deployments.
+- `--gateway https://<litellm-host>` skips GitHub.
+- `--installer <path>` writes the setup file elsewhere.
+
+Another administrator needs a copy of the secrets file from your password
+manager, saved with mode `0600`. Local runs leave no Actions run history, but
+the users and keys appear in the LiteLLM UI as usual.
+
+### What enroll and revoke do
+
 - **Enroll** creates or reuses the LiteLLM user that matches the GitHub
   account ID and issues a 90-day key. The key covers the Claude models
   LiteLLM currently advertises and is limited to inference, model-info, and
-  own-connection routes. The run summary shows the key and the employee's
-  setup command, and links the setup file built for your gateway. Send the
-  key and the file to the employee privately; anyone who can read the run can
-  use the key.
+  own-connection routes. The run summary, or your terminal for local runs,
+  shows the key and the employee's setup command, along with the setup file
+  built for your gateway. Send the key and the file to the employee
+  privately. Anyone who can read the run or your terminal output can use the
+  key.
 - **Renew** by enrolling again. Earlier keys stay valid until they expire or
   are deleted on the LiteLLM UI's **Virtual Keys** page.
 - **Revoke** disconnects the employee's GitHub connection and deletes the
