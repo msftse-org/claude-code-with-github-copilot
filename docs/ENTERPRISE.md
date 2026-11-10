@@ -149,6 +149,13 @@ terraform -chdir=infra/terraform init -backend-config=storage_account_name=<stat
 terraform -chdir=infra/terraform untaint azapi_resource.postgres
 ```
 
+## Request and response logging
+
+Use `--store-prompts-in-spend-logs true|false` during deployment, or change an
+existing gateway with `npm run logging --`. Omission during deployment preserves
+the current policy; new gateways default to off. See [commands, verification,
+and retention](LOGGING.md).
+
 ## Employee setup file
 
 The repository's `scripts/ccgc-enterprise-macos.sh` has no gateway built in.
@@ -176,6 +183,9 @@ LiteLLM URL changes, issue new keys and have employees enroll again with the
 rebuilt file.
 
 ## Enroll and revoke employees
+
+Every enrollment includes GitHub MCP web search. See [MCP setup and existing-key
+migration](GITHUB-MCP.md) before updating previously enrolled employees.
 
 Run **Actions > CCGC employee access** from `main`, or use the CLI:
 

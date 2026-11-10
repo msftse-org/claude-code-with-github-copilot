@@ -35,7 +35,9 @@ export function validateModels(models) {
   return [...new Set(models)];
 }
 
-async function request(fetcher, origin, masterKey, path, { method = 'GET', body, allowNotFound = false } = {}) {
+async function request(fetcher, origin, masterKey, path, {
+  method = 'GET', body, allowNotFound = false, retryableStatuses = [],
+} = {}) {
   let response;
   try {
     response = await fetcher(new URL(path, origin), {
@@ -54,6 +56,7 @@ async function request(fetcher, origin, masterKey, path, { method = 'GET', body,
   }
   if (allowNotFound && response.status === 404) return undefined;
   const text = await response.text();
+  if (!response.ok && retryableStatuses.includes(response.status)) return undefined;
   let value;
   try {
     value = text ? JSON.parse(text) : {};
@@ -144,6 +147,55 @@ async function waitForModels(call, models, { attempts, delayMs, sleep }) {
   fail(`LiteLLM did not advertise these models: ${missing.join(', ')}.`);
 }
 
+export function parsePromptStorage(value) {
+  if (value === undefined) return undefined;
+  if (value === 'true') return true;
+  if (value === 'false') return false;
+  fail('--store-prompts-in-spend-logs must be true or false.');
+}
+
+function validateMasterKey(masterKey) {
+  if (typeof masterKey !== 'string' || !/^sk-[A-Za-z0-9._-]{16,512}$/.test(masterKey)) {
+    fail('The LiteLLM master key is missing or invalid.');
+  }
+}
+
+export async function configurePromptStorage({
+  litellmUrl,
+  masterKey,
+  enabled,
+  fetcher = fetch,
+  sleep = milliseconds => new Promise(resolve => setTimeout(resolve, milliseconds)),
+  attempts = 24,
+  delayMs = 5_000,
+}) {
+  const origin = litellmOrigin(litellmUrl);
+  validateMasterKey(masterKey);
+  if (typeof enabled !== 'boolean') fail('Prompt storage must be an explicit boolean.');
+  const settings = { store_model_in_db: true, store_prompts_in_spend_logs: enabled };
+  // LiteLLM merges only these fields into the PostgreSQL general_settings row.
+  // Do not send a copy of the full config: it may contain unrelated secrets.
+  await request(fetcher, origin, masterKey, '/config/update', {
+    method: 'POST', body: { general_settings: settings },
+  });
+  const pending = new Set(Object.keys(settings));
+  for (let attempt = 1; attempt <= attempts; attempt += 1) {
+    for (const [field, expected] of Object.entries(settings)) {
+      const result = await request(fetcher, origin, masterKey, `/config/field/info?field_name=${field}`, {
+        retryableStatuses: [400, 404, 429, 500, 502, 503, 504],
+      });
+      if (result?.field_name === field && result.field_value === expected) pending.delete(field);
+      else pending.add(field);
+    }
+    if (!pending.size) break;
+    if (attempt < attempts) await sleep(delayMs);
+  }
+  if (pending.size) {
+    fail(`LiteLLM did not confirm ${[...pending].join(', ')}; check Admin Settings before sending requests.`);
+  }
+  return { storeModelInDb: true, storePromptsInSpendLogs: enabled };
+}
+
 export async function bootstrapLiteLLM({
   litellmUrl,
   masterKey,
@@ -152,15 +204,20 @@ export async function bootstrapLiteLLM({
   sleep = milliseconds => new Promise(resolve => setTimeout(resolve, milliseconds)),
   attempts = 24,
   delayMs = 5_000,
+  storePromptsInSpendLogs,
 }) {
   const origin = litellmOrigin(litellmUrl);
-  if (typeof masterKey !== 'string' || !/^sk-[A-Za-z0-9._-]{16,512}$/.test(masterKey)) {
-    fail('The LiteLLM master key is missing or invalid.');
-  }
+  validateMasterKey(masterKey);
   const approved = validateModels([...models]);
   const call = (path, options) => request(fetcher, origin, masterKey, path, options);
   const createdCredential = await ensureCredential(call);
   const createdModels = await ensureModels(call, approved);
   await waitForModels(call, approved, { attempts, delayMs, sleep });
+  // Omission preserves existing UI/DB policy; a fresh gateway defaults to off.
+  if (storePromptsInSpendLogs !== undefined) {
+    await configurePromptStorage({
+      litellmUrl: origin, masterKey, enabled: storePromptsInSpendLogs, fetcher, sleep, attempts, delayMs,
+    });
+  }
   return { createdCredential, createdModels, models: approved };
 }

@@ -460,3 +460,7 @@ bash "$HOME/.local/share/ccgc/enterprise/ccgc-enterprise-macos.sh" configure
 - Do not enable provider fallback, response caching, inference retries, hooks,
   or payload logging without a separate security review.
 - Treat unexpected identity, model, or binding changes as an enterprise IT event.
+
+## GitHub web search
+
+Every enrollment includes GitHub MCP web search. Setup reuses GitHub CLI (`gh`) or installs a verified official copy for your user automatically. A matching existing GitHub CLI login is reused; otherwise setup starts a separate GitHub CLI sign-in. If setup stops, rerun the same file: completed installation and logins are reused, and successful enrollment requires both inference and MCP verification. See [GitHub MCP setup](../GITHUB-MCP.md). Restart Claude Code and check `/mcp` after setup.
