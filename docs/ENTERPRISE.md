@@ -38,13 +38,21 @@ Resource group `rg-<prefix>-enterprise`:
 | Private endpoint | `pe-<prefix>-kv` | Key Vault access from the VNet; Azure adds its network interface |
 | Private DNS zone | `privatelink.vaultcore.azure.net` | Linked to the VNet; resolves the Key Vault private endpoint |
 | Role assignment | Key Vault Secrets User | The managed identity, on the vault |
-| Container Apps environment | `cae-<prefix>-enterprise` | VNet-integrated, external ingress, zone-redundant; Consumption profile plus a dedicated `D4` profile (4 vCPU and 16 GiB per node, 2-6 nodes) that runs LiteLLM; logs and metrics go to Log Analytics |
+| Container Apps environment | `cae-<prefix>-enterprise` | VNet-integrated and internal (a private IP in `snet-container-apps`, no public ingress), zone-redundant; Consumption profile plus a dedicated `D4` profile (4 vCPU and 16 GiB per node, 2-6 nodes) that runs LiteLLM; logs and metrics go to Log Analytics |
+| Private DNS zone | The environment's default domain, `<unique-name>.<region>.azurecontainerapps.io` | Linked to the VNet; a wildcard `*` A record resolves every app, including the gateway URL, to the environment's private IP |
 | Container app | `ca-<prefix>-litellm` | Official `ghcr.io/berriai/litellm:v1.108.3` pinned by digest, 2 CPU / 4 GiB, 2-10 replicas (scales out at 32 concurrent requests), HTTPS ingress, Key Vault secret references, health probes |
 
 Azure Container Apps creates and manages one more resource group,
 `ME_cae-<prefix>-enterprise_rg-<prefix>-enterprise_<region>`, with the
-environment's Standard load balancer `capp-svc-lb` and its public IP
-`capp-svc-lb-ip`. They serve the gateway URL.
+environment's load balancer.
+
+The environment is internal, so the gateway URL has no public DNS or public
+ingress. Only the VNet and networks connected to it (VPN, peering, or a
+zero-trust connector in the VNet) can resolve and reach it. Clients outside
+the VNet need DNS for the environment's default domain that answers with its
+private IP. GitHub-hosted runners cannot reach the gateway: `deploy.mjs` and
+`npm run access` must run from a connected machine, and the employee-access
+workflow needs a self-hosted runner in a connected network.
 
 The Terraform engine keeps its state in resource group `rg-<prefix>-tfstate`,
 which `deploy.mjs` creates before the first run:
@@ -86,7 +94,7 @@ Container Apps secret and is never used for inference.
 
 Choose a size with `--size` on the first deployment; omitting it selects
 `poc`. Both sizes keep the same private design: VNet, private PostgreSQL,
-private Key Vault, and Log Analytics. `poc` removes redundancy and the static
+private Key Vault, internal LiteLLM, and Log Analytics. `poc` removes redundancy and the static
 egress IP.
 
 | Setting | `enterprise` | `poc` (default) |
@@ -108,7 +116,7 @@ USD (Azure Retail Prices API, November 2026, 730 hours):
 | PostgreSQL storage, 32 GiB | $4.38 |
 | Azure-managed ingress load balancer and public IP of the VNet-integrated environment | $21.90 |
 | Key Vault private endpoint | $7.30 |
-| Two private DNS zones | $1.00 |
+| Three private DNS zones | $1.50 |
 | Log Analytics, Key Vault operations, Terraform state storage, HTTP requests for a few users | Usually $0-5 |
 
 Backups within the provisioned storage size have no extra charge. The
@@ -151,7 +159,7 @@ charges in Cost Management for a pilot deployment matched these rates.
 | Container Apps load balancer | $0.025/h | 18.25 |
 | Two Standard public IPs, egress and ingress | 2 × $0.005/h | 7.30 |
 | Key Vault private endpoint | $0.01/h | 7.30 |
-| Two private DNS zones | 2 × $0.50 | 1.00 |
+| Three private DNS zones | 3 × $0.50 | 1.50 |
 | Usage by four employees | Log Analytics ingestion, NAT and load balancer data, Key Vault operations | 0-5 |
 | **Total** | | **≈ 900** |
 

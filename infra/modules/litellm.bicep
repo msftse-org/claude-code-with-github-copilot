@@ -416,10 +416,22 @@ resource environment 'Microsoft.App/managedEnvironments@2025-01-01' = {
     }
     vnetConfiguration: {
       infrastructureSubnetId: containerSubnet.id
-      internal: false
+      // Internal: the environment gets only a private IP in the VNet, with no public ingress.
+      internal: true
     }
     workloadProfiles: sized.workloadProfiles
     zoneRedundant: sized.zoneRedundant
+  }
+}
+
+module environmentDns 'environment-dns.bicep' = {
+  name: '${prefix}-environment-dns'
+  params: {
+    defaultDomain: environment.properties.defaultDomain
+    staticIp: environment.properties.staticIp
+    vnetId: vnet.id
+    vnetName: vnetName
+    tags: tags
   }
 }
 

@@ -10,7 +10,8 @@ const infra = join(import.meta.dirname, '..', 'infra');
 const terraformDirectory = join(infra, 'terraform');
 
 async function bicepSource() {
-  return (await Promise.all(['main.bicep', join('modules', 'litellm.bicep')]
+  const modules = (await readdir(join(infra, 'modules'))).filter(file => file.endsWith('.bicep')).sort();
+  return (await Promise.all(['main.bicep', ...modules.map(file => join('modules', file))]
     .map(file => readFile(join(infra, file), 'utf8')))).join('\n');
 }
 

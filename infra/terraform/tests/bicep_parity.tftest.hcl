@@ -128,3 +128,36 @@ run "default_poc_size_is_single_zone_consumption_without_nat" {
     error_message = "The resource group must record the deployment size in its environment tag."
   }
 }
+
+run "litellm_is_internal_with_private_dns_for_the_environment" {
+  command = plan
+
+  override_resource {
+    target          = azapi_resource.environment
+    override_during = plan
+    values = {
+      id = "/subscriptions/aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee/resourceGroups/rg-ccgc-pilot-enterprise/providers/Microsoft.App/managedEnvironments/cae-ccgc-pilot-enterprise"
+      output = {
+        properties = {
+          defaultDomain = "example.swedencentral.azurecontainerapps.io"
+          staticIp      = "10.80.0.10"
+        }
+      }
+    }
+  }
+
+  assert {
+    condition     = azapi_resource.environment.body.properties.vnetConfiguration.internal
+    error_message = "The Container Apps environment must be internal, with only a private IP."
+  }
+
+  assert {
+    condition     = azapi_resource.environment_dns.name == "example.swedencentral.azurecontainerapps.io"
+    error_message = "The private DNS zone must be named after the environment's default domain."
+  }
+
+  assert {
+    condition     = azapi_resource.environment_dns_wildcard.name == "*" && azapi_resource.environment_dns_wildcard.body.properties.aRecords[0].ipv4Address == "10.80.0.10"
+    error_message = "The wildcard record must resolve every app name to the environment's private IP."
+  }
+}

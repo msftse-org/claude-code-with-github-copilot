@@ -12,19 +12,63 @@ resource "azapi_resource" "environment" {
       }
       vnetConfiguration = {
         infrastructureSubnetId = local.container_apps_subnet_id
-        internal               = false
+        # Internal: the environment gets only a private IP in the VNet, with no public ingress.
+        internal = true
       }
       workloadProfiles = local.size.workloadProfiles
       zoneRedundant    = local.size.zoneRedundant
     }
   }
 
-  response_export_values = ["properties.defaultDomain"]
+  response_export_values = ["properties.defaultDomain", "properties.staticIp"]
 
   timeouts {
     create = "60m"
     update = "60m"
     delete = "60m"
+  }
+}
+
+# An internal environment has no public DNS. This zone resolves its app names to the
+# environment's private IP for the VNet and for networks that use the VNet's DNS.
+resource "azapi_resource" "environment_dns" {
+  type      = "Microsoft.Network/privateDnsZones@2024-06-01"
+  parent_id = azapi_resource.group.id
+  name      = azapi_resource.environment.output.properties.defaultDomain
+  location  = "global"
+  tags      = local.tags
+}
+
+resource "azapi_resource" "environment_dns_link" {
+  type      = "Microsoft.Network/privateDnsZones/virtualNetworkLinks@2024-06-01"
+  parent_id = azapi_resource.environment_dns.id
+  name      = "link-${local.vnet_name}"
+  location  = "global"
+
+  body = {
+    properties = {
+      registrationEnabled = false
+      virtualNetwork = {
+        id = azapi_resource.vnet.id
+      }
+    }
+  }
+}
+
+resource "azapi_resource" "environment_dns_wildcard" {
+  type      = "Microsoft.Network/privateDnsZones/A@2024-06-01"
+  parent_id = azapi_resource.environment_dns.id
+  name      = "*"
+
+  body = {
+    properties = {
+      ttl = 300
+      aRecords = [
+        {
+          ipv4Address = azapi_resource.environment.output.properties.staticIp
+        },
+      ]
+    }
   }
 }
 

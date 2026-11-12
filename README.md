@@ -64,7 +64,7 @@ the image are illustrative, not the supported catalog.
 |---|---|
 | [`infra/solution.json`](infra/solution.json) | Settings shared by both infrastructure definitions: LiteLLM image, sizes, network ranges, tags |
 | [`infra/terraform/`](infra/terraform) | Terraform (`azapi`) definition of the platform; the default deploy engine |
-| [`infra/main.bicep`](infra/main.bicep) and [`infra/modules/litellm.bicep`](infra/modules/litellm.bicep) | Equivalent Bicep definition: Container Apps, PostgreSQL, Key Vault, VNet, NAT, private DNS, Log Analytics |
+| [`infra/main.bicep`](infra/main.bicep), [`infra/modules/litellm.bicep`](infra/modules/litellm.bicep), and [`infra/modules/environment-dns.bicep`](infra/modules/environment-dns.bicep) | Equivalent Bicep definition: Container Apps (internal), PostgreSQL, Key Vault, VNet, NAT, private DNS, Log Analytics |
 | [`scripts/deploy.mjs`](scripts/deploy.mjs) | Administrator deploy: Terraform state storage behind a network security perimeter, plan or what-if preview, deployment, readiness, bootstrap, GitHub environment |
 | [`scripts/litellm-bootstrap.mjs`](scripts/litellm-bootstrap.mjs) | Idempotently registers the per-user Copilot credential and Claude model routes |
 | [`.github/workflows/ccgc-employee-access.yml`](.github/workflows/ccgc-employee-access.yml) and [`scripts/enterprise-actions-access.mjs`](scripts/enterprise-actions-access.mjs) | Employee enrollment and revocation |
