@@ -8,7 +8,7 @@ param prefix string = 'ccgc-pilot'
 @description('Azure region for every resource.')
 param location string = 'swedencentral'
 
-@description('Deployment size from solution.json: poc (Consumption, Burstable PostgreSQL, no NAT) or enterprise (zone-redundant, NAT egress).')
+@description('Deployment size from solution.json: poc (Consumption, General Purpose PostgreSQL without HA, no NAT) or enterprise (zone-redundant, NAT egress).')
 @allowed([
   'enterprise'
   'poc'

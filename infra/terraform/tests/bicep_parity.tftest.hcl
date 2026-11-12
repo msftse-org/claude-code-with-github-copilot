@@ -119,8 +119,8 @@ run "default_poc_size_is_single_zone_consumption_without_nat" {
   }
 
   assert {
-    condition     = azapi_resource.postgres.body.sku.name == "Standard_B2s" && azapi_resource.postgres.body.properties.highAvailability.mode == "Disabled"
-    error_message = "The poc size must use Burstable B2s PostgreSQL without high availability."
+    condition     = azapi_resource.postgres.body.sku.name == "Standard_D2ads_v5" && azapi_resource.postgres.body.sku.tier == "GeneralPurpose" && azapi_resource.postgres.body.properties.highAvailability.mode == "Disabled"
+    error_message = "The poc size must use General Purpose D2ads_v5 PostgreSQL without high availability."
   }
 
   assert {

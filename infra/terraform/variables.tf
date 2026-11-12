@@ -64,7 +64,7 @@ variable "prefix" {
 
 variable "size" {
   type        = string
-  description = "Deployment size from infra/solution.json: poc (Consumption, Burstable PostgreSQL, no NAT) or enterprise (zone-redundant, NAT egress)."
+  description = "Deployment size from infra/solution.json: poc (Consumption, General Purpose PostgreSQL without HA, no NAT) or enterprise (zone-redundant, NAT egress)."
   default     = "poc"
 
   validation {

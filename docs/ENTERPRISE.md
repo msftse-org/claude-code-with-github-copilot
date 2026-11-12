@@ -102,9 +102,9 @@ egress IP.
 | Intended use | Production: zone redundancy, autoscaling, static egress IP | Proof of concept for a few users, such as four |
 | Container Apps environment | Zone-redundant; dedicated `D4` workload profile, 2-6 nodes | Consumption profile only; not zone-redundant |
 | LiteLLM container app | 2 CPU / 4 GiB, 2-10 replicas | 1 CPU / 2 GiB, 1-2 replicas |
-| PostgreSQL 16 | `Standard_D2ads_v5` General Purpose, zone-redundant HA, 128 GiB (P10), 14-day backups | `Standard_B2s` Burstable, no HA, 32 GiB (P4), 7-day backups; autogrow on |
+| PostgreSQL 16 | `Standard_D2ads_v5` General Purpose, zone-redundant HA, 128 GiB (P10), 14-day backups | `Standard_D2ads_v5` General Purpose, no HA, 32 GiB (P4), 7-day backups; autogrow on |
 | NAT gateway and static public IP | Yes | No; outbound traffic uses the Container Apps environment's own address, which is not guaranteed to stay the same |
-| Estimated monthly cost | About $900 | About $85-140 |
+| Estimated monthly cost | About $900 | About $195-250 |
 
 Estimated `poc` monthly cost, at Sweden Central pay-as-you-go list prices in
 USD (Azure Retail Prices API, November 2026, 730 hours):
@@ -112,7 +112,7 @@ USD (Azure Retail Prices API, November 2026, 730 hours):
 | Item | Estimate |
 |---|---|
 | Container Apps Consumption: one 1 CPU / 2 GiB replica always running, after the monthly free grant | $22-73 (idle vs. active rate) |
-| PostgreSQL `Standard_B2s` compute | $29.05 |
+| PostgreSQL `Standard_D2ads_v5` compute | $136.51 |
 | PostgreSQL storage, 32 GiB | $4.38 |
 | Azure-managed ingress load balancer and public IP of the VNet-integrated environment | $21.90 |
 | Key Vault private endpoint | $7.30 |
@@ -127,11 +127,13 @@ additional outbound data transfer, or heavy logging increases the bill; this
 is not a spending cap. LiteLLM background activity can keep the replica at
 the active rate, so budget toward the upper end.
 
-The `poc` size has not yet been deployed or load-tested. Its trade-offs:
-one minimum replica and a server without HA, so maintenance and platform
-failures can interrupt service;
-Burstable CPU is throttled after sustained load exhausts its credits; and an
-organization IP allow list cannot rely on the egress address.
+`poc` uses General Purpose `Standard_D2ads_v5` rather than Burstable
+`Standard_B2s`: in November 2026, Sweden Central rejected `Standard_B2s` with
+`SkuNotAvailable` although `az postgres flexible-server list-skus` listed it.
+
+The `poc` size has not been load-tested. Its trade-offs: one minimum replica
+and a server without HA, so maintenance and platform failures can interrupt
+service; and an organization IP allow list cannot rely on the egress address.
 
 The size is fixed for a deployment. Azure cannot change environment zone
 redundancy or shrink PostgreSQL storage in place, so `deploy.mjs` records the
@@ -181,7 +183,7 @@ size before the first deployment.
 | Change | Saves per month | Trade-off |
 |---|---:|---|
 | `postgres.highAvailability`: `Disabled` | $154.03 | No standby server in another zone |
-| PostgreSQL `Standard_B2s`: `skuTier` `Burstable`, `highAvailability` `Disabled`, `storageSizeGB` `32`, `storageTier` `P4` | $274.64 | Burstable CPU and no HA |
+| PostgreSQL `Standard_B2s`: `skuTier` `Burstable`, `highAvailability` `Disabled`, `storageSizeGB` `32`, `storageTier` `P4` | $274.64 | Burstable CPU and no HA; Burstable may be rejected in some regions (see `poc`) |
 | `minimumCount` of the `D4` workload profile: `1`, and `litellm.minReplicas`: `1` | $224.81 | One gateway replica and no zone redundancy |
 
 The last two changes together bring the total to about $400 a month.

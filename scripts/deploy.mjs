@@ -39,7 +39,7 @@ your current public IPv4 address through the perimeter.
 Options:
   --subscription <id>    Azure subscription ID (required)
   --engine <name>        terraform (default) or bicep; both deploy the same resources
-  --size <name>          poc (default; 1-2 replicas, Burstable PostgreSQL, no NAT)
+  --size <name>          poc (default; 1-2 replicas, PostgreSQL without HA, no NAT)
                          or enterprise (zone-redundant, NAT egress). Fixed once deployed.
   --prefix <name>        Resource prefix (default: ccgc-pilot)
   --location <region>    Azure region (default: swedencentral)

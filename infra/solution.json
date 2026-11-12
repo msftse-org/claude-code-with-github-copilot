@@ -67,8 +67,8 @@
         "maxReplicas": 2
       },
       "postgres": {
-        "skuName": "Standard_B2s",
-        "skuTier": "Burstable",
+        "skuName": "Standard_D2ads_v5",
+        "skuTier": "GeneralPurpose",
         "highAvailability": "Disabled",
         "storageSizeGB": 32,
         "storageTier": "P4",
