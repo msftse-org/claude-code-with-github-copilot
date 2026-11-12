@@ -8,6 +8,13 @@ param prefix string = 'ccgc-pilot'
 @description('Azure region for every resource.')
 param location string = 'swedencentral'
 
+@description('Deployment size from solution.json: enterprise (zone-redundant, NAT egress) or poc (single replica, Burstable PostgreSQL, no NAT).')
+@allowed([
+  'enterprise'
+  'poc'
+])
+param size string = 'enterprise'
+
 @description('Seed for globally unique names. Change it only to rebuild while a deleted Key Vault name is still reserved by purge protection.')
 @minLength(1)
 @maxLength(16)
@@ -31,7 +38,7 @@ var settings = loadJsonContent('solution.json')
 resource group 'Microsoft.Resources/resourceGroups@2024-11-01' = {
   name: 'rg-${prefix}-enterprise'
   location: location
-  tags: settings.tags
+  tags: union(settings.tags, { environment: size })
 }
 
 module litellm 'modules/litellm.bicep' = {
@@ -40,6 +47,7 @@ module litellm 'modules/litellm.bicep' = {
   params: {
     prefix: prefix
     location: location
+    size: size
     nameSeed: nameSeed
     postgresAdminPassword: postgresAdminPassword
     litellmMasterKey: litellmMasterKey

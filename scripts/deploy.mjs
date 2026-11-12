@@ -15,6 +15,7 @@ const TERRAFORM_SOURCE = join(REPO_ROOT, 'infra', 'terraform');
 const SOLUTION_SETTINGS = join(REPO_ROOT, 'infra', 'solution.json');
 const ADMIN_ENVIRONMENT = 'ccgc-admin';
 const ENGINES = ['terraform', 'bicep'];
+const SIZES = ['enterprise', 'poc'];
 const MINIMUM_TERRAFORM = [1, 11];
 const STORAGE_BLOB_DATA_CONTRIBUTOR = 'ba92f5b4-2d11-453d-a403-e96b0029c9fe';
 const STATE_ACCESS_ATTEMPTS = 36;
@@ -38,6 +39,8 @@ your current public IPv4 address through the perimeter.
 Options:
   --subscription <id>    Azure subscription ID (required)
   --engine <name>        terraform (default) or bicep; both deploy the same resources
+  --size <name>          enterprise (default; zone-redundant, NAT egress) or poc (single
+                         replica, Burstable PostgreSQL, no NAT). Fixed once deployed.
   --prefix <name>        Resource prefix (default: ccgc-pilot)
   --location <region>    Azure region (default: swedencentral)
   --name-seed <seed>     Seed for globally unique names (default: litellm2)
@@ -64,6 +67,7 @@ export function parseOptions(argv) {
     options: {
       subscription: { type: 'string' },
       engine: { type: 'string', default: 'terraform' },
+      size: { type: 'string', default: 'enterprise' },
       prefix: { type: 'string', default: 'ccgc-pilot' },
       location: { type: 'string', default: 'swedencentral' },
       'name-seed': { type: 'string', default: 'litellm2' },
@@ -84,6 +88,7 @@ export function parseOptions(argv) {
     fail(`--subscription must be an Azure subscription ID.\n\n${USAGE}`);
   }
   if (!ENGINES.includes(values.engine)) fail('--engine must be terraform or bicep.');
+  if (!SIZES.includes(values.size)) fail('--size must be enterprise or poc.');
   if (!/^[a-z][a-z0-9-]{2,15}$/.test(values.prefix)) fail('--prefix must be 3-16 lowercase letters, digits, or hyphens.');
   if (!/^[a-z0-9]{2,40}$/.test(values.location)) fail('--location must be an Azure region name such as swedencentral.');
   if (!/^[a-z0-9-]{1,16}$/.test(values['name-seed'])) fail('--name-seed must be 1-16 lowercase letters, digits, or hyphens.');
@@ -96,6 +101,7 @@ export function parseOptions(argv) {
   return {
     subscription: subscription.toLowerCase(),
     engine: values.engine,
+    size: values.size,
     prefix: values.prefix,
     location: values.location,
     nameSeed: values['name-seed'],
@@ -231,6 +237,7 @@ async function deployWithBicep(options, secrets, { run, log }) {
       parameters: {
         prefix: { value: options.prefix },
         location: { value: options.location },
+        size: { value: options.size },
         nameSeed: { value: options.nameSeed },
         postgresAdminPassword: { value: secrets.postgresAdminPassword },
         litellmMasterKey: { value: secrets.litellmMasterKey },
@@ -248,7 +255,7 @@ async function deployWithBicep(options, secrets, { run, log }) {
       await run('az', ['deployment', 'sub', 'what-if', ...deployment], { inherit: true });
       return undefined;
     }
-    log(`Deploying rg-${options.prefix}-enterprise with Bicep. A new zone-redundant PostgreSQL server can take 20-30 minutes.`);
+    log(`Deploying rg-${options.prefix}-enterprise (${options.size} size) with Bicep. A new PostgreSQL server can take up to 30 minutes.`);
     const outputs = JSON.parse(await run('az', ['deployment', 'sub', 'create', ...deployment,
       '--query', 'properties.outputs', '--output', 'json']));
     return {
@@ -449,7 +456,7 @@ async function deployWithTerraform(options, account, secrets, { groupExists, run
   if (groupExists && !storageExists) fail(noState);
   if (options.confirmDeploy || storageExists) {
     const principal = await signedInPrincipal(run, account);
-    const { tags } = JSON.parse(await readFile(SOLUTION_SETTINGS, 'utf8'));
+    const tags = { ...JSON.parse(await readFile(SOLUTION_SETTINGS, 'utf8')).tags, environment: options.size };
     if (options.confirmDeploy) await ensureStateStorage(run, options, state, principal, tags, { log });
     await ensureStateAccess(run, options, state, principal, tags, { log, sleep, fetcher });
   }
@@ -490,13 +497,14 @@ async function deployWithTerraform(options, account, secrets, { groupExists, run
       `-var=tenant_id=${account.tenantId}`,
       `-var=prefix=${options.prefix}`,
       `-var=location=${options.location}`,
+      `-var=size=${options.size}`,
       `-var=name_seed=${options.nameSeed}`,
     ];
     if (!options.confirmDeploy) {
       await run('terraform', [chdir, 'plan', '-input=false', '-lock=false', ...variables], { env, inherit: true });
       return undefined;
     }
-    log(`Deploying rg-${options.prefix}-enterprise with Terraform. A new zone-redundant PostgreSQL server can take 20-30 minutes.`);
+    log(`Deploying rg-${options.prefix}-enterprise (${options.size} size) with Terraform. A new PostgreSQL server can take up to 30 minutes.`);
     const apply = () => run('terraform', [chdir, 'apply', '-input=false', '-auto-approve', ...variables], { env, inherit: true });
     try {
       await apply();
@@ -543,6 +551,16 @@ export async function deploy(options, {
   log(created
     ? `Created ${secretsFile}. Back it up privately; the salt key in it must never change.`
     : `Using ${secretsFile}.`);
+  if (groupExists) {
+    // The resource group's environment tag records the size it was deployed with. Azure cannot change zone
+    // redundancy or shrink PostgreSQL storage in place, so switching sizes needs a new deployment.
+    const deployedSize = await run('az', ['group', 'show', '--name', resourceGroup, '--subscription', options.subscription,
+      '--query', 'tags.environment', '--output', 'tsv']);
+    if (deployedSize !== options.size) {
+      fail(`${resourceGroup} was deployed with size ${deployedSize || '(unknown)'}, not ${options.size}. Sizes cannot be `
+        + `changed in place; pass --size ${deployedSize || '<original size>'}, or deploy the other size with a new --prefix.`);
+    }
+  }
 
   const outputs = options.engine === 'bicep'
     ? await deployWithBicep(options, secrets, { run, log })
@@ -574,7 +592,7 @@ export async function deploy(options, {
     '',
     `LiteLLM:      ${litellmUrl}`,
     `Admin UI:     ${litellmUrl}/ui/ (user admin, password = litellmMasterKey in ${secretsFile})`,
-    `Egress IP:    ${outputs?.egressIp ?? 'unknown'}`,
+    `Egress IP:    ${outputs?.egressIp === '' ? 'not static (the poc size has no NAT gateway)' : outputs?.egressIp ?? 'unknown'}`,
     `Resources:    ${outputs?.resourceGroupName ?? resourceGroup}`,
     '',
     describeInstaller(installer),

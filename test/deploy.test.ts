@@ -30,6 +30,7 @@ interface Command {
 
 function fakeCli({
   groupExists = false,
+  deployedSize = 'enterprise',
   stateStorageExists = false,
   terraformState = '',
   statePublicNetworkAccess = 'SecuredByPerimeter',
@@ -62,6 +63,9 @@ function fakeCli({
     }
     if (line.startsWith('az group exists --name rg-ccgc-pilot-tfstate')) return String(stateStorageExists);
     if (line.startsWith('az group exists')) return String(groupExists);
+    if (line.startsWith('az group show --name rg-ccgc-pilot-enterprise') && line.endsWith('--query tags.environment --output tsv')) {
+      return deployedSize;
+    }
     if (line.startsWith('az storage account list')) return stateStorageExists ? '1' : '0';
     if (line.startsWith('az storage account create')) return stateAccountId;
     if (line.startsWith('az storage account show')) {
@@ -152,6 +156,7 @@ test('Terraform preview plans against empty local state and passes secrets only 
     assert.ok(init.workspace?.includes('local_backend_override.tf') && init.workspace.includes('.terraform.lock.hcl'));
     assert.equal(init.args.some(arg => arg.startsWith('-backend-config')), false);
     assert.ok(plan.args.includes('-var=name_seed=litellm2') && plan.args.includes(`-var=tenant_id=${tenant}`));
+    assert.ok(plan.args.includes('-var=size=enterprise'));
     assert.equal(terraform(cli.commands, 'apply'), undefined);
     assert.equal(cli.commands.some(entry => entry.command === 'az' && entry.args.includes('create')), false);
     const secrets = JSON.parse(await readFile(join(directory, 'secrets.json'), 'utf8')) as Record<string, string>;
@@ -175,10 +180,11 @@ test('Bicep preview keeps generated secrets in a private, deleted parameter file
   const directory = await mkdtemp(join(tmpdir(), 'ccgc-deploy-test-'));
   try {
     const cli = fakeCli();
-    const result = await deploy(options(directory, ['--engine', 'bicep']), { run: cli.run, log: () => {} });
+    const result = await deploy(options(directory, ['--engine', 'bicep', '--size', 'poc']), { run: cli.run, log: () => {} });
     assert.equal(result.deployed, false);
     const preview = cli.commands.find(entry => entry.args.slice(0, 3).join(' ') === 'deployment sub what-if');
     assert.ok(preview?.parameters && preview.parameterFile);
+    assert.equal(preview.parameters.parameters.size!.value, 'poc');
     assert.equal(cli.commands.some(entry => entry.command === 'terraform' || entry.args.includes('create')), false);
     assert.equal(preview.parameterMode, 0o600);
     await assert.rejects(stat(preview.parameterFile), { code: 'ENOENT' });
@@ -200,6 +206,21 @@ test('deploy refuses to invent new secrets for an existing resource group', asyn
     assert.equal(cli.commands.some(entry => entry.command === 'terraform' || entry.args[0] === 'deployment'), false);
     await assert.rejects(stat(join(directory, 'secrets.json')), { code: 'ENOENT' });
   } finally { await rm(directory, { recursive: true, force: true }); }
+});
+
+test('deploy refuses to change the size of an existing deployment before previewing anything', async () => {
+  assert.throws(() => options(tmpdir(), ['--size', 'small']), /--size must be enterprise or poc/);
+  for (const engine of ['terraform', 'bicep']) {
+    const directory = await mkdtemp(join(tmpdir(), 'ccgc-deploy-test-'));
+    try {
+      await writeFile(join(directory, 'secrets.json'), JSON.stringify(generateSecrets()), { mode: 0o600 });
+      const cli = fakeCli({ groupExists: true, stateStorageExists: true, deployedSize: 'enterprise' });
+      await assert.rejects(deploy(options(directory, ['--engine', engine, '--size', 'poc']), { run: cli.run, log: () => {} }),
+        /deployed with size enterprise, not poc.*new --prefix/s);
+      assert.equal(cli.commands.some(entry => entry.command === 'terraform' || entry.args[0] === 'deployment'
+        || entry.args[0] === 'rest' || entry.args.includes('create')), false);
+    } finally { await rm(directory, { recursive: true, force: true }); }
+  }
 });
 
 test('Terraform refuses a resource group that was deployed without Terraform state', async () => {

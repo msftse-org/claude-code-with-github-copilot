@@ -76,3 +76,55 @@ run "role_assignment_name_matches_bicep_guid" {
     error_message = "Role assignment name differs from Bicep guid(vault.id, identity.id, 'Key Vault Secrets User')."
   }
 }
+
+run "enterprise_size_is_zone_redundant_with_nat_egress" {
+  command = plan
+
+  assert {
+    condition     = length(azapi_resource.nat_gateway) == 1 && contains(keys(azapi_resource.vnet.body.properties.subnets[0].properties), "natGateway")
+    error_message = "The enterprise size must route Container Apps egress through the NAT gateway."
+  }
+
+  assert {
+    condition     = azapi_resource.environment.body.properties.zoneRedundant && length(azapi_resource.environment.body.properties.workloadProfiles) == 2
+    error_message = "The enterprise size must use a zone-redundant environment with a dedicated workload profile."
+  }
+
+  assert {
+    condition     = azapi_resource.postgres.body.sku.tier == "GeneralPurpose" && azapi_resource.postgres.body.properties.highAvailability.mode == "ZoneRedundant"
+    error_message = "The enterprise size must use zone-redundant General Purpose PostgreSQL."
+  }
+}
+
+run "poc_size_is_single_zone_consumption_without_nat" {
+  command = plan
+
+  variables {
+    size = "poc"
+  }
+
+  assert {
+    condition     = length(azapi_resource.nat_gateway) == 0 && length(azapi_resource.nat_public_ip) == 0 && output.egress_ip == ""
+    error_message = "The poc size must not create a NAT gateway or egress IP."
+  }
+
+  assert {
+    condition     = !contains(keys(azapi_resource.vnet.body.properties.subnets[0].properties), "natGateway")
+    error_message = "The poc Container Apps subnet must not reference a NAT gateway."
+  }
+
+  assert {
+    condition     = !azapi_resource.environment.body.properties.zoneRedundant && length(azapi_resource.environment.body.properties.workloadProfiles) == 1 && azapi_resource.litellm.body.properties.workloadProfileName == "Consumption"
+    error_message = "The poc size must run LiteLLM on the Consumption profile only, without zone redundancy."
+  }
+
+  assert {
+    condition     = azapi_resource.postgres.body.sku.name == "Standard_B2s" && azapi_resource.postgres.body.properties.highAvailability.mode == "Disabled"
+    error_message = "The poc size must use Burstable B2s PostgreSQL without high availability."
+  }
+
+  assert {
+    condition     = azapi_resource.group.tags.environment == "poc"
+    error_message = "The resource group must record the deployment size in its environment tag."
+  }
+}

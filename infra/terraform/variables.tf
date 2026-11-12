@@ -62,6 +62,17 @@ variable "prefix" {
   }
 }
 
+variable "size" {
+  type        = string
+  description = "Deployment size from infra/solution.json: enterprise (zone-redundant, NAT egress) or poc (single replica, Burstable PostgreSQL, no NAT)."
+  default     = "enterprise"
+
+  validation {
+    condition     = contains(["enterprise", "poc"], var.size)
+    error_message = "size must be enterprise or poc."
+  }
+}
+
 variable "subscription_id" {
   type        = string
   description = "Azure subscription ID that receives the deployment."

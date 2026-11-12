@@ -1,6 +1,6 @@
 output "egress_ip" {
-  description = "Static outbound IP for GitHub organization IP allow lists."
-  value       = azapi_resource.nat_public_ip.output.properties.ipAddress
+  description = "Static outbound IP for GitHub organization IP allow lists; empty for the poc size, which has no NAT gateway."
+  value       = join("", azapi_resource.nat_public_ip[*].output.properties.ipAddress)
 }
 
 output "key_vault_name" {

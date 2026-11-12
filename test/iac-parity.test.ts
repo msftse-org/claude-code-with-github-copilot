@@ -42,12 +42,18 @@ test('Bicep, Terraform, and deploy.mjs share defaults, outputs, and solution set
   const terraformDefault = (name: string) => block(variables, `variable "${name}"`).match(/^\s+default\s+= "([^"]*)"/m)?.[1];
   const options = parseOptions(['--subscription', '00000000-0000-4000-8000-000000000001']);
   assert.ok(!('help' in options));
-  const defaults = { prefix: options.prefix, location: options.location, nameSeed: options.nameSeed };
-  assert.deepEqual({ prefix: bicepDefault('prefix'), location: bicepDefault('location'), nameSeed: bicepDefault('nameSeed') }, defaults);
+  const defaults = { prefix: options.prefix, location: options.location, nameSeed: options.nameSeed, size: options.size };
+  assert.deepEqual({
+    prefix: bicepDefault('prefix'),
+    location: bicepDefault('location'),
+    nameSeed: bicepDefault('nameSeed'),
+    size: bicepDefault('size'),
+  }, defaults);
   assert.deepEqual({
     prefix: terraformDefault('prefix'),
     location: terraformDefault('location'),
     nameSeed: terraformDefault('name_seed'),
+    size: terraformDefault('size'),
   }, defaults);
 
   const bicepOutputs = [...main.matchAll(/^output (\w+) /gm)]

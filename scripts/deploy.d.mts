@@ -6,6 +6,7 @@ export const USAGE: string;
 export interface DeployOptions {
   subscription: string;
   engine: 'terraform' | 'bicep';
+  size: 'enterprise' | 'poc';
   prefix: string;
   location: string;
   nameSeed: string;

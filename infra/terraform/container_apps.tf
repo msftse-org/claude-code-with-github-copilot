@@ -14,19 +14,8 @@ resource "azapi_resource" "environment" {
         infrastructureSubnetId = local.container_apps_subnet_id
         internal               = false
       }
-      workloadProfiles = [
-        {
-          name                = "Consumption"
-          workloadProfileType = "Consumption"
-        },
-        {
-          name                = local.settings.workloadProfile.type
-          workloadProfileType = local.settings.workloadProfile.type
-          minimumCount        = local.settings.workloadProfile.minimumCount
-          maximumCount        = local.settings.workloadProfile.maximumCount
-        },
-      ]
-      zoneRedundant = true
+      workloadProfiles = local.size.workloadProfiles
+      zoneRedundant    = local.size.zoneRedundant
     }
   }
 
@@ -90,7 +79,7 @@ resource "azapi_resource" "litellm" {
   body = {
     properties = {
       environmentId       = azapi_resource.environment.id
-      workloadProfileName = local.settings.workloadProfile.type
+      workloadProfileName = local.size.litellm.workloadProfileName
       configuration = {
         activeRevisionsMode = "Single"
         ingress = {
@@ -198,8 +187,8 @@ resource "azapi_resource" "litellm" {
               },
             ]
             resources = {
-              cpu    = local.settings.litellm.cpu
-              memory = local.settings.litellm.memory
+              cpu    = local.size.litellm.cpu
+              memory = local.size.litellm.memory
             }
           },
         ]
@@ -216,8 +205,8 @@ resource "azapi_resource" "litellm" {
           },
         ]
         scale = {
-          minReplicas = local.settings.litellm.minReplicas
-          maxReplicas = local.settings.litellm.maxReplicas
+          minReplicas = local.size.litellm.minReplicas
+          maxReplicas = local.size.litellm.maxReplicas
           rules = [
             {
               name = "http"

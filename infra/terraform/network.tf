@@ -1,4 +1,6 @@
 resource "azapi_resource" "nat_public_ip" {
+  count = local.size.natGateway ? 1 : 0
+
   type      = "Microsoft.Network/publicIPAddresses@2024-07-01"
   parent_id = azapi_resource.group.id
   name      = "pip-${var.prefix}-egress"
@@ -19,6 +21,8 @@ resource "azapi_resource" "nat_public_ip" {
 }
 
 resource "azapi_resource" "nat_gateway" {
+  count = local.size.natGateway ? 1 : 0
+
   type      = "Microsoft.Network/natGateways@2024-07-01"
   parent_id = azapi_resource.group.id
   name      = "ng-${var.prefix}-enterprise"
@@ -33,7 +37,7 @@ resource "azapi_resource" "nat_gateway" {
       idleTimeoutInMinutes = 10
       publicIpAddresses = [
         {
-          id = azapi_resource.nat_public_ip.id
+          id = azapi_resource.nat_public_ip[0].id
         },
       ]
     }
@@ -96,24 +100,25 @@ resource "azapi_resource" "vnet" {
       subnets = [
         {
           name = "snet-container-apps"
-          properties = {
-            addressPrefix = local.settings.network.containerAppsSubnet
-            delegations = [
-              {
-                name = "container-apps"
-                properties = {
-                  serviceName = "Microsoft.App/environments"
-                }
-              },
-            ]
-            natGateway = {
-              id = azapi_resource.nat_gateway.id
-            }
-            networkSecurityGroup = {
-              id = azapi_resource.workload_nsg.id
-            }
-            privateEndpointNetworkPolicies = "Disabled"
-          }
+          properties = merge(
+            {
+              addressPrefix = local.settings.network.containerAppsSubnet
+              delegations = [
+                {
+                  name = "container-apps"
+                  properties = {
+                    serviceName = "Microsoft.App/environments"
+                  }
+                },
+              ]
+              networkSecurityGroup = {
+                id = azapi_resource.workload_nsg.id
+              }
+              privateEndpointNetworkPolicies = "Disabled"
+            },
+            # Without a NAT gateway (poc size), Container Apps uses its own outbound IP.
+            { for id in azapi_resource.nat_gateway[*].id : "natGateway" => { id = id } },
+          )
         },
         {
           name = "snet-postgres"
@@ -150,6 +155,17 @@ resource "azapi_resource" "vnet" {
       ]
     }
   }
+}
+
+# The NAT resources became conditional on the deployment size; keep existing ones in place.
+moved {
+  from = azapi_resource.nat_public_ip
+  to   = azapi_resource.nat_public_ip[0]
+}
+
+moved {
+  from = azapi_resource.nat_gateway
+  to   = azapi_resource.nat_gateway[0]
 }
 
 locals {

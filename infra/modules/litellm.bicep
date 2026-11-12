@@ -1,5 +1,6 @@
 param prefix string
 param location string
+param size string
 param nameSeed string
 
 @secure()
@@ -13,7 +14,8 @@ param litellmSaltKey string
 
 // Shared with infra/terraform so both deployments create the same solution.
 var settings = loadJsonContent('../solution.json')
-var tags = settings.tags
+var sized = settings.sizes[size]
+var tags = union(settings.tags, { environment: size })
 var postgresAdminLogin = settings.postgres.adminLogin
 var compact = replace(prefix, '-', '')
 var unique = toLower(uniqueString(subscription().id, resourceGroup().id, prefix, nameSeed))
@@ -49,7 +51,7 @@ resource workspace 'Microsoft.OperationalInsights/workspaces@2023-09-01' = {
   }
 }
 
-resource natPublicIp 'Microsoft.Network/publicIPAddresses@2024-07-01' = {
+resource natPublicIp 'Microsoft.Network/publicIPAddresses@2024-07-01' = if (sized.natGateway) {
   name: 'pip-${prefix}-egress'
   location: location
   tags: tags
@@ -62,7 +64,7 @@ resource natPublicIp 'Microsoft.Network/publicIPAddresses@2024-07-01' = {
   }
 }
 
-resource natGateway 'Microsoft.Network/natGateways@2024-07-01' = {
+resource natGateway 'Microsoft.Network/natGateways@2024-07-01' = if (sized.natGateway) {
   name: 'ng-${prefix}-enterprise'
   location: location
   tags: tags
@@ -128,24 +130,25 @@ resource vnet 'Microsoft.Network/virtualNetworks@2024-07-01' = {
     subnets: [
       {
         name: 'snet-container-apps'
-        properties: {
-          addressPrefix: settings.network.containerAppsSubnet
-          delegations: [
-            {
-              name: 'container-apps'
-              properties: {
-                serviceName: 'Microsoft.App/environments'
+        properties: union(
+          {
+            addressPrefix: settings.network.containerAppsSubnet
+            delegations: [
+              {
+                name: 'container-apps'
+                properties: {
+                  serviceName: 'Microsoft.App/environments'
+                }
               }
+            ]
+            networkSecurityGroup: {
+              id: workloadNsg.id
             }
-          ]
-          natGateway: {
-            id: natGateway.id
-          }
-          networkSecurityGroup: {
-            id: workloadNsg.id
-          }
-          privateEndpointNetworkPolicies: 'Disabled'
-        }
+            privateEndpointNetworkPolicies: 'Disabled'
+          },
+          // Without a NAT gateway (poc size), Container Apps uses its own outbound IP.
+          sized.natGateway ? { natGateway: { id: natGateway.id } } : {}
+        )
       }
       {
         name: 'snet-postgres'
@@ -221,8 +224,8 @@ resource postgres 'Microsoft.DBforPostgreSQL/flexibleServers@2024-08-01' = {
   location: location
   tags: tags
   sku: {
-    name: settings.postgres.skuName
-    tier: settings.postgres.skuTier
+    name: sized.postgres.skuName
+    tier: sized.postgres.skuTier
   }
   properties: {
     version: settings.postgres.version
@@ -233,14 +236,14 @@ resource postgres 'Microsoft.DBforPostgreSQL/flexibleServers@2024-08-01' = {
       passwordAuth: 'Enabled'
     }
     backup: {
-      backupRetentionDays: settings.postgres.backupRetentionDays
+      backupRetentionDays: sized.postgres.backupRetentionDays
       geoRedundantBackup: 'Disabled'
     }
     dataEncryption: {
       type: 'SystemManaged'
     }
     highAvailability: {
-      mode: settings.postgres.highAvailability
+      mode: sized.postgres.highAvailability
     }
     network: {
       delegatedSubnetResourceId: postgresSubnet.id
@@ -248,9 +251,9 @@ resource postgres 'Microsoft.DBforPostgreSQL/flexibleServers@2024-08-01' = {
       publicNetworkAccess: 'Disabled'
     }
     storage: {
-      storageSizeGB: settings.postgres.storageSizeGB
+      storageSizeGB: sized.postgres.storageSizeGB
       autoGrow: 'Enabled'
-      tier: settings.postgres.storageTier
+      tier: sized.postgres.storageTier
     }
   }
   dependsOn: [
@@ -415,19 +418,8 @@ resource environment 'Microsoft.App/managedEnvironments@2025-01-01' = {
       infrastructureSubnetId: containerSubnet.id
       internal: false
     }
-    workloadProfiles: [
-      {
-        name: 'Consumption'
-        workloadProfileType: 'Consumption'
-      }
-      {
-        name: settings.workloadProfile.type
-        workloadProfileType: settings.workloadProfile.type
-        minimumCount: settings.workloadProfile.minimumCount
-        maximumCount: settings.workloadProfile.maximumCount
-      }
-    ]
-    zoneRedundant: true
+    workloadProfiles: sized.workloadProfiles
+    zoneRedundant: sized.zoneRedundant
   }
 }
 
@@ -468,7 +460,7 @@ resource litellm 'Microsoft.App/containerApps@2025-01-01' = {
   }
   properties: {
     environmentId: environment.id
-    workloadProfileName: settings.workloadProfile.type
+    workloadProfileName: sized.litellm.workloadProfileName
     configuration: {
       activeRevisionsMode: 'Single'
       ingress: {
@@ -574,8 +566,8 @@ resource litellm 'Microsoft.App/containerApps@2025-01-01' = {
             }
           ]
           resources: {
-            cpu: settings.litellm.cpu
-            memory: settings.litellm.memory
+            cpu: sized.litellm.cpu
+            memory: sized.litellm.memory
           }
         }
       ]
@@ -592,8 +584,8 @@ resource litellm 'Microsoft.App/containerApps@2025-01-01' = {
         }
       ]
       scale: {
-        minReplicas: settings.litellm.minReplicas
-        maxReplicas: settings.litellm.maxReplicas
+        minReplicas: sized.litellm.minReplicas
+        maxReplicas: sized.litellm.maxReplicas
         rules: [
           {
             name: 'http'
@@ -615,4 +607,4 @@ resource litellm 'Microsoft.App/containerApps@2025-01-01' = {
 
 output litellmUrl string = 'https://${litellm.properties.configuration.ingress.fqdn}'
 output keyVaultName string = vault.name
-output egressIp string = natPublicIp.properties.ipAddress
+output egressIp string = sized.natGateway ? natPublicIp!.properties.ipAddress : ''

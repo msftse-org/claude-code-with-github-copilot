@@ -1,7 +1,8 @@
 locals {
   # Shared with infra/main.bicep so both deployments create the same solution.
   settings = jsondecode(file("${path.module}/../solution.json"))
-  tags     = local.settings.tags
+  size     = local.settings.sizes[var.size]
+  tags     = merge(local.settings.tags, { environment = var.size })
 
   subscription_id   = lower(var.subscription_id)
   resource_group_id = "/subscriptions/${local.subscription_id}/resourceGroups/rg-${var.prefix}-enterprise"

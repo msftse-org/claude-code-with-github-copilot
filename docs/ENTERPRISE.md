@@ -14,7 +14,9 @@ the same platform. Both read their settings from
 `ccgc-pilot` and region `swedencentral`; override them with `--prefix` and
 `--location`.
 
-The shared configuration defines these resource defaults:
+The shared configuration defines these resources. Sizes and SKUs shown are for
+the default `enterprise` size; see [Deployment sizes](#deployment-sizes) for
+the smaller `poc` size.
 
 | Resource | Configuration |
 |---|---|
@@ -47,8 +49,52 @@ stores its models in PostgreSQL (`STORE_MODEL_IN_DB=True`). The per-user
 Copilot provider needs a placeholder token file to start. It is mounted from a
 Container Apps secret and is never used for inference.
 
-The main cost drivers are the zone-redundant PostgreSQL server, which bills
-for two compute nodes, and at least two `D4` workload profile nodes.
+In the `enterprise` size, the main cost drivers are the zone-redundant
+PostgreSQL server, which bills for two compute nodes, and at least two `D4`
+workload profile nodes.
+
+### Deployment sizes
+
+Choose a size with `--size` on the first deployment. Both sizes keep the same
+private design: VNet, private PostgreSQL, private Key Vault, and Log
+Analytics. `poc` removes redundancy and the static egress IP.
+
+| Setting | `enterprise` (default) | `poc` |
+|---|---|---|
+| Intended use | Production: zone redundancy, autoscaling, static egress IP | Proof of concept for a few users, such as four |
+| Container Apps environment | Zone-redundant; dedicated `D4` workload profile, 2-6 nodes | Consumption profile only; not zone-redundant |
+| LiteLLM container app | 2 CPU / 4 GiB, 2-10 replicas | 1 CPU / 2 GiB, 1-2 replicas |
+| PostgreSQL 16 | `Standard_D2ads_v5` General Purpose, zone-redundant HA, 128 GiB (P10), 14-day backups | `Standard_B2s` Burstable, no HA, 32 GiB (P4), 7-day backups; autogrow on |
+| NAT gateway and static public IP | Yes | No; outbound traffic uses the Container Apps environment's own address, which is not guaranteed to stay the same |
+| Estimated monthly cost | About $900 | About $85-140 |
+
+Estimated `poc` monthly cost, at Sweden Central pay-as-you-go list prices in
+USD (Azure Retail Prices API, November 2026, 730 hours):
+
+| Item | Estimate |
+|---|---|
+| Container Apps Consumption: one 1 CPU / 2 GiB replica always running, after the monthly free grant | $22-73 (idle vs. active rate) |
+| PostgreSQL `Standard_B2s` compute | $29.05 |
+| PostgreSQL storage, 32 GiB | $4.38 |
+| Azure-managed ingress load balancer and public IP of the VNet-integrated environment | $21.90 |
+| Key Vault private endpoint | $7.30 |
+| Two private DNS zones | $1.00 |
+| Log Analytics, Key Vault operations, HTTP requests for a few users | Usually $0-5 |
+
+Backups within the provisioned storage size have no extra charge. The
+estimates exclude GitHub Copilot seats, taxes, and subscription-level
+Microsoft Defender plans. The `poc` size has not yet been deployed or
+load-tested. Its trade-offs: a single replica and a server without HA, so
+revision updates, maintenance, and platform failures cause short outages;
+Burstable CPU is throttled after sustained load exhausts its credits; and an
+organization IP allow list cannot rely on the egress address.
+
+The size is fixed for a deployment. Azure cannot change environment zone
+redundancy or shrink PostgreSQL storage in place, so `deploy.mjs` records the
+size in the resource group's `environment` tag and refuses a different
+`--size` for an existing deployment. To switch, deploy the other size with a
+new `--prefix` and enroll employees again; their users, keys, and GitHub
+connections live in the old database.
 
 ## Prerequisites
 
@@ -73,6 +119,9 @@ Preview first. The solution does not change without `--confirm-deploy`.
 node scripts/deploy.mjs --subscription <subscription-id>
 node scripts/deploy.mjs --subscription <subscription-id> --confirm-deploy
 ```
+
+For a proof of concept, add `--size poc` to both commands, for example
+`node scripts/deploy.mjs --subscription <subscription-id> --prefix ccgc-poc --size poc`.
 
 The confirmed run:
 
@@ -106,7 +155,7 @@ its only write is refreshing your inbound rule in the state perimeter, and it
 plans without taking the state lock.
 
 Re-running is safe and is how you apply template or model changes. Useful
-options: `--engine bicep`, `--prefix`, `--location`,
+options: `--engine bicep`, `--size`, `--prefix`, `--location`,
 `--models claude-sonnet-5.5,...`, `--secrets-file`, `--name-seed`, and
 `--state-client-ip <ipv4>` when a VPN or proxy makes Azure see a different
 address than `https://api.ipify.org` reports.
@@ -251,7 +300,7 @@ from the secrets file.
 3. Every employee must enroll again because their users and connections lived
    in the deleted database. The LiteLLM URL changes too, so send the setup
    file that the new deployment writes. The egress IP also changes, so update
-   GitHub organization IP allow lists.
+   GitHub organization IP allow lists (`enterprise` size).
 
 ## Troubleshooting
 
@@ -264,6 +313,7 @@ from the secrets file.
 | `Cannot read Terraform state` | Your Storage Blob Data Contributor role on the state account has not propagated yet, or you lack it. Wait and re-run. If Azure sees you at a different address than the one in the message (VPN, proxy, split tunnel), re-run with `--state-client-ip <ipv4>`. |
 | `Could not detect this machine's public IPv4 address` | `https://api.ipify.org` is blocked or returned something else. Re-run with `--state-client-ip <ipv4>`. |
 | Storage reports `publicNetworkAccess: Disabled` on the state account | Azure Policy reset it after a write that did not keep `SecuredByPerimeter`. Re-run the preview or deploy; it restores the setting and the perimeter association. |
-| Enrollment or inference fails with a GitHub error | Confirm the employee has a Copilot seat and that any GitHub organization IP allow list includes the egress IP. |
+| Enrollment or inference fails with a GitHub error | Confirm the employee has a Copilot seat and that any GitHub organization IP allow list includes the egress IP. The `poc` size has no static egress IP; use `enterprise` with IP allow lists. |
+| Deploy refuses with `was deployed with size` | The existing deployment uses another size. Pass that `--size`, or deploy the new size with a new `--prefix`. |
 | `model_not_supported` from GitHub | The model is not enabled for that Copilot account. There is no fallback. |
 | Employee setup reports a settings conflict | The script backs up Claude settings and replaces only the managed keys after explicit confirmation. |

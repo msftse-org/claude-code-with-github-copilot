@@ -31,8 +31,8 @@ resource "azapi_resource" "postgres" {
 
   body = {
     sku = {
-      name = local.settings.postgres.skuName
-      tier = local.settings.postgres.skuTier
+      name = local.size.postgres.skuName
+      tier = local.size.postgres.skuTier
     }
     properties = {
       version            = local.settings.postgres.version
@@ -42,14 +42,14 @@ resource "azapi_resource" "postgres" {
         passwordAuth        = "Enabled"
       }
       backup = {
-        backupRetentionDays = local.settings.postgres.backupRetentionDays
+        backupRetentionDays = local.size.postgres.backupRetentionDays
         geoRedundantBackup  = "Disabled"
       }
       dataEncryption = {
         type = "SystemManaged"
       }
       highAvailability = {
-        mode = local.settings.postgres.highAvailability
+        mode = local.size.postgres.highAvailability
       }
       network = {
         delegatedSubnetResourceId   = local.postgres_subnet_id
@@ -57,9 +57,9 @@ resource "azapi_resource" "postgres" {
         publicNetworkAccess         = "Disabled"
       }
       storage = {
-        storageSizeGB = local.settings.postgres.storageSizeGB
+        storageSizeGB = local.size.postgres.storageSizeGB
         autoGrow      = "Enabled"
-        tier          = local.settings.postgres.storageTier
+        tier          = local.size.postgres.storageTier
       }
     }
   }

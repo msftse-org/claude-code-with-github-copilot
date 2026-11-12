@@ -33,9 +33,9 @@ flowchart LR
   end
   subgraph AZ["Azure"]
     LL["LiteLLM<br/>Azure Container Apps"]
-    PG[("PostgreSQL<br/>private, zone-redundant HA")]
+    PG[("PostgreSQL<br/>private; zone-redundant HA<br/>in the enterprise size")]
     KV["Key Vault<br/>private endpoint"]
-    NAT["NAT gateway<br/>static egress IP"]
+    NAT["NAT gateway, static egress IP<br/>(enterprise size only)"]
   end
   ACT -- "master key: create user + 90-day key" --> LL
   CC -- "HTTPS, Bearer personal key" --> LL
@@ -87,9 +87,12 @@ the image are illustrative, not the supported catalog.
   setup file and key from Enterprise IT. No checkout, Node.js, or LiteLLM
   password is needed.
 
-Choose the Azure subscription, region, and resource prefix through the
-deployment options. Image and sizing defaults live in
-[`infra/solution.json`](infra/solution.json). A confirmed deployment writes
+Choose the Azure subscription, region, resource prefix, and size through the
+deployment options. `--size enterprise` (default) is zone-redundant with a
+static egress IP; `--size poc` is a single-replica, Burstable PostgreSQL
+deployment for a few users, estimated at about $85-140 per month instead of
+about $900. See [Deployment sizes](docs/ENTERPRISE.md#deployment-sizes). Image
+and size definitions live in [`infra/solution.json`](infra/solution.json). A confirmed deployment writes
 the [employee setup file](docs/ENTERPRISE.md#employee-setup-file) with its
 gateway URL built in.
 
