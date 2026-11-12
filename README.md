@@ -15,9 +15,6 @@ gateway on Azure.
   workflow. Employees run one macOS script, paste the key, and approve GitHub
   in their browser.
 
-> The GitHub Copilot route is unofficial for this use. Review applicable
-> organization and vendor policies before using it.
-
 ## Architecture
 
 ```mermaid
