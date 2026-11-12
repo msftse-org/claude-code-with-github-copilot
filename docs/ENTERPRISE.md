@@ -14,24 +14,47 @@ the same platform. Both read their settings from
 `ccgc-pilot` and region `swedencentral`; override them with `--prefix` and
 `--location`.
 
-The shared configuration defines these resource defaults:
+### Azure resources
 
-| Resource | Configuration |
-|---|---|
-| Container Apps environment `cae-<prefix>-enterprise` | VNet-integrated, external ingress, zone-redundant, dedicated `D4` workload profile (2-6 nodes) |
-| Container app `ca-<prefix>-litellm` | Official `ghcr.io/berriai/litellm:v1.108.3` pinned by digest, 2 CPU / 4 GiB, 2-10 replicas, health probes |
-| PostgreSQL Flexible Server 16 | `Standard_D2ads_v5`, zone-redundant HA, 128 GiB with autogrow, 14-day backups, VNet-only, no public access |
-| Key Vault | RBAC, purge protection, public access disabled, private endpoint; holds the master key, salt key, and database URL |
-| NAT gateway and static public IP | Single egress IP for GitHub organization IP allow lists |
-| VNet, NSG, private DNS zones | Container Apps, PostgreSQL, and private endpoint subnets |
-| Log Analytics `log-<prefix>-enterprise` | Container Apps and Key Vault audit logs, 30-day retention |
-| Managed identity `id-<prefix>-litellm` | Key Vault Secrets User for the app's secret references |
+Names use `<prefix>`, `<compact-prefix>` (the prefix without dashes), and
+`<suffix>`, a unique string derived from the subscription, resource group,
+prefix, and name seed. Settings are the `infra/solution.json` defaults.
 
-Terraform keeps its state in resource group `rg-<prefix>-tfstate`: a
-zone-redundant storage account that accepts only Microsoft Entra ID
-authentication (shared keys disabled), with blob versioning and 30-day soft
-delete. Secrets are write-only arguments, so Terraform state and plans never
-contain them.
+Resource group `rg-<prefix>-enterprise`:
+
+| Resource | Name | Configuration |
+|---|---|---|
+| Managed identity | `id-<prefix>-litellm` | User-assigned; the app reads Key Vault secrets with it |
+| Log Analytics workspace | `log-<prefix>-enterprise` | Pay-as-you-go, 30-day retention |
+| Virtual network | `vnet-<prefix>-enterprise` | `10.80.0.0/16` with subnets `snet-container-apps` (`/23`), `snet-postgres` (`/27`), and `snet-private-endpoints` (`/27`) |
+| Network security group | `nsg-<prefix>-workload` | On all three subnets; allows VNet traffic, denies inbound internet traffic |
+| NAT gateway | `ng-<prefix>-enterprise` | Standard; carries all outbound traffic from Container Apps |
+| Public IP address | `pip-<prefix>-egress` | Standard, static; the single egress IP for GitHub organization IP allow lists |
+| PostgreSQL flexible server | `psql-<compact-prefix>-<suffix>` | PostgreSQL 16, `Standard_D2ads_v5` General Purpose, zone-redundant HA, 128 GiB (P10) with autogrow, 14-day backups, VNet-only; database `litellm` |
+| Private DNS zone | `<compact-prefix>.postgres.database.azure.com` | Linked to the VNet; resolves the PostgreSQL server |
+| Key Vault | `kv-<compact-prefix>-<suffix>` | Standard, RBAC, purge protection, public access disabled; secrets `litellm-master-key`, `litellm-salt-key`, and `litellm-database-url`; audit logs go to Log Analytics |
+| Private endpoint | `pe-<prefix>-kv` | Key Vault access from the VNet; Azure adds its network interface |
+| Private DNS zone | `privatelink.vaultcore.azure.net` | Linked to the VNet; resolves the Key Vault private endpoint |
+| Role assignment | Key Vault Secrets User | The managed identity, on the vault |
+| Container Apps environment | `cae-<prefix>-enterprise` | VNet-integrated, external ingress, zone-redundant; Consumption profile plus a dedicated `D4` profile (4 vCPU and 16 GiB per node, 2-6 nodes) that runs LiteLLM; logs and metrics go to Log Analytics |
+| Container app | `ca-<prefix>-litellm` | Official `ghcr.io/berriai/litellm:v1.108.3` pinned by digest, 2 CPU / 4 GiB, 2-10 replicas (scales out at 32 concurrent requests), HTTPS ingress, Key Vault secret references, health probes |
+
+Azure Container Apps creates and manages one more resource group,
+`ME_cae-<prefix>-enterprise_rg-<prefix>-enterprise_<region>`, with the
+environment's Standard load balancer `capp-svc-lb` and its public IP
+`capp-svc-lb-ip`. They serve the gateway URL.
+
+The Terraform engine keeps its state in resource group `rg-<prefix>-tfstate`,
+which `deploy.mjs` creates before the first run:
+
+| Resource | Name | Configuration |
+|---|---|---|
+| Storage account | `sttf<compact-prefix>` plus a hash, 24 characters | StorageV2, Standard ZRS, Microsoft Entra ID authentication only (shared keys disabled), blob versioning, 30-day soft delete; container `tfstate`, blob `<prefix>.tfstate` |
+| Role assignment | Storage Blob Data Contributor | Each deployer, on the storage account |
+| Network security perimeter | `nsp-<prefix>-tfstate` | Controls network access to the storage account (see below) |
+
+Secrets are write-only arguments, so Terraform state and plans never contain
+them.
 
 The state account has no open public endpoint. Network security perimeter
 `nsp-<prefix>-tfstate` enforces access to it, and its `terraform-state`
@@ -42,13 +65,64 @@ disables public network access on storage accounts without one, such as
 Microsoft's SFI-NS2.2.1 policy. Delete a former deployer's rule in the
 portal, under the perimeter's **Profiles**.
 
+### GitHub and LiteLLM objects
+
+- **GitHub:** environment `ccgc-admin`, restricted to `main`, with variable
+  `LITELLM_URL` and secret `LITELLM_MASTER_KEY` (skipped with
+  `--skip-github`).
+- **LiteLLM database:** credential `github-copilot-user` (per-user OAuth) and
+  one route per Claude model. Enrolling an employee adds an internal user
+  with a 90-day key. The employee's GitHub connection is stored encrypted
+  with the salt key.
+
 There is no container registry, broker, or custom authentication. LiteLLM
 stores its models in PostgreSQL (`STORE_MODEL_IN_DB=True`). The per-user
 Copilot provider needs a placeholder token file to start. It is mounted from a
 Container Apps secret and is never used for inference.
 
-The main cost drivers are the zone-redundant PostgreSQL server, which bills
-for two compute nodes, and at least two `D4` workload profile nodes.
+### Estimated cost
+
+For a proof of concept with four employees, the default configuration costs
+about **$900 a month**, roughly $225 per employee. The estimate uses
+pay-as-you-go list prices for `swedencentral` from the
+[Azure Retail Prices API](https://learn.microsoft.com/rest/api/cost-management/retail-prices/azure-retail-prices)
+in November 2026 and 730 hours a month, before taxes and discounts. The
+charges in Cost Management for a pilot deployment matched these rates.
+
+| Item | Price | USD per month |
+|---|---|---:|
+| Container Apps, two `D4` nodes (the default minimum) | 8 vCPU × $0.057077/h + 32 GiB × $0.004978/h | 449.62 |
+| Container Apps dedicated plan management | $0.10/h | 73.00 |
+| PostgreSQL compute, primary and HA standby | 2 × `Standard_D2ads_v5` at $0.187/h | 273.02 |
+| PostgreSQL storage, 128 GiB on each server | 256 GB × $0.1369 | 35.05 |
+| NAT gateway | $0.045/h | 32.85 |
+| Container Apps load balancer | $0.025/h | 18.25 |
+| Two Standard public IPs, egress and ingress | 2 × $0.005/h | 7.30 |
+| Key Vault private endpoint | $0.01/h | 7.30 |
+| Two private DNS zones | 2 × $0.50 | 1.00 |
+| Usage by four employees | Log Analytics ingestion, NAT and load balancer data, Key Vault operations | 0-5 |
+| **Total** | | **≈ 900** |
+
+- Almost all of it is fixed. The cost doesn't depend on the number of
+  employees until LiteLLM needs a third `D4` node, at $224.81 a month each.
+- A healthy gateway sends under 1 GB of logs a month. The first 5 GB per
+  billing account each month are free, then $2.99/GB. Backups up to the
+  provisioned storage size, the first 100 GB of internet egress, Terraform
+  state storage, and the network security perimeter cost nothing or almost
+  nothing.
+- Not included: GitHub Copilot seats and any Microsoft Defender for Cloud
+  plans enabled on the subscription.
+
+To lower the cost of a proof of concept, change `infra/solution.json`.
+Storage can only grow, so set its size before the first deployment.
+
+| Change | Saves per month | Trade-off |
+|---|---:|---|
+| `postgres.highAvailability`: `Disabled` | $154.03 | No standby server in another zone |
+| PostgreSQL `Standard_B2s`: `skuTier` `Burstable`, `highAvailability` `Disabled`, `storageSizeGB` `32`, `storageTier` `P4` | $274.64 | Burstable CPU and no HA |
+| `workloadProfile.minimumCount`: `1` and `litellm.minReplicas`: `1` | $224.81 | One gateway replica and no zone redundancy |
+
+The last two changes together bring the total to about $400 a month.
 
 ## Prerequisites
 
@@ -63,7 +137,8 @@ for two compute nodes, and at least two `D4` workload profile nodes.
   address with `--state-client-ip`.
 - Node.js 24 and a checkout of this repository
 - GitHub CLI signed in as an administrator of the repository that runs the
-  employee-access workflow
+  employee-access workflow (`npm run access` needs it only to read
+  `LITELLM_URL` when you don't pass `--gateway`)
 
 ## Deploy or update
 
@@ -194,13 +269,40 @@ gh workflow run ccgc-employee-access.yml -f action=enroll -f github_username=<lo
 gh workflow run ccgc-employee-access.yml -f action=revoke -f github_username=<login>
 ```
 
+### From your computer
+
+`npm run access` does the same from a checkout of this repository, without
+GitHub Actions:
+
+```bash
+npm run access -- enroll <login>
+npm run access -- revoke <login>
+```
+
+It reads the master key from the secrets file that `deploy.mjs` wrote
+(`~/.config/ccgc/<subscription-id>/<prefix>.json`) and the gateway from the
+`ccgc-admin` `LITELLM_URL` variable. Enroll prints the key in your terminal
+and writes the employee setup file to `dist/`. Options:
+
+- `--prefix`, `--subscription`, or `--secrets-file` choose the secrets file
+  when you have several deployments.
+- `--gateway https://<litellm-host>` skips GitHub.
+- `--installer <path>` writes the setup file elsewhere.
+
+Another administrator needs a copy of the secrets file from your password
+manager, saved with mode `0600`. Local runs leave no Actions run history, but
+the users and keys appear in the LiteLLM UI as usual.
+
+### What enroll and revoke do
+
 - **Enroll** creates or reuses the LiteLLM user that matches the GitHub
   account ID and issues a 90-day key. The key covers the Claude models
   LiteLLM currently advertises and is limited to inference, model-info, and
-  own-connection routes. The run summary shows the key and the employee's
-  setup command, and links the setup file built for your gateway. Send the
-  key and the file to the employee privately; anyone who can read the run can
-  use the key.
+  own-connection routes. The run summary, or your terminal for local runs,
+  shows the key and the employee's setup command, along with the setup file
+  built for your gateway. Send the key and the file to the employee
+  privately. Anyone who can read the run or your terminal output can use the
+  key.
 - **Renew** by enrolling again. Earlier keys stay valid until they expire or
   are deleted on the LiteLLM UI's **Virtual Keys** page.
 - **Revoke** disconnects the employee's GitHub connection and deletes the
@@ -257,7 +359,7 @@ from the secrets file.
 
 | Symptom | Check |
 |---|---|
-| Readiness never reports the database connected | `az postgres flexible-server show` must report `Ready`; external automation can stop the server (`az postgres flexible-server start`). Then check `az containerapp logs show -n ca-<prefix>-litellm -g rg-<prefix>-enterprise`. |
+| Readiness never reports the database connected, or every request times out (Claude Desktop: "Couldn't load your organization's model list") | `az postgres flexible-server show` must report `Ready`. Subscription automation, such as a nightly cost-control job, can stop the server: start it with `az postgres flexible-server start` and exempt it from the job. LiteLLM reconnects by itself. While the database is down, LiteLLM logs reconnect errors continuously, about 0.8 GB a day in Log Analytics. Otherwise check `az containerapp logs show -n ca-<prefix>-litellm -g rg-<prefix>-enterprise`. |
 | Revision fails with a Key Vault reference error | The role assignment was still propagating. Re-run the deploy. |
 | Terraform reports that a resource `already exists` and must be imported | The resource exists outside Terraform state, for example from a Bicep deployment. Use `--engine bicep` or import it. The deploy already imports leftover diagnostic settings and retries. If a `diagnosticSettings` ID still fails, delete it with `az monitor diagnostic-settings delete --name <name> --resource <resource-id>` and re-run. |
 | Terraform reports `Instance cannot be destroyed` | A protected resource is tainted after a failed create. See [Terraform and Bicep](#terraform-and-bicep). |
