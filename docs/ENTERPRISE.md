@@ -15,8 +15,8 @@ the same platform. Both read their settings from
 `--location`.
 
 The shared configuration defines these resources. Sizes and SKUs shown are for
-the default `enterprise` size; see [Deployment sizes](#deployment-sizes) for
-the smaller `poc` size.
+the optional `enterprise` size; see [Deployment sizes](#deployment-sizes) for
+the default, smaller `poc` size.
 
 | Resource | Configuration |
 |---|---|
@@ -55,11 +55,12 @@ workload profile nodes.
 
 ### Deployment sizes
 
-Choose a size with `--size` on the first deployment. Both sizes keep the same
-private design: VNet, private PostgreSQL, private Key Vault, and Log
-Analytics. `poc` removes redundancy and the static egress IP.
+Choose a size with `--size` on the first deployment; omitting it selects
+`poc`. Both sizes keep the same private design: VNet, private PostgreSQL,
+private Key Vault, and Log Analytics. `poc` removes redundancy and the static
+egress IP.
 
-| Setting | `enterprise` (default) | `poc` |
+| Setting | `enterprise` | `poc` (default) |
 |---|---|---|
 | Intended use | Production: zone redundancy, autoscaling, static egress IP | Proof of concept for a few users, such as four |
 | Container Apps environment | Zone-redundant; dedicated `D4` workload profile, 2-6 nodes | Consumption profile only; not zone-redundant |
@@ -126,8 +127,10 @@ node scripts/deploy.mjs --subscription <subscription-id>
 node scripts/deploy.mjs --subscription <subscription-id> --confirm-deploy
 ```
 
-For a proof of concept, add `--size poc` to both commands, for example
-`node scripts/deploy.mjs --subscription <subscription-id> --prefix ccgc-poc --size poc`.
+These commands default to `poc`. For enterprise sizing, add `--size enterprise`
+to both commands. Existing enterprise deployments also require
+`--size enterprise`; omitting it fails the size guard rather than resizing
+resources. Use a new `--prefix`, such as `ccgc-poc`, to create a separate deployment.
 
 The confirmed run:
 

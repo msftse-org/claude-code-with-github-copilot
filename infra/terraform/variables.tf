@@ -64,8 +64,8 @@ variable "prefix" {
 
 variable "size" {
   type        = string
-  description = "Deployment size from infra/solution.json: enterprise (zone-redundant, NAT egress) or poc (single replica, Burstable PostgreSQL, no NAT)."
-  default     = "enterprise"
+  description = "Deployment size from infra/solution.json: poc (Consumption, Burstable PostgreSQL, no NAT) or enterprise (zone-redundant, NAT egress)."
+  default     = "poc"
 
   validation {
     condition     = contains(["enterprise", "poc"], var.size)

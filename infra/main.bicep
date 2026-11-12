@@ -8,12 +8,12 @@ param prefix string = 'ccgc-pilot'
 @description('Azure region for every resource.')
 param location string = 'swedencentral'
 
-@description('Deployment size from solution.json: enterprise (zone-redundant, NAT egress) or poc (single replica, Burstable PostgreSQL, no NAT).')
+@description('Deployment size from solution.json: poc (Consumption, Burstable PostgreSQL, no NAT) or enterprise (zone-redundant, NAT egress).')
 @allowed([
   'enterprise'
   'poc'
 ])
-param size string = 'enterprise'
+param size string = 'poc'
 
 @description('Seed for globally unique names. Change it only to rebuild while a deleted Key Vault name is still reserved by purge protection.')
 @minLength(1)

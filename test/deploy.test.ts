@@ -30,7 +30,7 @@ interface Command {
 
 function fakeCli({
   groupExists = false,
-  deployedSize = 'enterprise',
+  deployedSize = 'poc',
   stateStorageExists = false,
   terraformState = '',
   statePublicNetworkAccess = 'SecuredByPerimeter',
@@ -80,7 +80,7 @@ function fakeCli({
     if (command === 'terraform' && args[1] === 'output') {
       return JSON.stringify({
         litellm_url: { value: 'https://litellm.example' },
-        egress_ip: { value: '203.0.113.10' },
+        egress_ip: { value: deployedSize === 'poc' ? '' : '203.0.113.10' },
         resource_group_name: { value: 'rg-ccgc-pilot-enterprise' },
       });
     }
@@ -94,7 +94,7 @@ function fakeCli({
     if (line.startsWith('az deployment sub create')) {
       return JSON.stringify({
         litellmUrl: { value: 'https://litellm.example' },
-        egressIp: { value: '203.0.113.10' },
+        egressIp: { value: deployedSize === 'poc' ? '' : '203.0.113.10' },
         resourceGroupName: { value: 'rg-ccgc-pilot-enterprise' },
       });
     }
@@ -156,7 +156,7 @@ test('Terraform preview plans against empty local state and passes secrets only 
     assert.ok(init.workspace?.includes('local_backend_override.tf') && init.workspace.includes('.terraform.lock.hcl'));
     assert.equal(init.args.some(arg => arg.startsWith('-backend-config')), false);
     assert.ok(plan.args.includes('-var=name_seed=litellm2') && plan.args.includes(`-var=tenant_id=${tenant}`));
-    assert.ok(plan.args.includes('-var=size=enterprise'));
+    assert.ok(plan.args.includes('-var=size=poc'));
     assert.equal(terraform(cli.commands, 'apply'), undefined);
     assert.equal(cli.commands.some(entry => entry.command === 'az' && entry.args.includes('create')), false);
     const secrets = JSON.parse(await readFile(join(directory, 'secrets.json'), 'utf8')) as Record<string, string>;
@@ -180,7 +180,7 @@ test('Bicep preview keeps generated secrets in a private, deleted parameter file
   const directory = await mkdtemp(join(tmpdir(), 'ccgc-deploy-test-'));
   try {
     const cli = fakeCli();
-    const result = await deploy(options(directory, ['--engine', 'bicep', '--size', 'poc']), { run: cli.run, log: () => {} });
+    const result = await deploy(options(directory, ['--engine', 'bicep']), { run: cli.run, log: () => {} });
     assert.equal(result.deployed, false);
     const preview = cli.commands.find(entry => entry.args.slice(0, 3).join(' ') === 'deployment sub what-if');
     assert.ok(preview?.parameters && preview.parameterFile);
@@ -198,6 +198,23 @@ test('Bicep preview keeps generated secrets in a private, deleted parameter file
   } finally { await rm(directory, { recursive: true, force: true }); }
 });
 
+test('explicit enterprise size overrides the default in both deployment engines', async () => {
+  for (const engine of ['terraform', 'bicep']) {
+    const directory = await mkdtemp(join(tmpdir(), 'ccgc-deploy-test-'));
+    try {
+      const cli = fakeCli();
+      const result = await deploy(options(directory, ['--engine', engine, '--size', 'enterprise']), { run: cli.run, log: () => {} });
+      assert.equal(result.deployed, false);
+      if (engine === 'terraform') {
+        assert.ok(terraform(cli.commands, 'plan')?.args.includes('-var=size=enterprise'));
+      } else {
+        const preview = cli.commands.find(entry => entry.args.slice(0, 3).join(' ') === 'deployment sub what-if');
+        assert.equal(preview?.parameters?.parameters.size?.value, 'enterprise');
+      }
+    } finally { await rm(directory, { recursive: true, force: true }); }
+  }
+});
+
 test('deploy refuses to invent new secrets for an existing resource group', async () => {
   const directory = await mkdtemp(join(tmpdir(), 'ccgc-deploy-test-'));
   try {
@@ -208,14 +225,14 @@ test('deploy refuses to invent new secrets for an existing resource group', asyn
   } finally { await rm(directory, { recursive: true, force: true }); }
 });
 
-test('deploy refuses to change the size of an existing deployment before previewing anything', async () => {
+test('default poc size refuses to resize an existing enterprise deployment before previewing anything', async () => {
   assert.throws(() => options(tmpdir(), ['--size', 'small']), /--size must be enterprise or poc/);
   for (const engine of ['terraform', 'bicep']) {
     const directory = await mkdtemp(join(tmpdir(), 'ccgc-deploy-test-'));
     try {
       await writeFile(join(directory, 'secrets.json'), JSON.stringify(generateSecrets()), { mode: 0o600 });
       const cli = fakeCli({ groupExists: true, stateStorageExists: true, deployedSize: 'enterprise' });
-      await assert.rejects(deploy(options(directory, ['--engine', engine, '--size', 'poc']), { run: cli.run, log: () => {} }),
+      await assert.rejects(deploy(options(directory, ['--engine', engine]), { run: cli.run, log: () => {} }),
         /deployed with size enterprise, not poc.*new --prefix/s);
       assert.equal(cli.commands.some(entry => entry.command === 'terraform' || entry.args[0] === 'deployment'
         || entry.args[0] === 'rest' || entry.args.includes('create')), false);

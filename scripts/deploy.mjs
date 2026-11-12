@@ -39,8 +39,8 @@ your current public IPv4 address through the perimeter.
 Options:
   --subscription <id>    Azure subscription ID (required)
   --engine <name>        terraform (default) or bicep; both deploy the same resources
-  --size <name>          enterprise (default; zone-redundant, NAT egress) or poc (single
-                         replica, Burstable PostgreSQL, no NAT). Fixed once deployed.
+  --size <name>          poc (default; 1-2 replicas, Burstable PostgreSQL, no NAT)
+                         or enterprise (zone-redundant, NAT egress). Fixed once deployed.
   --prefix <name>        Resource prefix (default: ccgc-pilot)
   --location <region>    Azure region (default: swedencentral)
   --name-seed <seed>     Seed for globally unique names (default: litellm2)
@@ -67,7 +67,7 @@ export function parseOptions(argv) {
     options: {
       subscription: { type: 'string' },
       engine: { type: 'string', default: 'terraform' },
-      size: { type: 'string', default: 'enterprise' },
+      size: { type: 'string', default: 'poc' },
       prefix: { type: 'string', default: 'ccgc-pilot' },
       location: { type: 'string', default: 'swedencentral' },
       'name-seed': { type: 'string', default: 'litellm2' },

@@ -89,10 +89,10 @@ the image are illustrative, not the supported catalog.
   password is needed.
 
 Choose the Azure subscription, region, resource prefix, and size through the
-deployment options. `--size enterprise` (default) is zone-redundant with a
-static egress IP; `--size poc` starts with one replica, scales to two, and
-uses Burstable PostgreSQL for a few users, estimated at about $85-140 per
-month with one replica instead of about $900. See
+deployment options. `--size poc` (default) starts with one replica, scales
+to two, and uses Burstable PostgreSQL for a few users, estimated at about
+$85-140 per month with one replica. Opt in to `--size enterprise` for zone
+redundancy and a static egress IP, estimated at about $900 per month. See
 [Deployment sizes](docs/ENTERPRISE.md#deployment-sizes). Image and size
 definitions live in [`infra/solution.json`](infra/solution.json). A confirmed deployment writes
 the [employee setup file](docs/ENTERPRISE.md#employee-setup-file) with its

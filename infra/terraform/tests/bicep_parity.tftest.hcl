@@ -80,6 +80,10 @@ run "role_assignment_name_matches_bicep_guid" {
 run "enterprise_size_is_zone_redundant_with_nat_egress" {
   command = plan
 
+  variables {
+    size = "enterprise"
+  }
+
   assert {
     condition     = length(azapi_resource.nat_gateway) == 1 && contains(keys(azapi_resource.vnet.body.properties.subnets[0].properties), "natGateway")
     error_message = "The enterprise size must route Container Apps egress through the NAT gateway."
@@ -96,12 +100,8 @@ run "enterprise_size_is_zone_redundant_with_nat_egress" {
   }
 }
 
-run "poc_size_is_single_zone_consumption_without_nat" {
+run "default_poc_size_is_single_zone_consumption_without_nat" {
   command = plan
-
-  variables {
-    size = "poc"
-  }
 
   assert {
     condition     = length(azapi_resource.nat_gateway) == 0 && length(azapi_resource.nat_public_ip) == 0 && output.egress_ip == ""
