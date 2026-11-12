@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import { GITHUB_MCP_CONFIG } from '../scripts/github-mcp.mjs';
 import { manageEmployeeAccess } from '../scripts/enterprise-actions-access.mjs';
 
 const masterKey = `sk-${'m'.repeat(32)}`;
@@ -30,6 +31,7 @@ function mockFetch(existingUsers: object[] = []) {
     if (url.hostname === 'api.github.com') {
       return response({ id: githubAccountId, login: githubLogin, type: 'User' });
     }
+    if (url.pathname === '/v1/mcp/server/ccgc-github-web-search') return response(GITHUB_MCP_CONFIG);
     if (url.pathname === '/user/list') {
       return response({ users: existingUsers, total_pages: 1 });
     }
@@ -128,4 +130,15 @@ test('Actions rejects unsafe LiteLLM origins before making requests', async () =
     fetcher,
   }), /HTTPS origin/);
   assert.equal(calls.length, 0);
+});
+
+
+test('every enrollment grants only the configured web-search MCP server and tool', async () => {
+  const { calls, fetcher } = mockFetch();
+  await manageEmployeeAccess({ action: 'enroll', githubLogin, litellmUrl: 'https://litellm.example', masterKey, fetcher });
+  const key = calls.find(call => call.url.pathname === '/key/generate')?.body;
+  for (const route of ['/github/mcp', '/mcp', '/mcp/']) assert.equal((key?.allowed_routes as string[]).includes(route), true);
+  assert.deepEqual(key?.object_permission, { mcp_servers: ['ccgc-github-web-search'], mcp_tool_permissions: { 'ccgc-github-web-search': ['web_search'] } });
+  assert.equal((key?.allowed_routes as string[]).includes('/v1/mcp/server'), false);
+  assert.equal(key?.duration, '90d');
 });

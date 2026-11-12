@@ -15,9 +15,6 @@ gateway on Azure.
   workflow. Employees run one macOS script, paste the key, and approve GitHub
   in their browser.
 
-> The GitHub Copilot route is unofficial for this use. Review applicable
-> organization and vendor policies before using it.
-
 ## Architecture
 
 ```mermaid
@@ -77,6 +74,10 @@ the image are illustrative, not the supported catalog.
 
 ## Getting started
 
+- [GitHub MCP web search](docs/GITHUB-MCP.md) is included in employee onboarding,
+  with automatic GitHub CLI installation and safe reruns.
+- [Request/response logging](docs/LOGGING.md) can be enabled through an administrator
+  feature flag; content storage is off on new gateways.
 - **Administrators:** follow the [enterprise runbook](docs/ENTERPRISE.md) to
   deploy, configure GitHub, and enroll or revoke employees.
 - **Employees:** follow the [Mac guide](docs/mac/README.md). You need macOS,

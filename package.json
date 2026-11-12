@@ -9,6 +9,7 @@
   },
   "scripts": {
     "deploy": "node scripts/deploy.mjs",
+    "logging": "node scripts/litellm-logging.mjs",
     "installer": "node scripts/build-installer.mjs",
     "access": "node scripts/employee-access.mjs",
     "check": "tsc --noEmit",

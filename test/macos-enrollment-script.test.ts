@@ -65,7 +65,7 @@ test('macOS enrollment script asks once before backing up and replacing configur
   assert.match(source, /Cancel without changing Claude configuration/);
   assert.match(source, /ccgc-backup\./);
   assert.match(source, /preflight_fresh_start "\$gateway" routing configure/);
-  assert.match(source, /prepare_settings "\$gateway" "\$default_model" "\$tmp_dir\/settings\.json" full/);
+  assert.match(source, /prepare_settings "\$gateway" "\$default_model" "\$tmp_dir\/settings\.json" "\$enrollment_mode"/);
   assert.match(source, /ANTHROPIC_BASE_URL=\$gateway/);
 });
 
@@ -290,6 +290,9 @@ const standaloneUser = '11111111-2222-4333-8444-555555555555';
 const standaloneCredential = 'github-copilot-user';
 const standaloneStubs = `
 source "$1"
+ensure_github_cli() { return 0; }
+ensure_github_cli_login() { [ "$1" = example-user ]; }
+verify_github_mcp() { [ "$1" = https://gateway.example ] && [ "$2" = "$CCGC_TEST_KEY" ]; }
 claude() { printf '2.1.319 (Claude Code)\\n'; }
 desktop_installed() { [ "$CCGC_TEST_MODE" != no-desktop ]; }
 claude_desktop_version() { printf '4.23118.0'; }
@@ -592,7 +595,7 @@ test('configure keeps later personal settings but resets configuration from anot
     const enrolled = JSON.parse(await readFile(settingsPath, 'utf8'));
     const personal = {
       ...enrolled, enabledPlugins: { 'example@market': true },
-      permissions: { ...enrolled.permissions, defaultMode: 'acceptEdits', allow: ['Bash(npm test)'] },
+      permissions: { ...enrolled.permissions, defaultMode: 'acceptEdits', allow: ['Bash(npm test)', 'mcp__github__github-web_search'] },
     };
     await writeFile(settingsPath, JSON.stringify(personal), { mode: 0o600 });
     const kept = await runStandalone(home, 'success', {}, configureHarness);
@@ -816,4 +819,119 @@ token
       } finally { await rm(home, { recursive: true, force: true }); }
     });
   }
+});
+
+test('GitHub MCP configuration preserves other servers and settings, is idempotent, and stores no credentials', {
+  skip: process.platform !== 'darwin',
+}, async () => {
+  const home = await mkdtemp(join(tmpdir(), 'ccgc-mcp-config-'));
+  try {
+    await mkdir(join(home, '.claude'));
+    const original = { projects: { '/test': { hasTrustDialogAccepted: false } }, mcpServers: { existing: { type: 'http', url: 'https://other.example' } } };
+    await writeFile(join(home, '.claude.json'), JSON.stringify(original), { mode: 0o600 });
+    const settings = { env: { ANTHROPIC_BASE_URL: 'https://gateway.example' }, apiKeyHelper: 'existing helper', permissions: { allow: ['Read'], deny: ['Bash(rm *)'], defaultMode: 'manual' } };
+    await writeFile(join(home, 'settings.json'), JSON.stringify(settings));
+    const harness = `source "$1"; prepare_github_mcp https://gateway.example "$HOME"; prepare_github_mcp https://gateway.example "$HOME"`;
+    await exec('/bin/bash', ['-c', harness, 'bash', script.pathname], { env: { ...process.env, HOME: home } });
+    const state = JSON.parse(await readFile(join(home, 'mcp-state.json'), 'utf8'));
+    assert.deepEqual(state.projects, original.projects);
+    assert.deepEqual(state.mcpServers.existing, original.mcpServers.existing);
+    assert.equal(state.mcpServers.github.url, 'https://gateway.example/github/mcp');
+    assert.equal(state.mcpServers.github.headers, undefined);
+    assert.match(state.mcpServers.github.headersHelper, /mcp-headers$/);
+    assert.equal(state.hasSeenAutoModeOutsideReadPrompt, undefined);
+    const actual = JSON.parse(await readFile(join(home, 'settings.json'), 'utf8'));
+    assert.equal(actual.apiKeyHelper, settings.apiKeyHelper);
+    assert.deepEqual(actual.env, settings.env);
+    assert.deepEqual(actual.permissions.allow, ['Read', 'mcp__github__github-web_search']);
+    assert.deepEqual(actual.permissions.deny, ['Bash(rm *)', 'WebSearch']);
+    assert.deepEqual(JSON.parse(await readFile(join(home, '.claude.json'), 'utf8')), original);
+  } finally { await rm(home, { recursive: true, force: true }); }
+});
+
+test('MCP headers are generated per connection and never sent for another gateway or account', {
+  skip: process.platform !== 'darwin',
+}, async () => {
+  const home = await mkdtemp(join(tmpdir(), 'ccgc-mcp-auth-'));
+  try {
+    await mkdir(join(home, '.local/share/ccgc/enterprise'), { recursive: true });
+    await writeFile(join(home, '.local/share/ccgc/enterprise/profile.json'), JSON.stringify({
+      authMethod: 'litellmKey', inferenceAuthentication: 'directKey', githubMcpEnabled: true,
+      githubLogin: 'employee', gateway: 'https://gateway.example',
+    }), { mode: 0o600 });
+    const harness = `source "$1"; token() { printf 'sk-synthetic-personal-key'; }; gh() {
+      if [ "$1 $2" = 'auth token' ]; then printf 'gho_synthetic_github_token_12345';
+      else printf '%s' "\${TEST_LOGIN:-employee}"; fi
+    }; mcp_headers`;
+    const env = { ...process.env, HOME: home, CLAUDE_CODE_MCP_SERVER_NAME: 'github', CLAUDE_CODE_MCP_SERVER_URL: 'https://gateway.example/github/mcp' };
+    const result = await exec('/bin/bash', ['-c', harness, 'bash', script.pathname], { env });
+    assert.deepEqual(JSON.parse(result.stdout), { 'x-litellm-api-key': 'Bearer sk-synthetic-personal-key', 'x-mcp-github-authorization': 'Bearer gho_synthetic_github_token_12345' });
+    for (const change of [{ CLAUDE_CODE_MCP_SERVER_URL: 'https://evil.example/github/mcp' }, { TEST_LOGIN: 'another' }, { CLAUDE_CODE_MCP_SERVER_NAME: 'other' }]) {
+      await assert.rejects(exec('/bin/bash', ['-c', harness, 'bash', script.pathname], { env: { ...env, ...change } }), error => {
+        assert.equal((error as { stdout?: string }).stdout, '');
+        assert.doesNotMatch(String((error as { stderr?: string }).stderr), /synthetic-personal|synthetic_github/);
+        return true;
+      });
+    }
+  } finally { await rm(home, { recursive: true, force: true }); }
+});
+
+test('enrollment always installs MCP state and preserves it through configure and doctor', {
+  skip: process.platform !== 'darwin',
+}, async () => {
+  const home = await standaloneFixture('success');
+  try {
+    await writeFile(join(home, '.claude.json'), JSON.stringify({ mcpServers: { other: { type: 'http', url: 'https://other.example' } }, personalState: true, optionalState: null }), { mode: 0o600 });
+    const result = await runStandalone(home, 'success');
+    assert.match(result.stdout, /CCGC doctor passed/);
+    const profile = JSON.parse(await readFile(join(home, '.local/share/ccgc/enterprise/profile.json'), 'utf8'));
+    assert.equal(profile.githubMcpEnabled, true);
+    const state = JSON.parse(await readFile(join(home, '.claude.json'), 'utf8'));
+    assert.equal(state.personalState, true);
+    assert.equal(state.mcpServers.other.url, 'https://other.example');
+    assert.equal(state.mcpServers.github.url, 'https://gateway.example/github/mcp');
+    const backups = (await readdir(home)).filter(n => n.startsWith('.claude.json.ccgc-backup.'));
+    assert.ok(backups.length >= 1 && backups.length <= 2);
+    assert.deepEqual(await readdir(join(home, 'temp')), []);
+  } finally { await rm(home, { recursive: true, force: true }); }
+});
+
+test('enrollment stopped at MCP verification resumes with completed Copilot login and preserves state on later reruns', {
+  skip: process.platform !== 'darwin',
+}, async () => {
+  const home = await standaloneFixture('success');
+  const harness = `${standaloneStubs}
+verify_github_mcp() {
+  [ "\${CCGC_TEST_STOP_AT_MCP-}" != 1 ] || fail 'MCP verification interrupted; rerun setup'
+  [ "$1" = https://gateway.example ] && [ "$2" = "$CCGC_TEST_KEY" ]
+}
+main <<< "\${CCGC_TEST_CHOICE-1}"
+cleanup_temp
+`;
+  try {
+    await assert.rejects(runStandalone(home, 'success', { CCGC_TEST_STOP_AT_MCP: '1' }, harness),
+      error => /MCP verification interrupted/.test(String((error as { stderr?: string }).stderr)));
+    assert.deepEqual(JSON.parse(await readFile(join(home, '.local/share/ccgc/enterprise/profile.json'), 'utf8')), { previousProfile: true });
+    assert.equal(await readFile(join(home, 'keychain/previous-key'), 'utf8'), 'previous-personal-key');
+    assert.deepEqual(await readdir(join(home, 'temp')), []);
+    const resumed = await runStandalone(home, 'success', {}, harness);
+    assert.match(resumed.stdout, /Enrollment complete/);
+    const statePath = join(home, '.claude/settings.json');
+    const settings = JSON.parse(await readFile(statePath, 'utf8'));
+    settings.theme = 'dark';
+    settings.permissions.defaultMode = 'acceptEdits';
+    await writeFile(statePath, JSON.stringify(settings));
+    await runStandalone(home, 'success', { CCGC_TEST_CHOICE: '' }, harness);
+    const repeated = JSON.parse(await readFile(statePath, 'utf8'));
+    assert.equal(repeated.theme, 'dark');
+    assert.equal(repeated.permissions.defaultMode, 'acceptEdits');
+    assert.deepEqual(repeated.permissions.allow, ['mcp__github__github-web_search']);
+    assert.deepEqual(repeated.permissions.deny, ['WebSearch']);
+    const events = await readFile(join(home, 'events'), 'utf8');
+    assert.equal(events.split('browser-opened').length - 1, 1);
+    assert.equal(events.split('POST https://gateway.example/credentials/github-copilot-user/user_connection/start').length - 1, 1);
+    assert.equal(events.split('POST https://gateway.example/credentials/github-copilot-user/user_connection/poll').length - 1, 1);
+    assert.equal(JSON.parse(await readFile(join(home, '.local/share/ccgc/enterprise/profile.json'), 'utf8')).githubMcpEnabled, true);
+    assert.deepEqual(await readdir(join(home, 'temp')), []);
+  } finally { await rm(home, { recursive: true, force: true }); }
 });

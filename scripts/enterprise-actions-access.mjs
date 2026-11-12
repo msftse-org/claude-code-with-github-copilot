@@ -1,3 +1,4 @@
+import { ensureGitHubMcp, GITHUB_MCP_ROUTES } from './github-mcp.mjs';
 import { randomUUID } from 'node:crypto';
 import { resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
@@ -195,6 +196,7 @@ export async function manageEmployeeAccess({
     return { action, githubLogin: account.login, deleted: existing ? 1 : 0 };
   }
 
+  const mcp = await ensureGitHubMcp({ litellmUrl: origin, masterKey: adminKey, fetcher });
   const models = await modelsForUser(fetcher, origin, adminKey);
   const userId = await ensureUser(fetcher, origin, adminKey, account, models, existing);
   const keyAlias = `ccgc-claude-${randomUUID()}`;
@@ -206,7 +208,8 @@ export async function manageEmployeeAccess({
       key_alias: keyAlias,
       models,
       duration: '90d',
-      allowed_routes: EMPLOYEE_KEY_ROUTES,
+      allowed_routes: [...EMPLOYEE_KEY_ROUTES, ...GITHUB_MCP_ROUTES],
+      object_permission: { mcp_servers: [mcp.serverId], mcp_tool_permissions: { [mcp.serverId]: ['web_search'] } },
       metadata: {
         ccgc_purpose: 'claude-code',
         github_login: account.login,
@@ -276,6 +279,8 @@ async function main() {
     'The key lasts 90 days. Ask IT to issue another key to renew it. Never share the key.',
     '',
     `Approved models: ${result.models.join(', ')}`,
+    '',
+    'GitHub MCP web search is included. Setup installs GitHub CLI (gh) if missing, reuses a matching login, or starts GitHub CLI authorization. Rerun the same setup file if interrupted.',
   ].join('\n');
   process.stdout.write(`Created a 90-day LiteLLM key for ${result.githubLogin}. The key is in the protected run summary.\n`);
   process.stdout.write(`${summary}\n`);

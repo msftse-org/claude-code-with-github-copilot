@@ -18,7 +18,7 @@ jobs:
           node-version: 24.18.1
           cache: npm
       - run: npm ci
-      - run: node --test test/macos-enrollment-script.test.ts
+      - run: node --test test/macos-enrollment-script.test.ts test/github-cli-install.test.ts
 
   offline:
     runs-on: ubuntu-latest

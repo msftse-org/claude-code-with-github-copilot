@@ -6,7 +6,7 @@ import { homedir, tmpdir } from 'node:os';
 import { basename, dirname, join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { parseArgs } from 'node:util';
-import { bootstrapLiteLLM, DEFAULT_MODELS, litellmOrigin, validateModels } from './litellm-bootstrap.mjs';
+import { bootstrapLiteLLM, DEFAULT_MODELS, litellmOrigin, parsePromptStorage, validateModels } from './litellm-bootstrap.mjs';
 import { DEFAULT_INSTALLER, describeInstaller, writeInstaller } from './build-installer.mjs';
 
 const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
@@ -47,6 +47,8 @@ Options:
   --state-client-ip <ip> Public IPv4 address Azure sees for this machine (default: detected with ${CLIENT_IP_SERVICE})
   --installer <path>     Employee setup file to write (default: dist/ccgc-enterprise-setup.command)
   --skip-github          Do not configure the GitHub environment
+  --store-prompts-in-spend-logs <true|false>
+                        Store request/response content in PostgreSQL (omitted: preserve existing; new gateways: off)
   --confirm-deploy       Deploy instead of previewing
 `;
 
@@ -71,6 +73,7 @@ export function parseOptions(argv) {
       'state-client-ip': { type: 'string' },
       installer: { type: 'string' },
       'skip-github': { type: 'boolean', default: false },
+      'store-prompts-in-spend-logs': { type: 'string' },
       'confirm-deploy': { type: 'boolean', default: false },
       help: { type: 'boolean', default: false },
     },
@@ -103,6 +106,7 @@ export function parseOptions(argv) {
     installerFile: resolve(values.installer ?? DEFAULT_INSTALLER),
     skipGithub: values['skip-github'],
     confirmDeploy: values['confirm-deploy'],
+    storePromptsInSpendLogs: parsePromptStorage(values['store-prompts-in-spend-logs']),
   };
 }
 
@@ -528,6 +532,9 @@ export async function deploy(options, {
   const account = JSON.parse(await run('az', ['account', 'show', '--subscription', options.subscription, '--output', 'json']));
   if (String(account.id).toLowerCase() !== options.subscription) fail('Azure CLI resolved a different subscription.');
   log(`Subscription: ${account.name} (${account.id})`);
+  log(options.storePromptsInSpendLogs === undefined
+    ? 'Prompt/response storage: preserve existing policy (off on a new gateway).'
+    : `Prompt/response storage requested: ${options.storePromptsInSpendLogs ? 'enabled' : 'disabled'}; applied only after confirmed deployment.`);
 
   const resourceGroup = `rg-${options.prefix}-enterprise`;
   const groupExists = await run('az', ['group', 'exists', '--name', resourceGroup, '--subscription', options.subscription]) === 'true';
@@ -549,7 +556,11 @@ export async function deploy(options, {
   log(`Waiting for ${litellmUrl}/health/readiness ...`);
   const readiness = await waitForReadiness(litellmUrl, { fetcher, sleep });
   log(`LiteLLM${readiness.litellm_version ? ` ${readiness.litellm_version}` : ''} is ready and connected to PostgreSQL.`);
-  const catalog = await bootstrap({ litellmUrl, masterKey: secrets.litellmMasterKey, models: options.models, fetcher, sleep });
+  const catalog = await bootstrap({ litellmUrl, masterKey: secrets.litellmMasterKey, models: options.models,
+    storePromptsInSpendLogs: options.storePromptsInSpendLogs, fetcher, sleep });
+  if (options.storePromptsInSpendLogs !== undefined) {
+    log(`PostgreSQL prompt/response storage ${options.storePromptsInSpendLogs ? 'enabled' : 'disabled'} and configuration read back. Applies to new requests after replica sync.`);
+  }
   log(`Credential github-copilot-user ${catalog.createdCredential ? 'created' : 'verified'}; models: ${catalog.models.join(', ')}.`);
 
   let repo;

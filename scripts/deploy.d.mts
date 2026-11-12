@@ -16,6 +16,7 @@ export interface DeployOptions {
   installerFile: string;
   skipGithub: boolean;
   confirmDeploy: boolean;
+  storePromptsInSpendLogs?: boolean;
 }
 
 export interface Secrets {
