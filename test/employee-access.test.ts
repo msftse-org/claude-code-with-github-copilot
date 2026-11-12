@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
 import { describeAccess, findSecretsFile, parseOptions, readMasterKey, runAccess } from '../scripts/employee-access.mjs';
+import { GITHUB_MCP_CONFIG } from '../scripts/github-mcp.mjs';
 
 const masterKey = `sk-${'m'.repeat(32)}`;
 const employeeKey = `sk-${'u'.repeat(32)}`;
@@ -18,22 +19,53 @@ async function writeSecrets(root: string, subscription: string, prefix = 'ccgc-p
   return path;
 }
 
-function mockFetch() {
-  const calls: Array<{ path: string; authorization: string | null }> = [];
+const run = async (_command: string, args: string[]) => (args[0] === 'repo' ? 'example/repository' : 'https://litellm.example');
+
+interface Call {
+  path: string;
+  method: string;
+  authorization: string | null;
+  body?: Record<string, unknown>;
+}
+
+// The gateway starts with the restricted GitHub MCP server registered unless mcpRegistered is false.
+function mockFetch({ mcpRegistered = true } = {}) {
+  const calls: Call[] = [];
+  let mcpServer: Record<string, unknown> | undefined = mcpRegistered ? { ...GITHUB_MCP_CONFIG } : undefined;
   const fetcher = async (input: string | URL | Request, init?: RequestInit) => {
     const url = new URL(input instanceof Request ? input.url : input.toString());
-    calls.push({ path: `${url.hostname}${url.pathname}`, authorization: new Headers(init?.headers).get('authorization') });
-    const json = (value: unknown) => new Response(JSON.stringify(value), { headers: { 'content-type': 'application/json' } });
+    const method = init?.method ?? 'GET';
+    const body = typeof init?.body === 'string' ? JSON.parse(init.body) as Record<string, unknown> : undefined;
+    calls.push({ path: `${url.hostname}${url.pathname}`, method, authorization: new Headers(init?.headers).get('authorization'), body });
+    const json = (value: unknown, status = 200) => new Response(JSON.stringify(value), { status, headers: { 'content-type': 'application/json' } });
     if (url.hostname === 'api.github.com') return json({ id: 14850440, login: 'Example-User', type: 'User' });
     if (url.pathname === '/user/list') return json({ users: [], total_pages: 1 });
+    if (url.pathname === '/v1/mcp/server/ccgc-github-web-search' && method === 'GET') {
+      return mcpServer ? json(mcpServer) : json({}, 404);
+    }
+    if (url.pathname === '/v1/mcp/server' && method === 'POST') {
+      mcpServer = body;
+      return json(body);
+    }
     if (url.pathname === '/v1/models') return json({ data: [{ id: 'claude-sonnet-5.5' }] });
     if (url.pathname === '/user/new') return json({ status: 'ok' });
     if (url.pathname === '/key/generate') {
       return json({ key: employeeKey, expires: new Date(Date.now() + 90 * 86_400_000).toISOString() });
     }
-    throw new Error(`Unexpected request ${url.pathname}`);
+    throw new Error(`Unexpected request ${method} ${url.pathname}`);
   };
   return { calls, fetcher };
+}
+
+function assertKeyKeepsWebSearch(calls: Call[]) {
+  const key = calls.find(call => call.path === 'litellm.example/key/generate')?.body;
+  const routes = (key?.allowed_routes ?? []) as string[];
+  for (const route of ['/github/mcp', '/mcp', '/mcp/']) assert.ok(routes.includes(route), `${route} is allowed`);
+  assert.ok(!routes.includes('/v1/mcp/server'));
+  assert.deepEqual(key?.object_permission, {
+    mcp_servers: ['ccgc-github-web-search'],
+    mcp_tool_permissions: { 'ccgc-github-web-search': ['web_search'] },
+  });
 }
 
 test('local access takes an action and one valid GitHub username', () => {
@@ -72,7 +104,6 @@ test('local enrollment writes the setup file, then issues the key with the maste
   const root = await mkdtemp(join(tmpdir(), 'ccgc-access-'));
   try {
     await writeSecrets(root, firstSubscription);
-    const run = async (_command: string, args: string[]) => (args[0] === 'repo' ? 'example/repository' : 'https://litellm.example');
     const installerFile = join(root, 'setup.command');
     const { calls, fetcher } = mockFetch();
     const options = parseOptions(['enroll', 'Example-User', '--installer', installerFile]);
@@ -83,6 +114,8 @@ test('local enrollment writes the setup file, then issues the key with the maste
     const litellmCalls = calls.filter(call => call.path.startsWith('litellm.example/'));
     assert.ok(litellmCalls.some(call => call.path === 'litellm.example/key/generate'));
     assert.ok(litellmCalls.every(call => call.authorization === `Bearer ${masterKey}`));
+    assertKeyKeepsWebSearch(calls);
+    assert.ok(!calls.some(call => call.method === 'POST' && call.path === 'litellm.example/v1/mcp/server'));
     const summary = describeAccess(outcome);
     assert.ok(summary.includes(`  ${employeeKey}\n`));
     assert.ok(summary.includes(installerFile));
@@ -100,5 +133,28 @@ test('local enrollment writes the setup file, then issues the key with the maste
     const revocation = await runAccess(revoked, { fetcher: mockFetch().fetcher, run, configRoot: root });
     assert.match(describeAccess(revocation), /nothing to revoke/);
     await assert.rejects(stat(join(root, 'revoke.command')), { code: 'ENOENT' });
+  } finally { await rm(root, { recursive: true, force: true }); }
+});
+
+test('local enrollment registers the restricted GitHub MCP server before issuing a key that uses it', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'ccgc-access-'));
+  try {
+    await writeSecrets(root, firstSubscription);
+    const { calls, fetcher } = mockFetch({ mcpRegistered: false });
+    const options = parseOptions(['enroll', 'Example-User', '--installer', join(root, 'setup.command')]);
+    assert.ok(!('help' in options));
+    await runAccess(options, { fetcher, run, configRoot: root });
+
+    const registrations = calls.filter(call => call.method === 'POST' && call.path === 'litellm.example/v1/mcp/server');
+    assert.equal(registrations.length, 1);
+    const server = registrations[0];
+    assert.equal(server?.authorization, `Bearer ${masterKey}`);
+    assert.equal(server?.body?.url, 'https://api.githubcopilot.com/mcp/readonly');
+    assert.deepEqual(server?.body?.allowed_tools, ['web_search']);
+    assert.equal(server?.body?.allow_all_keys, false);
+    assert.equal(server?.body?.auth_type, 'none');
+    assert.equal(server?.body?.credentials, undefined);
+    assert.ok(server && calls.indexOf(server) < calls.findIndex(call => call.path === 'litellm.example/key/generate'));
+    assertKeyKeepsWebSearch(calls);
   } finally { await rm(root, { recursive: true, force: true }); }
 });
