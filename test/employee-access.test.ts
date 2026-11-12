@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { chmod, mkdir, mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises';
+import { chmod, mkdir, mkdtemp, readFile, rm, stat, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
@@ -97,6 +97,21 @@ test('local access reads the master key from the only private secrets file for t
 
     await chmod(second, 0o644);
     await assert.rejects(readMasterKey(second), /chmod 600/);
+  } finally { await rm(root, { recursive: true, force: true }); }
+});
+
+test('local access fails instead of guessing when a candidate secrets file cannot be inspected', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'ccgc-access-'));
+  try {
+    await writeSecrets(root, firstSubscription);
+    // A symlink to itself makes stat fail with ELOOP, not ENOENT, like an unreadable file would.
+    await mkdir(join(root, secondSubscription), { recursive: true });
+    await symlink('ccgc-pilot.json', join(root, secondSubscription, 'ccgc-pilot.json'));
+
+    await assert.rejects(findSecretsFile({ prefix: 'ccgc-pilot' }, root), { code: 'ELOOP' });
+
+    await rm(join(root, firstSubscription), { recursive: true });
+    await assert.rejects(findSecretsFile({ prefix: 'ccgc-pilot' }, root), { code: 'ELOOP' });
   } finally { await rm(root, { recursive: true, force: true }); }
 });
 

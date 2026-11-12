@@ -79,6 +79,16 @@ export function parseOptions(argv) {
   };
 }
 
+async function statIfPresent(path) {
+  try {
+    return await stat(path);
+  } catch (error) {
+    // Only a missing file is absent: skipping an uninspectable candidate could select another deployment's key.
+    if (error?.code === 'ENOENT') return undefined;
+    throw error;
+  }
+}
+
 export async function findSecretsFile({ prefix, subscription, secretsFile }, configRoot = DEFAULT_CONFIG_ROOT) {
   if (secretsFile !== undefined) return secretsFile;
   if (subscription !== undefined) return join(configRoot, subscription, `${prefix}.json`);
@@ -92,7 +102,7 @@ export async function findSecretsFile({ prefix, subscription, secretsFile }, con
   for (const entry of entries) {
     if (!entry.isDirectory() || !SUBSCRIPTION.test(entry.name)) continue;
     const path = join(configRoot, entry.name, `${prefix}.json`);
-    if ((await stat(path).catch(() => undefined))?.isFile()) matches.push(path);
+    if ((await statIfPresent(path))?.isFile()) matches.push(path);
   }
   if (matches.length === 0) {
     fail(`No secrets file for prefix ${prefix} under ${configRoot}. Pass --prefix, --subscription, or --secrets-file.`);
