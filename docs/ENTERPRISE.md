@@ -79,13 +79,19 @@ USD (Azure Retail Prices API, November 2026, 730 hours):
 | Azure-managed ingress load balancer and public IP of the VNet-integrated environment | $21.90 |
 | Key Vault private endpoint | $7.30 |
 | Two private DNS zones | $1.00 |
-| Log Analytics, Key Vault operations, HTTP requests for a few users | Usually $0-5 |
+| Log Analytics, Key Vault operations, Terraform state storage, HTTP requests for a few users | Usually $0-5 |
 
 Backups within the provisioned storage size have no extra charge. The
 estimates exclude GitHub Copilot seats, taxes, and subscription-level
-Microsoft Defender plans. The `poc` size has not yet been deployed or
-load-tested. Its trade-offs: a single replica and a server without HA, so
-revision updates, maintenance, and platform failures cause short outages;
+Microsoft Defender plans. They assume one replica and the Container Apps
+free grant is still available in the subscription. Scaling to two replicas,
+additional outbound data transfer, or heavy logging increases the bill; this
+is not a spending cap. LiteLLM background activity can keep the replica at
+the active rate, so budget toward the upper end.
+
+The `poc` size has not yet been deployed or load-tested. Its trade-offs:
+one minimum replica and a server without HA, so maintenance and platform
+failures can interrupt service;
 Burstable CPU is throttled after sustained load exhausts its credits; and an
 organization IP allow list cannot rely on the egress address.
 

@@ -42,6 +42,7 @@ flowchart LR
   LL -- "users, keys, encrypted GitHub tokens" --> PG
   LL -. "master key, salt key, DB URL" .-> KV
   LL -- "key owner's own Copilot token" --> NAT --> COP
+  LL -- "poc: direct outbound, no fixed IP" --> COP
 ```
 
 | Step | What happens |
@@ -89,10 +90,11 @@ the image are illustrative, not the supported catalog.
 
 Choose the Azure subscription, region, resource prefix, and size through the
 deployment options. `--size enterprise` (default) is zone-redundant with a
-static egress IP; `--size poc` is a single-replica, Burstable PostgreSQL
-deployment for a few users, estimated at about $85-140 per month instead of
-about $900. See [Deployment sizes](docs/ENTERPRISE.md#deployment-sizes). Image
-and size definitions live in [`infra/solution.json`](infra/solution.json). A confirmed deployment writes
+static egress IP; `--size poc` starts with one replica, scales to two, and
+uses Burstable PostgreSQL for a few users, estimated at about $85-140 per
+month with one replica instead of about $900. See
+[Deployment sizes](docs/ENTERPRISE.md#deployment-sizes). Image and size
+definitions live in [`infra/solution.json`](infra/solution.json). A confirmed deployment writes
 the [employee setup file](docs/ENTERPRISE.md#employee-setup-file) with its
 gateway URL built in.
 
@@ -141,7 +143,8 @@ environment.
 - The LiteLLM master key is a protected GitHub environment secret limited to
   `main`. The administrator copy lives in a private `0600` file. Azure stores
   it in a Key Vault reachable only through a private endpoint.
-- PostgreSQL has no public access. Outbound traffic leaves through one static
-  NAT IP that GitHub organization IP allow lists can permit.
+- PostgreSQL has no public access in either size. In the `enterprise` size,
+  outbound traffic leaves through one static NAT IP that GitHub organization
+  IP allow lists can permit. The `poc` size has no guaranteed fixed egress IP.
 - The issued key is visible to readers of the Actions run summary. Restrict
   repository access and deliver keys through a private channel.
