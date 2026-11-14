@@ -114,6 +114,12 @@ can select models with the deploy script's `--models` option. A model listed by
 LiteLLM is not a guarantee of upstream access. Unsupported models fail without
 falling back to another provider or account.
 
+The default catalog also includes Claude Fable 5.2 (`claude-fable-5.2`), after
+Sonnet 5.5 so that Sonnet 5.5 stays the default model. A Copilot enterprise or
+organization owner must enable Fable before employees can use it, and GitHub
+documents that Anthropic retains Fable prompts and outputs by default. Read
+[Claude Fable](docs/ENTERPRISE.md#claude-fable) before enabling it.
+
 Synthetic tests cover deployment, bootstrap, enrollment, and macOS behavior
 with fake services. Enrollment and `doctor` check live model discovery and
 inference for the selected default model. Other Claude Code features depend

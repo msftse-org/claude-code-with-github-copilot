@@ -954,6 +954,7 @@ model_display_name() {
     sonnet) printf 'Claude Sonnet %s' "$version" ;;
     haiku) printf 'Claude Haiku %s' "$version" ;;
     opus) printf 'Claude Opus %s' "$version" ;;
+    fable) printf 'Claude Fable %s' "$version" ;;
     *) printf '%s' "$model" ;;
   esac
 }

@@ -196,6 +196,16 @@ printf '%s\\n' "$(client_model 'claude-haiku-4.5')"
   assert.deepEqual(result.stdout.trim().split('\n'), ['claude-sonnet-5.5', 'claude-haiku-4.5']);
 });
 
+test('macOS enrollment names Claude Fable models like the other Claude families', async () => {
+  const harness = `
+source "$1"
+printf '%s\\n' "$(model_display_name 'claude-fable-5.2')"
+printf '%s\\n' "$(model_display_name 'claude-opus-5.5')"
+`;
+  const result = await exec('/bin/bash', ['-c', harness, 'bash', script.pathname]);
+  assert.deepEqual(result.stdout.trim().split('\n'), ['Claude Fable 5.2', 'Claude Opus 5.5']);
+});
+
 test('macOS enrollment connects directly through LiteLLM and verifies before installing credentials', async () => {
   const source = await readFile(script, 'utf8');
   assert.match(source, /preflight_enrollment_settings "\$gateway"[\s\S]*api_key="\$\(read_litellm_key\)"/);

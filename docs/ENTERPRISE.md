@@ -189,6 +189,36 @@ address than `https://api.ipify.org` reports.
 On a first deployment, the app's Key Vault references can fail while the new
 role assignment propagates. Run the same command again.
 
+## Claude Fable
+
+The default catalog includes `claude-fable-5.2`, the Copilot ID for Claude
+Fable 5.2. Before employees use it:
+
+- An enterprise or organization owner must enable Claude Fable 5.2 in the
+  Copilot model policies. Until then GitHub answers `model_not_supported`,
+  and the gateway does not fall back to another model.
+- Anthropic retains Fable prompts and outputs by default to run safety
+  classifiers. The other Claude models in Copilot run under zero data
+  retention. Eligible enterprises can request zero data retention for Fable
+  through the end of 2026 from their GitHub account team. With it, Fable may
+  be used only for internal operations, and its endpoints and outputs must
+  not be made available outside the organization. See
+  [Hosting of models for GitHub Copilot](https://docs.github.com/en/enterprise-cloud@latest/copilot/reference/ai-models/model-hosting).
+- An existing gateway gets the Fable route when you re-run the deploy with
+  the default catalog. Then enroll employees again, because keys keep the
+  model list they were issued with.
+- To leave Fable out, pass `--models` without it. Re-running the deploy does
+  not delete routes, so remove an existing Fable route on the LiteLLM UI's
+  **Models + Endpoints** page.
+- Keep another model first in `--models`. Employee setup checks the first
+  model with a small inference request, and that check has not been verified
+  with Fable's always-on adaptive thinking.
+
+LiteLLM routes `github_copilot/claude-*` models to Copilot's `/v1/messages`
+by name, so the pinned image needs no Fable-specific entry. That is confirmed
+from LiteLLM's source and synthetic tests only; Fable has not yet been called
+live through this gateway.
+
 ## Terraform and Bicep
 
 Both definitions deploy the same resources, names, and settings:
