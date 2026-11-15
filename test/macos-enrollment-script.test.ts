@@ -360,7 +360,10 @@ request_json_status() {
       ;;
     'GET https://gateway.example/v1/model/info') fixture=routes ;;
     'GET https://gateway.example/v1/models') fixture=models ;;
-    'POST https://gateway.example/v1/messages') fixture=probe ;;
+    'POST https://gateway.example/v1/messages')
+      [ "$(json_value "$body" model)" = claude-sonnet-5.5 ] || fail 'probe must use Sonnet 5.5'
+      fixture=probe
+      ;;
     *) fail "unexpected request $method $url" ;;
   esac
   /bin/cp "$HOME/fixtures/$fixture.json" "$output"
@@ -448,6 +451,17 @@ async function standaloneFixture(mode: string): Promise<string> {
     models: { data: [{ id: 'claude-sonnet-5.5' }, { id: 'claude-haiku-4.5' }] },
     probe: { model: 'claude-sonnet-5.5', content: [{ type: 'text', text: 'CCGC_CLIENT_READY' }] },
   };
+  if (mode === 'fable-first' || mode === 'missing-sonnet') {
+    fixtures.models.data.unshift({ id: 'claude-fable-5.2' });
+    routes.data.unshift({
+      model_name: 'claude-fable-5.2',
+      litellm_params: { model: 'github_copilot/claude-fable-5.2', litellm_credential_name: standaloneCredential },
+    });
+    if (mode === 'missing-sonnet') {
+      fixtures.models.data = fixtures.models.data.filter(model => model.id !== 'claude-sonnet-5.5');
+      routes.data = routes.data.filter(route => route.model_name !== 'claude-sonnet-5.5');
+    }
+  }
   for (const [name, value] of Object.entries(fixtures)) {
     await writeFile(join(home, 'fixtures', `${name}.json`), JSON.stringify(value), { mode: 0o600 });
   }
@@ -568,6 +582,83 @@ verify_desktop_config https://gateway.example
       assert.match(String((error as { stderr?: string }).stderr), /Desktop gateway or credential helper is outdated/);
       return true;
     });
+  } finally { await rm(home, { recursive: true, force: true }); }
+});
+
+test('enrollment and configure keep Sonnet default and Fable selectable when discovery lists Fable first', {
+  skip: process.platform !== 'darwin',
+}, async () => {
+  const home = await standaloneFixture('fable-first');
+  const profilePath = join(home, '.local/share/ccgc/enterprise/profile.json');
+  const settingsPath = join(home, '.claude/settings.json');
+  const desktopPath = join(home, '.local/share/ccgc/enterprise/desktop-gateway.json');
+  const expectedModels = ['claude-sonnet-5.5', 'claude-fable-5.2', 'claude-haiku-4.5'];
+  const checkDefault = async () => {
+    const profile = JSON.parse(await readFile(profilePath, 'utf8'));
+    const settings = JSON.parse(await readFile(settingsPath, 'utf8'));
+    const desktop = JSON.parse(await readFile(desktopPath, 'utf8'));
+    const library = join(home, 'Library/Application Support/Claude-3p/configLibrary');
+    const meta = JSON.parse(await readFile(join(library, '_meta.json'), 'utf8'));
+    const active = JSON.parse(await readFile(join(library, `${meta.appliedId}.json`), 'utf8'));
+    assert.deepEqual(profile.models, expectedModels);
+    assert.equal(settings.model, 'claude-sonnet-5.5');
+    assert.equal(settings.env.ANTHROPIC_DEFAULT_MODEL, 'claude-sonnet-5.5');
+    assert.deepEqual(desktop.inferenceModels, expectedModels);
+    assert.deepEqual(active.inferenceModels, expectedModels);
+    assert.equal(active.alwaysStartWithDefaultModel, undefined, 'preserve normal remembered user selections');
+    return { profile, settings, active, activePath: join(library, `${meta.appliedId}.json`) };
+  };
+  try {
+    await runStandalone(home, 'fable-first');
+    const { profile, settings, active, activePath } = await checkDefault();
+    // Simulate an existing profile written by the old discovery-order behavior.
+    profile.models = ['claude-fable-5.2', 'claude-sonnet-5.5', 'claude-haiku-4.5'];
+    settings.model = 'claude-fable-5.2';
+    settings.env.ANTHROPIC_DEFAULT_MODEL = 'claude-fable-5.2';
+    settings.enabledPlugins = { 'example@market': true };
+    active.inferenceModels = profile.models;
+    active.chatTabEnabled = true;
+    await writeFile(profilePath, JSON.stringify(profile));
+    await writeFile(settingsPath, JSON.stringify(settings));
+    await writeFile(activePath, JSON.stringify(active));
+    const configured = await runStandalone(home, 'fable-first', {}, configureHarness);
+    assert.doesNotMatch(configured.stderr, /Enter 1 or 2/);
+    const refreshed = await checkDefault();
+    assert.deepEqual(refreshed.settings.enabledPlugins, settings.enabledPlugins);
+    assert.equal(refreshed.active.chatTabEnabled, true);
+    const inspected = await runStandalone(home, 'fable-first', {}, `${standaloneStubs}\nmodels\ncleanup_temp\n`);
+    assert.match(inspected.stdout, /Default: claude-sonnet-5\.5/);
+    assert.match(inspected.stdout, /claude-fable-5\.2/);
+    const checked = await runStandalone(home, 'fable-first', { CCGC_TEST_COMMAND: 'doctor' }, configureHarness);
+    assert.match(checked.stdout, /Default model: claude-sonnet-5\.5/);
+
+    refreshed.active.inferenceModels = profile.models;
+    await writeFile(activePath, JSON.stringify(refreshed.active));
+    await assert.rejects(runStandalone(home, 'fable-first', { CCGC_TEST_COMMAND: 'doctor' }, configureHarness), error => {
+      assert.match(String((error as { stderr?: string }).stderr), /Desktop model catalog or default is outdated/);
+      return true;
+    });
+  } finally { await rm(home, { recursive: true, force: true }); }
+});
+
+test('missing Sonnet stops enrollment before probing or replacing client settings and credentials', {
+  skip: process.platform !== 'darwin',
+}, async () => {
+  const home = await standaloneFixture('missing-sonnet');
+  try {
+    const profilePath = join(home, '.local/share/ccgc/enterprise/profile.json');
+    const settingsPath = join(home, '.claude/settings.json');
+    const beforeProfile = await readFile(profilePath, 'utf8');
+    const beforeSettings = await readFile(settingsPath, 'utf8');
+    await assert.rejects(runStandalone(home, 'missing-sonnet'), error => {
+      assert.match(String((error as { stderr?: string }).stderr), /required default model claude-sonnet-5\.5 is unavailable/);
+      return true;
+    });
+    assert.equal(await readFile(profilePath, 'utf8'), beforeProfile);
+    assert.equal(await readFile(settingsPath, 'utf8'), beforeSettings);
+    assert.deepEqual(await readdir(join(home, 'keychain')), ['previous-key']);
+    assert.doesNotMatch(await readFile(join(home, 'events'), 'utf8'), /POST https:\/\/gateway\.example\/v1\/messages/);
+    assert.deepEqual(await readdir(join(home, 'temp')), []);
   } finally { await rm(home, { recursive: true, force: true }); }
 });
 

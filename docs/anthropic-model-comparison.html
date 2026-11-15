@@ -1,0 +1,209 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light dark">
+  <meta name="description" content="Anthropic model availability, context windows, effort, fast mode and pricing in Claude Code and GitHub Copilot. Dated reference: 14 November 2026.">
+  <title>Anthropic models: Claude Code vs GitHub Copilot</title>
+  <style>
+    :root { color-scheme: light dark; --bg: #f7f8fa; --surface: #fdfdfd; --ink: #202830; --muted: #4c5967; --line: #c9d1d9; --accent: #155d91; --tint: #eaf2f8; }
+    * { box-sizing: border-box; }
+    body { margin: 0; background: var(--bg); color: var(--ink); font: 16px/1.6 system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+    main { max-width: 1400px; margin: auto; padding: 48px 32px; }
+    header { padding-bottom: 24px; border-bottom: 2px solid var(--accent); }
+    h1 { max-width: 950px; font-size: clamp(1.8rem, 4vw, 2.8rem); line-height: 1.18; letter-spacing: -.03em; margin: 0 0 18px; }
+    h2 { font-size: 1.5rem; line-height: 1.3; margin: 0 0 14px; }
+    h3 { font-size: 1.1rem; }
+    p { max-width: 95ch; margin: 12px 0; }
+    a { color: var(--accent); text-underline-offset: .2em; }
+    a:focus-visible, [tabindex]:focus-visible { outline: 3px solid var(--accent); outline-offset: 4px; }
+    nav { display: flex; flex-wrap: wrap; gap: 12px 24px; margin-top: 20px; }
+    section { margin-top: 40px; scroll-margin-top: 20px; }
+    .meta, .note { color: var(--muted); font-size: .92rem; }
+    .callout { padding: 14px 20px; background: var(--tint); border-left: 4px solid var(--accent); margin: 20px 0; }
+    .table-wrap { overflow-x: auto; background: var(--surface); border: 1px solid var(--line); border-radius: 6px; }
+    table { border-collapse: collapse; width: 100%; font-size: .9rem; line-height: 1.5; }
+    caption { text-align: left; padding: 14px 16px; font-weight: 600; background: var(--surface); }
+    th, td { padding: 12px 16px; text-align: left; vertical-align: top; border-bottom: 1px solid var(--line); }
+    thead th { background: var(--tint); font-weight: 650; }
+    tbody th { font-weight: 650; min-width: 150px; }
+    tbody tr:last-child > * { border-bottom: 0; }
+    .wide { min-width: 1000px; }
+    .medium { min-width: 850px; }
+    .prices { font-variant-numeric: tabular-nums; min-width: 600px; }
+    .prices td { white-space: nowrap; }
+    code { font: .9em ui-monospace, SFMono-Regular, Consolas, monospace; overflow-wrap: anywhere; }
+    .sources { padding-left: 24px; }
+    .sources li { margin: 10px 0; overflow-wrap: anywhere; }
+    footer { margin-top: 40px; padding-top: 20px; border-top: 1px solid var(--line); color: var(--muted); font-size: .9rem; }
+    @media (prefers-color-scheme: dark) {
+      :root { --bg: #171d24; --surface: #202832; --ink: #eef2f6; --muted: #bac5d0; --line: #475768; --accent: #9dcef4; --tint: #293b4a; }
+    }
+    @media (max-width: 767px) {
+      main { padding: 28px 16px; }
+      section { margin-top: 30px; }
+      th, td { padding: 10px 12px; }
+      nav { gap: 10px 18px; }
+    }
+    @media print {
+      :root { color-scheme: light; --bg: #fff; --surface: #fff; --ink: #111; --muted: #333; --line: #aaa; --accent: #155d91; --tint: #eef3f7; }
+      @page { size: landscape; margin: 12mm; }
+      body { font-size: 10pt; }
+      main { padding: 0; max-width: none; }
+      nav { display: none; }
+      h1 { font-size: 25pt; }
+      h2 { break-after: avoid; }
+      section { margin-top: 22px; }
+      .table-wrap { overflow: visible; border: 0; }
+      table, .wide, .medium, .prices { min-width: 0; font-size: 8pt; }
+      th, td { padding: 6px 8px; }
+      tr { break-inside: avoid; }
+      thead { display: table-header-group; }
+      a { color: inherit; }
+    }
+  </style>
+</head>
+<body>
+<main>
+  <header>
+    <h1>Anthropic models: Claude Code vs GitHub Copilot</h1>
+    <p class="meta">Data verified <time datetime="2026-11-14">14 November 2026</time>. Report prepared <time datetime="2026-11-15">15 November 2026</time>. This is a dated snapshot, not a live catalog.</p>
+    <p><strong>Scope:</strong> Claude Code connected directly to Anthropic versus the GitHub Copilot model catalog. Claude Code through LiteLLM and Copilot is a third case, constrained by both Copilot and the gateway configuration.</p>
+    <p><strong>Bottom line:</strong> both offer the latest four models. The main differences are fast-mode availability, client-specific context and effort controls, billing, and retirement policies.</p>
+    <nav aria-label="Report sections">
+      <a href="#latest">Latest models</a><a href="#effort">Effort and speed</a><a href="#lifecycle">Other models</a><a href="#pricing">Pricing</a><a href="#gateway">Gateway implications</a><a href="#sources">Sources</a>
+    </nav>
+  </header>
+
+  <section id="latest" aria-labelledby="latest-heading">
+    <h2 id="latest-heading">Latest models</h2>
+    <div class="table-wrap" tabindex="0" role="region" aria-label="Latest models comparison; scroll horizontally on narrow screens">
+      <table class="wide">
+        <caption>Availability, context and dedicated fast mode <a href="#source-code">[1]</a> <a href="#source-models">[2]</a> <a href="#source-copilot">[3]</a> <a href="#source-fast">[5]</a></caption>
+        <thead><tr><th scope="col">Model</th><th scope="col">Claude Code via Anthropic</th><th scope="col">GitHub Copilot plans</th><th scope="col">Context: Code / Copilot</th><th scope="col">Dedicated fast: Code / Copilot</th><th scope="col">Best fit</th></tr></thead>
+        <tbody>
+          <tr><th scope="row">Claude Fable 5.2</th><td>Available; select explicitly. Credits and policy may apply.</td><td>Pro+, Max, Business, Enterprise. Admin enablement required.</td><td>1M default / up to 1M</td><td>Yes / not published</td><td>Hardest reasoning, large investigations, long autonomous tasks</td></tr>
+          <tr><th scope="row">Claude Opus 5.5</th><td>Available; current Anthropic Claude Code default</td><td>Pro+, Max, Business, Enterprise</td><td>1M default / up to 1M</td><td>Yes / not published</td><td>Complex coding, debugging, architecture, agentic work</td></tr>
+          <tr><th scope="row">Claude Sonnet 5.5</th><td>Available</td><td>Pro, Pro+, Max, Business, Enterprise</td><td>1M default / up to 1M</td><td>No / no</td><td>Balanced everyday coding and multistep tasks</td></tr>
+          <tr><th scope="row">Claude Haiku 5.5</th><td>Available</td><td>Pro, Pro+, Max, Business, Enterprise</td><td>1M default / up to 1M</td><td>No / no</td><td>Fast, inexpensive extraction, classification, small tasks and subagents</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p class="note"><strong>Context caveat:</strong> Copilot's reference explicitly confirms selectable 1M context in supported VS Code and Copilot CLI clients. Do not assume every Copilot surface exposes it or uses it by default. Claude Code reserves context for instructions, tools, output and compaction.</p>
+    <p class="note">All four have a <strong>128K maximum output on Anthropic's synchronous API</strong>. This is a model/API ceiling, not a verified 128K output allowance in every Copilot client. 1M = one million tokens; 1K = one thousand tokens.</p>
+    <p class="note"><strong>Minimum Claude Code versions:</strong> Sonnet 5.5: 2.1.284; Opus 5.5: 2.1.280; Haiku 5.5: 2.1.293; Fable 5.2: 2.1.321. Provider access and organization policy still apply.</p>
+  </section>
+
+  <section id="effort" aria-labelledby="effort-heading">
+    <h2 id="effort-heading">Effort and speed are different controls</h2>
+    <p>The API default and Claude Code default are not always the same. Effort is calibrated per model: the same level name does not imply identical reasoning or cost.</p>
+    <div class="table-wrap" tabindex="0" role="region" aria-label="Effort comparison; scroll horizontally on narrow screens">
+      <table class="wide">
+        <caption>Selectable effort and defaults <a href="#source-code">[1]</a> <a href="#source-effort">[4]</a></caption>
+        <thead><tr><th scope="col">Model or group</th><th scope="col">Claude Code levels</th><th scope="col">Code default</th><th scope="col">API default if omitted</th><th scope="col">Copilot</th></tr></thead>
+        <tbody>
+          <tr><th scope="row">Fable 5.2</th><td><code>low, medium, high, xhigh, max</code></td><td>medium</td><td>high</td><td>Configurable reasoning supported</td></tr>
+          <tr><th scope="row">Opus 5.5</th><td>Same five levels</td><td>medium</td><td>medium</td><td>Configurable reasoning supported</td></tr>
+          <tr><th scope="row">Sonnet 5.5</th><td>Same five levels</td><td>medium</td><td>high</td><td>Configurable reasoning supported</td></tr>
+          <tr><th scope="row">Haiku 5.5</th><td>Same five levels</td><td>medium</td><td>medium</td><td>Configurable reasoning supported</td></tr>
+          <tr><th scope="row">Fable 5/5.1, Opus 5/4.8, Sonnet 5</th><td>Same five levels</td><td>high</td><td>high</td><td>Configurable reasoning supported</td></tr>
+          <tr><th scope="row">Opus 4.7</th><td>Same five levels</td><td>xhigh</td><td>high</td><td>Retired from Copilot</td></tr>
+          <tr><th scope="row">Opus 4.6 / Sonnet 4.6</th><td><code>low, medium, high, max</code>; no <code>xhigh</code></td><td>high</td><td>high</td><td>Opus retired; Sonnet limited to eligible annual subscribers</td></tr>
+          <tr><th scope="row">Haiku 4.5</th><td>No <code>/effort</code> levels; older thinking controls instead</td><td>Not applicable</td><td>Not applicable</td><td>Configurable reasoning not listed</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p class="note">GitHub confirms configurable reasoning but does not publish an exact per-model tier/default matrix in its public model reference. The choices exposed by a particular Copilot client are authoritative. Identical effort support through this LiteLLM route has not been verified.</p>
+    <p class="note">Copilot CLI 1.0.108 documents <code>--reasoning-effort</code> values <code>none, minimal, low, medium, high, xhigh, max</code>, subject to model support. <code>--context default|long_context</code> and <code>/model</code> select eligible context tiers. This is not proof that every model supports every value.</p>
+    <p class="note">Current Claude Code cannot disable thinking on Fable, Opus 5.5, Sonnet 5.5 or Haiku 5.5. Older explicit thinking-budget controls are not interchangeable with adaptive effort.</p>
+    <div class="table-wrap" tabindex="0" role="region" aria-label="Meaning of speed and reasoning controls">
+      <table>
+        <caption>What each control changes</caption>
+        <thead><tr><th scope="col">Control</th><th scope="col">Effect</th></tr></thead>
+        <tbody>
+          <tr><th scope="row">Lower effort</th><td>Less reasoning and token expenditure; generally faster and cheaper, with possible quality trade-offs.</td></tr>
+          <tr><th scope="row">Higher effort</th><td>More reasoning and verification; generally slower and more expensive.</td></tr>
+          <tr><th scope="row">Fast mode</th><td>Faster serving of the same model at higher token prices, not reduced effort. Can be combined with effort controls.</td></tr>
+          <tr><th scope="row">Haiku's natural speed</th><td>A different lightweight model, not Opus running in fast mode.</td></tr>
+          <tr><th scope="row">Ultracode</th><td>Claude Code workflow orchestration, not an additional model effort level.</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section id="lifecycle" aria-labelledby="lifecycle-heading">
+    <h2 id="lifecycle-heading">Other models and lifecycle differences</h2>
+    <p>"Available directly" means selectable through an entitled Anthropic API account, not necessarily included in every subscription or shown in every model picker.</p>
+    <div class="table-wrap" tabindex="0" role="region" aria-label="Other models and retirement dates; scroll horizontally on narrow screens">
+      <table class="wide">
+        <caption>Availability as of the reference date <a href="#source-models">[2]</a> <a href="#source-copilot">[3]</a> <a href="#source-november">[8]</a> <a href="#source-december">[9]</a></caption>
+        <thead><tr><th scope="col">Model</th><th scope="col">Claude Code / Anthropic</th><th scope="col">GitHub Copilot</th><th scope="col">Direct context</th><th scope="col">Dedicated fast: direct / Copilot</th></tr></thead>
+        <tbody>
+          <tr><th scope="row">Fable 5.1</th><td>Available</td><td>Available</td><td>1M</td><td>No / no</td></tr>
+          <tr><th scope="row">Fable 5</th><td>Available</td><td>Retires 14 Dec 2026</td><td>1M</td><td>No / no</td></tr>
+          <tr><th scope="row">Opus 5</th><td>Available</td><td>Retires 16 Nov 2026</td><td>1M</td><td>Yes, preview / not published</td></tr>
+          <tr><th scope="row">Opus 4.8</th><td>Available</td><td>Retires 16 Nov 2026, except eligible annual subscribers</td><td>1M</td><td>Yes / yes, preview</td></tr>
+          <tr><th scope="row">Sonnet 5</th><td>Available</td><td>Available</td><td>1M</td><td>No / no</td></tr>
+          <tr><th scope="row">Sonnet 4.6</th><td>Available</td><td>Annual Pro/Pro+ only; otherwise retired</td><td>200K; 1M option subject to access</td><td>No / no</td></tr>
+          <tr><th scope="row">Haiku 4.5</th><td>Available</td><td>Retires 14 Dec 2026, except eligible annual subscribers</td><td>200K</td><td>No / no</td></tr>
+          <tr><th scope="row">Opus 4.7</th><td>Available</td><td>Retired</td><td>1M</td><td>No / no</td></tr>
+          <tr><th scope="row">Opus 4.6</th><td>Available</td><td>Retired</td><td>200K; 1M option subject to access</td><td>No / no</td></tr>
+          <tr><th scope="row">Opus 4.5 / Sonnet 4.5</th><td>Available</td><td>Retired</td><td>200K</td><td>No / no</td></tr>
+          <tr><th scope="row">Mythos 5 / 5.1 / 5.2</th><td>Restricted access; verification required</td><td>Not listed</td><td>1M</td><td>Not treated as a general offering here</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p class="callout"><strong>Opus 4.8 fast-mode exception:</strong> Copilot lists no 1M context support for its fast variant, although the regular variant supports it. Anthropic's Opus 4.8 fast mode is scheduled for removal on <strong>30 November 2026</strong>.</p>
+    <p class="note">Mythos 5.2 is the same model as Fable 5.2, with access restricted to verified organizations. It is not a separate generally available Copilot option. <a href="#source-mythos">[11]</a></p>
+  </section>
+
+  <section id="pricing" aria-labelledby="pricing-heading">
+    <h2 id="pricing-heading">Pricing comparison</h2>
+    <p>USD per million tokens, shown as <strong>input / output</strong>. These are token rates, not subscription prices or monthly bill estimates.</p>
+    <div class="table-wrap" tabindex="0" role="region" aria-label="Pricing comparison; scroll horizontally on narrow screens">
+      <table class="prices">
+        <caption>Published token rates <a href="#source-fast">[5]</a> <a href="#source-copilot-pricing">[6]</a> <a href="#source-pricing">[7]</a></caption>
+        <thead><tr><th scope="col">Model</th><th scope="col">Anthropic regular API</th><th scope="col">Copilot</th><th scope="col">Anthropic fast mode</th></tr></thead>
+        <tbody>
+          <tr><th scope="row">Fable 5.2</th><td>$8 / $40</td><td>$8 / $40</td><td>$16 / $80</td></tr>
+          <tr><th scope="row">Opus 5.5</th><td>$4 / $20</td><td>$4 / $20</td><td>$8 / $40</td></tr>
+          <tr><th scope="row">Sonnet 5.5</th><td>$2 / $10</td><td>$2 / $10</td><td>Not offered</td></tr>
+          <tr><th scope="row">Haiku 5.5, input &le;100K</th><td>$0.10 / $0.50</td><td>$0.10 / $0.50</td><td>Not offered</td></tr>
+          <tr><th scope="row">Haiku 5.5, input &gt;100K</th><td>$0.50 / $2.50</td><td>$0.50 / $2.50</td><td>Not offered</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p class="note">Copilot meters usage in AI credits: <strong>1 credit = $0.01</strong>, rather than a single historical premium-request multiplier. Included allowances, cache reads and writes, thinking tokens, and agent tool loops affect spend. Claude subscription fast mode uses additional usage credits, not included subscription limits.</p>
+    <p class="note">Business and Enterprise Copilot allowances pool at the billing-entity level. Matching token prices do not imply matching subscription limits or an identical total bill.</p>
+  </section>
+
+  <section id="gateway" aria-labelledby="gateway-heading">
+    <h2 id="gateway-heading">Gateway implications and policy</h2>
+    <p><strong>This project's default is Sonnet 5.5.</strong> Fable 5.2 is mapped as a selectable option only. This differs from Anthropic's own Claude Code default, Opus 5.5, shown above.</p>
+    <p><strong>Observed deployment snapshot, 14 November 2026:</strong> Opus 5.5, Sonnet 5.5, Sonnet 5, Haiku 5.5 and Haiku 4.5 were exposed to the evaluated personal gateway key. Fable 5.2 was available upstream but was not in that live catalog. This is historical evidence, not a claim about every deployment or future configuration.</p>
+    <p><strong>Parity remains unverified:</strong> 1M requests, every effort level and paid fast mode were not verified end-to-end through LiteLLM. Model discovery alone does not prove those capabilities.</p>
+    <p><strong>Fable policy:</strong> prompts and outputs are retained by default for safety classifiers, not model training. Copilot's Fable policy defaults to off and requires explicit admin enablement. Eligible enterprises can request a ZDR (zero data retention) exemption through the end of 2026 via their GitHub account team, pending Enterprise Frontier Safeguards. Exemption use is internal-only; approval does not itself enable the model. Other Claude models in Copilot continue under ZDR. <a href="#source-fable">[10]</a></p>
+  </section>
+
+  <section id="sources" aria-labelledby="sources-heading">
+    <h2 id="sources-heading">Official sources</h2>
+    <p class="note">Source pages can change after the reference date. Recheck availability and pricing before procurement or deployment.</p>
+    <ol class="sources">
+      <li id="source-code"><a href="https://code.claude.com/docs/en/model-config">Claude Code model configuration, effort and extended context</a></li>
+      <li id="source-models"><a href="https://platform.claude.com/docs/en/models/overview">Anthropic model specifications and availability</a></li>
+      <li id="source-copilot"><a href="https://docs.github.com/en/copilot/reference/ai-models/supported-models">GitHub Copilot supported models, plans and extended capabilities</a></li>
+      <li id="source-effort"><a href="https://platform.claude.com/docs/en/build-with-claude/effort">Anthropic effort parameter and API defaults</a></li>
+      <li id="source-fast"><a href="https://code.claude.com/docs/en/fast-mode">Claude Code fast mode, pricing and requirements</a></li>
+      <li id="source-copilot-pricing"><a href="https://docs.github.com/en/copilot/reference/copilot-billing/models-and-pricing">GitHub Copilot models and pricing</a></li>
+      <li id="source-pricing"><a href="https://platform.claude.com/docs/en/about-claude/pricing">Anthropic pricing</a></li>
+      <li id="source-november"><a href="https://github.blog/changelog/2026-10-15-upcoming-deprecation-of-selected-github-copilot-models-in-mid-november/">Copilot model retirements on 16 November 2026</a></li>
+      <li id="source-december"><a href="https://github.blog/changelog/2026-11-13-upcoming-deprecation-of-selected-github-copilot-models-in-december/">Copilot model retirements on 14 December 2026</a></li>
+      <li id="source-fable"><a href="https://github.blog/changelog/2026-11-09-claude-fable-5-2-in-github-copilot/">Fable 5.2 availability and data-retention requirements in Copilot</a></li>
+      <li id="source-mythos"><a href="https://platform.claude.com/docs/en/models/mythos-5-2/overview">Mythos 5.2 access and relationship to Fable 5.2</a></li>
+    </ol>
+  </section>
+  <footer>Standalone reference. No external fonts, scripts, analytics or network requests are required to read this file. Use your browser's Print command to export it as PDF.</footer>
+</main>
+</body>
+</html>

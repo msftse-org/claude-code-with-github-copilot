@@ -191,8 +191,10 @@ role assignment propagates. Run the same command again.
 
 ## Claude Fable
 
-The default catalog includes `claude-fable-5.2`, the Copilot ID for Claude
-Fable 5.2. Before employees use it:
+The provisioned catalog includes `claude-fable-5.2`, the Copilot ID for Claude
+Fable 5.2, as an explicit model option. Employee setup selects
+`claude-sonnet-5.5` as the default and inference probe model, independently
+of discovery order. Before employees use Fable:
 
 - An enterprise or organization owner must enable Claude Fable 5.2 in the
   Copilot model policies. Until then GitHub answers `model_not_supported`,
@@ -210,9 +212,19 @@ Fable 5.2. Before employees use it:
 - To leave Fable out, pass `--models` without it. Re-running the deploy does
   not delete routes, so remove an existing Fable route on the LiteLLM UI's
   **Models + Endpoints** page.
-- Keep another model first in `--models`. Employee setup checks the first
-  model with a small inference request, and that check has not been verified
-  with Fable's always-on adaptive thinking.
+- Keep `claude-sonnet-5.5` in any custom `--models` catalog and employee key.
+  Setup and configuration fail if it is missing; they never substitute Fable
+  or another model. Fable's always-on adaptive thinking has not been
+  verified through this gateway.
+
+Desktop receives a verified `inferenceModels` list with Sonnet 5.5 first,
+followed by the other approved models. This explicit list takes precedence
+over launch-time discovery; run `configure` after catalog changes.
+Per [Desktop's model configuration](https://claude.com/docs/third-party/claude-desktop/models),
+the first entry is the default for new Chat, Code and Cowork sessions until
+the user selects another model. Setup does not set
+`alwaysStartWithDefaultModel`, so existing user selections are not forcibly
+overridden by a new-session policy.
 
 LiteLLM routes `github_copilot/claude-*` models to Copilot's `/v1/messages`
 by name, so the pinned image needs no Fable-specific entry. That is confirmed

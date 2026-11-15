@@ -5,7 +5,7 @@ export const DEFAULT_MODELS = Object.freeze([
   'claude-opus-5.5',
   'claude-haiku-5.5',
   'claude-haiku-4.5',
-  // Kept last: enrollment probes the first model, and Fable needs explicit Copilot policy enablement.
+  // Selectable option only; employee setup explicitly defaults to Sonnet 5.5.
   'claude-fable-5.2',
 ]);
 
