@@ -124,6 +124,17 @@ environment.
 - Claude Code omits the Advisor server tool whenever `ANTHROPIC_BASE_URL` points to a custom gateway.
 - Auto mode uses Claude Code's local classifier (`CLAUDE_CODE_AUTO_MODE_SERVER=0`) instead of Anthropic-only server verdicts.
 
+### Deployment verification
+
+On 2026-11-17, a fresh Terraform deployment of LiteLLM `1.109.1` in Sweden
+Central passed readiness with PostgreSQL connected, two healthy gateway
+replicas, private zone-redundant PostgreSQL, authenticated discovery of all five
+default models, and rejection of unauthenticated discovery. Per-user Copilot
+credential bootstrap, disabled prompt/response storage, GitHub administration
+configuration, and employee setup-file generation completed. No employees were
+enrolled and no Copilot inference or Claude Code CLI/Desktop workflow was
+tested in this deployment.
+
 ## Security properties
 
 - One immutable GitHub account ID maps to one LiteLLM user, one per-user
