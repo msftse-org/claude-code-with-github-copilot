@@ -447,7 +447,11 @@ async function standaloneFixture(mode: string): Promise<string> {
   await writeFile(join(home, '.local/share/ccgc/enterprise/profile.json'), '{"previousProfile":true}', { mode: 0o600 });
   await writeFile(join(home, '.claude/settings.json'), '{"unrelatedSetting":true,"permissions":{"defaultMode":"manual"}}', { mode: 0o600 });
   await writeFile(join(home, 'keychain', 'previous-key'), 'previous-personal-key', { mode: 0o600 });
-  if (!['fresh-desktop', 'no-desktop'].includes(mode)) {
+  if (mode === 'desktop-empty-library') {
+    const library = join(home, 'Library/Application Support/Claude-3p/configLibrary');
+    await mkdir(library, { recursive: true, mode: 0o700 });
+    await writeFile(join(library, '_meta.json'), '{"entries":[]}', { mode: 0o600 });
+  } else if (!['fresh-desktop', 'no-desktop'].includes(mode)) {
     const library = join(home, 'Library/Application Support/Claude-3p/configLibrary');
     await mkdir(library, { recursive: true, mode: 0o700 });
     await writeFile(join(library, '_meta.json'), JSON.stringify({
@@ -690,14 +694,14 @@ test('standalone enrollment rejects health, identity, routing and authorization 
 test('Desktop configuration is created for a fresh install and skipped when Desktop is absent', {
   skip: process.platform !== 'darwin',
 }, async () => {
-  for (const mode of ['fresh-desktop', 'no-desktop', 'desktop-default-profile']) {
+  for (const mode of ['fresh-desktop', 'no-desktop', 'desktop-default-profile', 'desktop-empty-library']) {
     const home = await standaloneFixture(mode);
     try {
       const result = await runStandalone(home, mode);
       const metaPath = join(home, 'Library/Application Support/Claude-3p/configLibrary/_meta.json');
       assert.doesNotMatch(result.stderr, /Claude Desktop gateway profiles/);
       assert.equal((await readdir(join(home, 'Library/Application Support'), { recursive: true }).catch(() => []))
-        .filter(name => String(name).includes('ccgc-backup')).length, 0);
+        .filter(name => String(name).includes('ccgc-backup')).length, mode === 'desktop-empty-library' ? 1 : 0);
       if (mode === 'no-desktop') {
         await assert.rejects(readFile(metaPath), { code: 'ENOENT' });
       } else {
@@ -705,9 +709,15 @@ test('Desktop configuration is created for a fresh install and skipped when Desk
         const active = JSON.parse(await readFile(join(home, `Library/Application Support/Claude-3p/configLibrary/${meta.appliedId}.json`), 'utf8'));
         assert.equal(active.inferenceCredentialHelper, '/bin/bash');
         assert.equal(active.inferenceGatewayBaseUrl, 'https://gateway.example');
-        assert.deepEqual(meta.entries, mode === 'fresh-desktop'
+        assert.deepEqual(meta.entries, ['fresh-desktop', 'desktop-empty-library'].includes(mode)
           ? [{ id: meta.appliedId, name: 'GitHub Copilot via LiteLLM' }]
           : [{ id: standaloneUser, name: 'Existing gateway' }]);
+        if (mode === 'desktop-empty-library') {
+          const library = join(home, 'Library/Application Support/Claude-3p/configLibrary');
+          const backups = (await readdir(library)).filter(name => name.startsWith('_meta.json.ccgc-backup.'));
+          assert.equal(backups.length, 1);
+          assert.deepEqual(JSON.parse(await readFile(join(library, backups[0]!), 'utf8')), { entries: [] });
+        }
       }
     } finally { await rm(home, { recursive: true, force: true }); }
   }

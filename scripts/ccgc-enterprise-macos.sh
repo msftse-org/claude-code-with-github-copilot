@@ -752,6 +752,7 @@ prepare_desktop_install() {
   local meta="$DESKTOP_DATA_PATH/configLibrary/_meta.json"
   local preferences="$DESKTOP_DATA_PATH/claude_desktop_config.json"
   local id key path
+  local has_active_profile=0
   desktop_installed || return 0
   claude_desktop_version >/dev/null
   require_local_desktop_policy
@@ -764,6 +765,11 @@ prepare_desktop_install() {
     fi
   done
   if [ -f "$meta" ]; then
+    if [ "$(/usr/bin/plutil -convert json -o - "$meta" | /usr/bin/tr -d '[:space:]')" != '{"entries":[]}' ]; then
+      has_active_profile=1
+    fi
+  fi
+  if [ "$has_active_profile" -eq 1 ]; then
     desktop_active_path
     require_private_file "$DESKTOP_ACTIVE_PATH" 'Claude Desktop active configuration'
     valid_json "$DESKTOP_ACTIVE_PATH" || fail 'Claude Desktop active configuration is invalid JSON'
@@ -776,7 +782,7 @@ prepare_desktop_install() {
       DESKTOP_RESET=1
     fi
   fi
-  if [ -f "$meta" ] && [ "$DESKTOP_RESET" -eq 0 ]; then
+  if [ "$has_active_profile" -eq 1 ] && [ "$DESKTOP_RESET" -eq 0 ]; then
     /bin/cp "$meta" "$tmp_dir/desktop-meta.json"
     /bin/cp "$DESKTOP_ACTIVE_PATH" "$tmp_dir/desktop-active.json"
     for key in inferenceModels inferenceCredentialHelperArgs modelDiscoveryEnabled inferenceProvider \

@@ -9,6 +9,10 @@ automatically. No checkout, Node.js, npm, or LiteLLM dashboard login is
 required. See also the [root README](../../README.md#getting-started).
 Enrollment and `configure` also update an installed Desktop's local Gateway
 profile. Restart Desktop after configuration changes.
+An empty Desktop configuration library (`{"entries":[]}` with no `appliedId`)
+is treated as a fresh installation. Setup creates a Gateway profile and backs
+up the original metadata; malformed or remote-managed profiles still fail
+closed.
 
 ## What is installed or stored on the Mac
 
