@@ -5,6 +5,8 @@ export const DEFAULT_MODELS = Object.freeze([
   'claude-opus-5.5',
   'claude-haiku-5.5',
   'claude-haiku-4.5',
+  // Selectable option only; employee setup explicitly defaults to Sonnet 5.5.
+  'claude-fable-5.2',
 ]);
 
 const MODEL_PATTERN = /^claude-[a-z0-9.-]{1,64}$/;
