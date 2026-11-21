@@ -37,7 +37,7 @@ Resource group `rg-<prefix>-enterprise`:
 | Private DNS zone | `privatelink.vaultcore.azure.net` | Linked to the VNet; resolves the Key Vault private endpoint |
 | Role assignment | Key Vault Secrets User | The managed identity, on the vault |
 | Container Apps environment | `cae-<prefix>-enterprise` | VNet-integrated, external ingress, zone-redundant; Consumption profile plus a dedicated `D4` profile (4 vCPU and 16 GiB per node, 2-6 nodes) that runs LiteLLM; logs and metrics go to Log Analytics |
-| Container app | `ca-<prefix>-litellm` | Official `ghcr.io/berriai/litellm:v1.109.1` pinned by digest, 2 CPU / 4 GiB, 2-10 replicas (scales out at 32 concurrent requests), HTTPS ingress, Key Vault secret references, health probes |
+| Container app | `ca-<prefix>-litellm` | Official `ghcr.io/berriai/litellm:v1.110.2` pinned by digest, 2 CPU / 4 GiB, 2-10 replicas (scales out at 32 concurrent requests), HTTPS ingress, Key Vault secret references, health probes |
 
 Azure Container Apps creates and manages one more resource group,
 `ME_cae-<prefix>-enterprise_rg-<prefix>-enterprise_<region>`, with the
