@@ -61,8 +61,8 @@
       ],
       "litellm": {
         "workloadProfileName": "Consumption",
-        "cpu": 1,
-        "memory": "2Gi",
+        "cpu": 2,
+        "memory": "4Gi",
         "minReplicas": 1,
         "maxReplicas": 2
       },

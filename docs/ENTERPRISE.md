@@ -101,17 +101,17 @@ egress IP.
 |---|---|---|
 | Intended use | Production: zone redundancy, autoscaling, static egress IP | Proof of concept for a few users, such as four |
 | Container Apps environment | Zone-redundant; dedicated `D4` workload profile, 2-6 nodes | Consumption profile only; not zone-redundant |
-| LiteLLM container app | 2 CPU / 4 GiB, 2-10 replicas | 1 CPU / 2 GiB, 1-2 replicas |
+| LiteLLM container app | 2 CPU / 4 GiB, 2-10 replicas | 2 CPU / 4 GiB, 1-2 replicas |
 | PostgreSQL 16 | `Standard_D2ads_v5` General Purpose, zone-redundant HA, 128 GiB (P10), 14-day backups | `Standard_D2ads_v5` General Purpose, no HA, 32 GiB (P4), 7-day backups; autogrow on |
 | NAT gateway and static public IP | Yes | No; outbound traffic uses the Container Apps environment's own address, which is not guaranteed to stay the same |
-| Estimated monthly cost | About $900 | About $195-250 |
+| Estimated monthly cost | About $900 | About $220-330 |
 
 Estimated `poc` monthly cost, at Sweden Central pay-as-you-go list prices in
 USD (Azure Retail Prices API, November 2026, 730 hours):
 
 | Item | Estimate |
 |---|---|
-| Container Apps Consumption: one 1 CPU / 2 GiB replica always running, after the monthly free grant | $22-73 (idle vs. active rate) |
+| Container Apps Consumption: one 2 CPU / 4 GiB replica always running, after the monthly free grant | $46-152 (idle vs. active rate) |
 | PostgreSQL `Standard_D2ads_v5` compute | $136.51 |
 | PostgreSQL storage, 32 GiB | $4.38 |
 | Azure-managed ingress load balancer and public IP of the VNet-integrated environment | $21.90 |
@@ -126,6 +126,12 @@ free grant is still available in the subscription. Scaling to two replicas,
 additional outbound data transfer, or heavy logging increases the bill; this
 is not a spending cap. LiteLLM background activity can keep the replica at
 the active rate, so budget toward the upper end.
+
+`poc` gives LiteLLM 2 CPU / 4 GiB rather than 1 CPU / 2 GiB: in November
+2026, with a few daily Claude Code users, LiteLLM's memory grew past 2 GiB
+within a working day and Azure restarted the only replica (exit code 137).
+While it restarted, every user's requests failed with 503, or 507 "exceeded
+request buffer limit while retrying upstream" for long conversations.
 
 `poc` uses General Purpose `Standard_D2ads_v5` rather than Burstable
 `Standard_B2s`: in November 2026, Sweden Central rejected `Standard_B2s` with
