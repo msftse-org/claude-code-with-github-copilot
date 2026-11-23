@@ -80,6 +80,8 @@ the image are illustrative, not the supported catalog.
   feature flag; content storage is off on new gateways.
 - **Administrators:** follow the [enterprise runbook](docs/ENTERPRISE.md) to
   deploy, configure GitHub, and enroll or revoke employees.
+- [Gateway model operations](docs/GATEWAY-MODELS.md) covers adding models,
+  updating employee access, and evaluating subscription-to-Copilot failover.
 - **Employees:** follow the [Mac guide](docs/mac/README.md). You need macOS,
   Claude Code `2.1.296` or newer, a Copilot-entitled GitHub account, and the
   setup file and key from Enterprise IT. No checkout, Node.js, or LiteLLM
