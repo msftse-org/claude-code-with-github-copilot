@@ -135,6 +135,15 @@ configuration, and employee setup-file generation completed. No employees were
 enrolled and no Copilot inference or Claude Code CLI/Desktop workflow was
 tested in this deployment.
 
+That pilot was torn down on 2026-11-26. Terraform destruction completed,
+its final state contained no resources, and a final destroy plan reported no
+changes before the separately managed state-storage resource group was deleted.
+Azure inventory confirmed no active pilot resources or resource groups remained.
+The purge-protected vault remains soft-deleted until its scheduled purge on
+2027-02-24. No replacement was deployed; existing employee Claude settings,
+Keychain entries, and GitHub administration configuration were not reset.
+The November verification above is historical, not evidence of a running service.
+
 ## Security properties
 
 - One immutable GitHub account ID maps to one LiteLLM user, one per-user
