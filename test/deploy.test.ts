@@ -274,7 +274,7 @@ test('confirmed Terraform deploy stores state in Azure, bootstraps LiteLLM, and 
       sleep: async () => {},
       fetcher: async input => new Response(String(input) === 'https://api.ipify.org'
         ? '198.51.100.20\n'
-        : JSON.stringify({ db: 'connected', litellm_version: '1.109.1' })),
+        : JSON.stringify({ db: 'connected', litellm_version: '1.111.0' })),
       bootstrap: async input => {
         bootstraps.push(input);
         return { createdCredential: true, createdModels: ['claude-sonnet-5.5'], models: ['claude-sonnet-5.5'] };
