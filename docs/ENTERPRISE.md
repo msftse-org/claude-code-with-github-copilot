@@ -3,6 +3,8 @@
 This runbook deploys and operates the central LiteLLM gateway that lets
 employees use Claude Code with their own GitHub Copilot seats. See the
 [README](../README.md) for the architecture and compatibility guidance.
+For catalog changes on a running gateway, see
+[Gateway model operations](GATEWAY-MODELS.md).
 
 ## What gets deployed
 
