@@ -64,6 +64,16 @@ function fakeLiteLLM({ credential, deployments = [], advertiseFrom = 1 }: {
 
 const noWait = async () => {};
 
+test('the provisioned catalog maps Fable as an available per-user Copilot option', async () => {
+  const litellm = fakeLiteLLM({});
+  const result = await bootstrapLiteLLM({ litellmUrl, masterKey, fetcher: litellm.fetcher, sleep: noWait });
+  assert.ok(result.models.includes('claude-sonnet-5.5'));
+  assert.ok(result.models.includes('claude-fable-5.2'));
+  const fable = litellm.calls.find(call => call.url.pathname === '/model/new'
+    && call.body?.model_name === 'claude-fable-5.2');
+  assert.deepEqual(fable?.body, copilotRoute('claude-fable-5.2'));
+});
+
 test('bootstrap applies an explicit logging policy after model discovery', async () => {
   const litellm = fakeLiteLLM({});
   const settings: Record<string, boolean> = {};

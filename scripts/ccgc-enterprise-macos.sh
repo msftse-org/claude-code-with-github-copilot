@@ -5,6 +5,7 @@ umask 077
 
 # Empty in the repository; scripts/build-installer.mjs builds each deployment's setup file with its LiteLLM URL.
 DEFAULT_GATEWAY=''
+DEFAULT_MODEL='claude-sonnet-5.5'
 MINIMUM_CLAUDE_VERSION='2.1.296'
 INSTALL_PATH="$HOME/.local/share/ccgc/enterprise/ccgc-enterprise-macos.sh"
 PROFILE_PATH="$HOME/.local/share/ccgc/enterprise/profile.json"
@@ -635,6 +636,7 @@ verify_litellm_profile() {
   local count=0
   local connected=0
   local seen='|'
+  local default_index=''
 
   user_id="$(json_value "$expected" liteLLMUserId)"
   login="$(json_value "$expected" githubLogin)"
@@ -685,10 +687,16 @@ verify_litellm_profile() {
     done
     [ "$matches" -gt 0 ] || fail 'a Claude model has no approved per-user GitHub Copilot route'
     /usr/bin/plutil -insert "models.$count" -string "$model" "$output"
+    if [ "$model" = "$DEFAULT_MODEL" ]; then default_index="$count"; fi
     seen="${seen}${model}|"
     count=$(( count + 1 ))
   done
   [ "$count" -gt 0 ] || fail 'this personal key has no approved Claude models'
+  [ -n "$default_index" ] ||
+    fail "required default model $DEFAULT_MODEL is unavailable to this key; ask IT to enable its approved per-user Copilot route"
+  # Discovery order is not a default-model policy. Desktop uses the first entry.
+  /usr/bin/plutil -remove "models.$default_index" "$output"
+  /usr/bin/plutil -insert models.0 -string "$DEFAULT_MODEL" "$output"
   /usr/bin/plutil -convert json "$output"
   /bin/chmod 0600 "$output"
 }
@@ -702,6 +710,9 @@ prepare_desktop_config() {
   /usr/bin/plutil -insert inferenceCredentialHelperArgs -json '[]' "$output"
   /usr/bin/plutil -insert inferenceCredentialHelperArgs.0 -string "$INSTALL_PATH" "$output"
   /usr/bin/plutil -insert inferenceCredentialHelperArgs.1 -string token "$output"
+  if [ -n "${3-}" ]; then
+    /usr/bin/plutil -insert inferenceModels -json "$(json_array "$3" models)" "$output"
+  fi
   /usr/bin/plutil -convert json "$output"
 }
 
@@ -800,6 +811,8 @@ prepare_desktop_install() {
       /usr/bin/plutil -insert inferenceCredentialHelperArgs -json \
         "$(json_array "$tmp_dir/desktop.json" inferenceCredentialHelperArgs)" "$tmp_dir/desktop-active.json"
       /usr/bin/plutil -insert modelDiscoveryEnabled -bool true "$tmp_dir/desktop-active.json"
+      /usr/bin/plutil -insert inferenceModels -json \
+        "$(json_array "$tmp_dir/desktop.json" inferenceModels)" "$tmp_dir/desktop-active.json"
     fi
   else
     id="$(/usr/bin/uuidgen | lowercase)"
@@ -840,7 +853,10 @@ verify_desktop_config() {
     [ "$(json_raw "$DESKTOP_ACTIVE_PATH" modelDiscoveryEnabled || true)" = true ] &&
     [ "$(json_raw "$DESKTOP_DATA_PATH/claude_desktop_config.json" deploymentMode || true)" = 3p ] ||
       fail 'Claude Desktop gateway or credential helper is outdated; run configure, then restart Desktop'
-  for key in bootstrapUrl selfHostedUrl inferenceGatewayApiKey inferenceGatewayOidc inferenceCustomHeaders inferenceModels; do
+  [ "$(json_raw "$DESKTOP_ACTIVE_PATH" inferenceModels.0 || true)" = "$DEFAULT_MODEL" ] &&
+    [ "$(json_array "$DESKTOP_ACTIVE_PATH" inferenceModels)" = "$(json_array "$PROFILE_PATH" models)" ] ||
+      fail 'Claude Desktop model catalog or default is outdated; run configure, then restart Desktop'
+  for key in bootstrapUrl selfHostedUrl inferenceGatewayApiKey inferenceGatewayOidc inferenceCustomHeaders; do
     ! /usr/bin/plutil -type "$key" "$DESKTOP_ACTIVE_PATH" >/dev/null 2>&1 ||
       fail 'Claude Desktop has conflicting gateway configuration; run configure or contact IT'
   done
@@ -960,6 +976,7 @@ model_display_name() {
     sonnet) printf 'Claude Sonnet %s' "$version" ;;
     haiku) printf 'Claude Haiku %s' "$version" ;;
     opus) printf 'Claude Opus %s' "$version" ;;
+    fable) printf 'Claude Fable %s' "$version" ;;
     *) printf '%s' "$model" ;;
   esac
 }
@@ -1353,10 +1370,10 @@ enroll() {
   validate_github_login "$login"
   prepare_litellm_profile "$tmp_dir/profile.json" "$gateway" "$response" "$api_key"
   verify_litellm_profile "$gateway" "$api_key" "$tmp_dir/profile.json" "$tmp_dir" "$tmp_dir/verified-profile.json"
-  default_model="$(json_value "$tmp_dir/verified-profile.json" models.0)"
+  default_model="$DEFAULT_MODEL"
   verify_gateway_access "$gateway" "$api_key" "$default_model" "$tmp_dir"
   prepare_settings "$gateway" "$default_model" "$tmp_dir/settings.json" "$enrollment_mode"
-  prepare_desktop_config "$gateway" "$tmp_dir/desktop.json"
+  prepare_desktop_config "$gateway" "$tmp_dir/desktop.json" "$tmp_dir/verified-profile.json"
   prepare_desktop_install "$tmp_dir" "$enrollment_mode"
   verify_github_mcp "$gateway" "$api_key" "$tmp_dir"
   /usr/bin/plutil -insert githubMcpEnabled -bool true "$tmp_dir/verified-profile.json"
@@ -1433,7 +1450,7 @@ models() {
   trap cleanup_temp EXIT
   refresh_profile "$TEMP_DIR"
   printf 'GitHub account: %s\n' "$(json_value "$PROFILE_PATH" githubLogin)"
-  printf 'Default: %s\n' "$(json_value "$PROFILE_PATH" models.0)"
+  printf 'Default: %s\n' "$DEFAULT_MODEL"
   printf 'Approved models: %s\n' "$(json_array "$PROFILE_PATH" models)"
 }
 
@@ -1450,11 +1467,11 @@ configure() {
   trap cleanup_temp EXIT
   refresh_profile "$tmp_dir"
   gateway="$(json_value "$PROFILE_PATH" gateway)"
-  default_model="$(json_value "$PROFILE_PATH" models.0)"
+  default_model="$DEFAULT_MODEL"
   reset_fresh_start_state
   preflight_fresh_start "$gateway" routing configure
   prepare_settings "$gateway" "$default_model" "$tmp_dir/settings.json" routing
-  prepare_desktop_config "$gateway" "$tmp_dir/desktop.json"
+  prepare_desktop_config "$gateway" "$tmp_dir/desktop.json" "$PROFILE_PATH"
   prepare_desktop_install "$tmp_dir" routing
   /bin/cp "$PROFILE_PATH" "$tmp_dir/verified-profile.json"
   ensure_github_cli_login "$(json_value "$PROFILE_PATH" githubLogin)"
@@ -1491,9 +1508,7 @@ doctor() {
   valid_json "$SETTINGS_PATH" || fail 'Claude settings are invalid'
   gateway="$(json_value "$PROFILE_PATH" gateway)"
   validate_gateway "$gateway"
-  default_model="$(json_value "$PROFILE_PATH" models.0)"
-  [[ "$default_model" =~ ^claude-[a-z0-9.-]+$ ]] ||
-    fail 'enterprise profile contains an invalid default model'
+  default_model="$DEFAULT_MODEL"
   expected_model="$(client_model "$default_model")"
   helper="$(installed_helper)"
 

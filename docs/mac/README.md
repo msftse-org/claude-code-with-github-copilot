@@ -203,7 +203,7 @@ Desktop Gateway configuration, and updates
 `~/.claude/settings.json`. The settings update:
 
 - sets the enrolled LiteLLM gateway as `ANTHROPIC_BASE_URL`
-- configures the default approved model
+- configures Sonnet 5.5 as the default, regardless of gateway discovery order
 - enables gateway model discovery
 - installs the enterprise `apiKeyHelper`
 - sets a one-minute helper cache
@@ -212,6 +212,14 @@ Desktop Gateway configuration, and updates
   Claude Code's local classifier instead of Anthropic-only server safeguards
 - preserves personal Claude settings added after enrollment, such as plugins,
   hooks, and allow/deny rules
+
+Sonnet 5.5 must be in your approved catalog; setup stops rather than falling
+back if it is missing. Fable 5.2 remains an explicit option when enabled by IT:
+select it with `/model claude-fable-5.2` in Claude Code or in Desktop's model
+picker. `configure` reapplies Sonnet 5.5 as Claude Code's configured default.
+Desktop uses a verified model list with Sonnet first and keeps its normal
+remembered-selection behavior. It does not reset your conversations or force
+an existing session off a model you selected.
 
 ### Fresh start and backups
 
@@ -285,7 +293,8 @@ The command re-verifies the enrollment with LiteLLM and shows:
 
 The catalog is refreshed from LiteLLM and restricted to models routed through
 your own `github-copilot-user` connection. It is not an unrestricted provider
-catalog.
+catalog. Run `configure` after changes to refresh Desktop's explicit model
+list, then restart Desktop.
 
 ## 7. Run the end-to-end doctor
 
