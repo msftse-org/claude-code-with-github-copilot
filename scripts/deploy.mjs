@@ -6,7 +6,7 @@ import { homedir, tmpdir } from 'node:os';
 import { basename, dirname, join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { parseArgs } from 'node:util';
-import { bootstrapLiteLLM, DEFAULT_MODELS, litellmOrigin, parsePromptStorage, validateModels } from './litellm-bootstrap.mjs';
+import { bootstrapLiteLLM, DEFAULT_MODELS, litellmOrigin, parseBooleanOption, parsePromptStorage, validateModels } from './litellm-bootstrap.mjs';
 import { DEFAULT_INSTALLER, describeInstaller, writeInstaller } from './build-installer.mjs';
 
 const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
@@ -49,6 +49,9 @@ Options:
   --skip-github          Do not configure the GitHub environment
   --store-prompts-in-spend-logs <true|false>
                         Store request/response content in PostgreSQL (omitted: preserve existing; new gateways: off)
+  --anthropic-routes <true|false>
+                        Create (true) or remove (false) credential-free ccgc-anthropic/<model> routes that use an
+                        employee's own claude.ai sign-in (omitted: preserve existing; new gateways: none)
   --confirm-deploy       Deploy instead of previewing
 `;
 
@@ -74,6 +77,7 @@ export function parseOptions(argv) {
       installer: { type: 'string' },
       'skip-github': { type: 'boolean', default: false },
       'store-prompts-in-spend-logs': { type: 'string' },
+      'anthropic-routes': { type: 'string' },
       'confirm-deploy': { type: 'boolean', default: false },
       help: { type: 'boolean', default: false },
     },
@@ -107,6 +111,7 @@ export function parseOptions(argv) {
     skipGithub: values['skip-github'],
     confirmDeploy: values['confirm-deploy'],
     storePromptsInSpendLogs: parsePromptStorage(values['store-prompts-in-spend-logs']),
+    anthropicRoutes: parseBooleanOption(values['anthropic-routes'], '--anthropic-routes'),
   };
 }
 
@@ -535,6 +540,9 @@ export async function deploy(options, {
   log(options.storePromptsInSpendLogs === undefined
     ? 'Prompt/response storage: preserve existing policy (off on a new gateway).'
     : `Prompt/response storage requested: ${options.storePromptsInSpendLogs ? 'enabled' : 'disabled'}; applied only after confirmed deployment.`);
+  log(options.anthropicRoutes === undefined
+    ? 'Anthropic routes: preserve existing (none on a new gateway).'
+    : `Anthropic routes requested: ${options.anthropicRoutes ? 'create' : 'remove'}; applied only after confirmed deployment.`);
 
   const resourceGroup = `rg-${options.prefix}-enterprise`;
   const groupExists = await run('az', ['group', 'exists', '--name', resourceGroup, '--subscription', options.subscription]) === 'true';
@@ -557,9 +565,14 @@ export async function deploy(options, {
   const readiness = await waitForReadiness(litellmUrl, { fetcher, sleep });
   log(`LiteLLM${readiness.litellm_version ? ` ${readiness.litellm_version}` : ''} is ready and connected to PostgreSQL.`);
   const catalog = await bootstrap({ litellmUrl, masterKey: secrets.litellmMasterKey, models: options.models,
-    storePromptsInSpendLogs: options.storePromptsInSpendLogs, fetcher, sleep });
+    storePromptsInSpendLogs: options.storePromptsInSpendLogs, anthropicRoutes: options.anthropicRoutes, fetcher, sleep });
   if (options.storePromptsInSpendLogs !== undefined) {
     log(`PostgreSQL prompt/response storage ${options.storePromptsInSpendLogs ? 'enabled' : 'disabled'} and configuration read back. Applies to new requests after replica sync.`);
+  }
+  if (options.anthropicRoutes === true) {
+    log(`Anthropic routes ready: ${options.models.map(model => `ccgc-anthropic/${model}`).join(', ')}. Grant them per employee with CCGC employee access (anthropic_routing).`);
+  } else if (options.anthropicRoutes === false) {
+    log(`Anthropic routes removed: ${catalog.removedAnthropicRoutes?.join(', ') || 'none existed'}.`);
   }
   log(`Credential github-copilot-user ${catalog.createdCredential ? 'created' : 'verified'}; models: ${catalog.models.join(', ')}.`);
 

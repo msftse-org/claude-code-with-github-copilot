@@ -267,7 +267,8 @@ test('confirmed Terraform deploy stores state in Azure, bootstraps LiteLLM, and 
     const cli = fakeCli({ associationStates: ['Creating', 'Succeeded'] });
     const bootstraps: BootstrapOptions[] = [];
     const result = await deploy(options(directory, [
-      '--confirm-deploy', '--store-prompts-in-spend-logs', 'true', '--models', 'claude-sonnet-5.5', '--installer', join(directory, 'setup.command'),
+      '--confirm-deploy', '--store-prompts-in-spend-logs', 'true', '--anthropic-routes', 'true', '--models', 'claude-sonnet-5.5',
+      '--installer', join(directory, 'setup.command'),
     ]), {
       run: cli.run,
       log: () => {},
@@ -322,6 +323,7 @@ test('confirmed Terraform deploy stores state in Azure, bootstraps LiteLLM, and 
 
     assert.equal(bootstraps.length, 1);
     assert.equal(bootstraps[0]!.storePromptsInSpendLogs, true);
+    assert.equal(bootstraps[0]!.anthropicRoutes, true);
     assert.equal(bootstraps[0]!.litellmUrl, 'https://litellm.example');
     assert.equal(bootstraps[0]!.masterKey, masterKey);
     assert.deepEqual(bootstraps[0]!.models, ['claude-sonnet-5.5']);

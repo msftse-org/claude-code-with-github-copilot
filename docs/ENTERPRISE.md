@@ -80,6 +80,15 @@ stores its models in PostgreSQL (`STORE_MODEL_IN_DB=True`). The per-user
 Copilot provider needs a placeholder token file to start. It is mounted from a
 Container Apps secret and is never used for inference.
 
+LiteLLM also loads [`infra/litellm/config.yaml`](../infra/litellm/config.yaml)
+(`CONFIG_FILE_PATH=/var/run/ccgc/litellm/config.yaml`) and the
+[Anthropic routing](#optional-anthropic-routing) hook next to it. Both are
+public repository files, mounted from the Container Apps secrets
+`litellm-config` and `litellm-anthropic-routing` only because that is how a
+file gets mounted. The config file adds only the hook. Models, credentials,
+keys, and settings stay in PostgreSQL. Changing either file takes a redeploy,
+which rolls a new revision.
+
 ### Estimated cost
 
 For a proof of concept with four employees, the default configuration costs
@@ -164,7 +173,9 @@ The confirmed run:
    temporary `0600` file, never on the command line.
 3. Waits for `/health/readiness` to report the database connected.
 4. Registers the per-user credential `github-copilot-user` and the Claude
-   model routes, then waits until every replica advertises them.
+   model routes, then waits until every replica advertises them. With
+   `--anthropic-routes true|false`, it also creates or removes the
+   [Anthropic routes](#optional-anthropic-routing).
 5. Sets `LITELLM_URL` and the `LITELLM_MASTER_KEY` secret in the `ccgc-admin`
    GitHub environment, creating the environment restricted to `main` if
    needed. Use `--skip-github` to configure it yourself, or `--github-repo
@@ -182,7 +193,9 @@ plans without taking the state lock.
 
 Re-running is safe and is how you apply template or model changes. Useful
 options: `--engine bicep`, `--prefix`, `--location`,
-`--models claude-sonnet-5.5,...`, `--secrets-file`, `--name-seed`, and
+`--models claude-sonnet-5.5,...`, `--secrets-file`, `--name-seed`,
+`--anthropic-routes true|false` (omitted: keep the current routes; a new
+gateway has none), and
 `--state-client-ip <ipv4>` when a VPN or proxy makes Azure see a different
 address than `https://api.ipify.org` reports.
 
@@ -230,6 +243,95 @@ Use `--store-prompts-in-spend-logs true|false` during deployment, or change an
 existing gateway with `npm run logging --`. Omission during deployment preserves
 the current policy; new gateways default to off. See [commands, verification,
 and retention](LOGGING.md).
+
+## Optional Anthropic routing
+
+Off by default. When it is on, LiteLLM sends two kinds of request from a
+granted employee to Anthropic, on that employee's own claude.ai subscription:
+- Claude Code's built-in web search, which uses an Anthropic `web_search_*` server tool;
+- sessions on a `ccgc-anthropic/<model>` model.
+
+Everything else stays on the employee's Copilot connection. See the
+[README](../README.md#optional-anthropic-routing) for what has been verified and
+for the limits.
+
+> [!IMPORTANT]
+> This is a deliberate exception to the Copilot-only design. Routed requests
+> use the employee's Anthropic plan and Anthropic's data terms, and Copilot
+> policy, Copilot billing, and GitHub's audit do not apply to them. Get
+> company approval first.
+
+### Turn it on
+
+1. Create the routes. Use the same options you deployed with:
+
+   ```bash
+   node scripts/deploy.mjs --subscription <subscription-id> --anthropic-routes true --confirm-deploy
+   ```
+
+   Bootstrap adds one `ccgc-anthropic/<model>` route for each approved model,
+   for example `ccgc-anthropic/claude-sonnet-5.5` →
+   `anthropic/claude-sonnet-5-5`. The routes hold no credential and no
+   `api_base`, so LiteLLM can send only the employee's own claude.ai sign-in,
+   and only to Anthropic's API. Bootstrap refuses to continue if an existing
+   `ccgc-anthropic/*` route has a credential or another host. Do not edit these
+   routes in the LiteLLM UI.
+2. Grant employees one at a time. Enroll with the `anthropic_routing` input:
+
+   ```bash
+   gh workflow run ccgc-employee-access.yml -f action=enroll -f github_username=<login> -f anthropic_routing=true
+   npm run access -- enroll <login> --anthropic-routing
+   ```
+
+   The new key, and the employee's LiteLLM user, list the
+   `ccgc-anthropic/*` routes next to the Copilot models. Enroll fails if the
+   gateway has no Anthropic routes. The run summary tells the employee what to
+   do next.
+3. The employee runs `claude auth login` with their own Anthropic account,
+   then runs the setup file with `enroll --anthropic-routing`. See the
+   [Mac guide](mac/README.md#optional-anthropic-routing).
+
+### How LiteLLM decides
+
+The hook [`infra/litellm/ccgc_anthropic_routing.py`](../infra/litellm/ccgc_anthropic_routing.py)
+runs before each `/v1/messages` call:
+
+| Request | Result |
+|---|---|
+| Model `ccgc-anthropic/<model>` | LiteLLM's own key and user checks apply. Without a claude.ai sign-in: HTTP 400. |
+| An Anthropic `web_search_*` server tool on model `<model>`, when both the key's and the user's model lists contain `ccgc-anthropic/<model>` | Sent to `ccgc-anthropic/<model>` and tagged `ccgc-route:anthropic` and `ccgc-reason:<tool>`. Without a claude.ai sign-in: HTTP 400. |
+| Anything else | Unchanged: Copilot. |
+
+- An empty model list never turns on routing.
+- The hook returns HTTP 400 rather than 403, because Claude Code retries 403
+  for minutes.
+- If LiteLLM cannot report the sign-in, or cannot read the user's grant, the
+  hook returns HTTP 500 and does not route.
+
+### Turn it off
+
+- **One employee:** enroll them again without `anthropic_routing`. This
+  removes the grant from their LiteLLM user. Older keys stop routing web
+  search at once (it stays on Copilot), and explicit `ccgc-anthropic/*` requests
+  get HTTP 403. The employee then enrolls again without `--anthropic-routing`.
+  Revoking the employee also removes everything.
+- **Everyone:** run the deploy with `--anthropic-routes false`. This deletes the
+  routes. Web search from granted keys then fails with `Invalid model name`;
+  it does not fall back to Copilot.
+
+### Keep it safe
+
+- LiteLLM sends a client's claude.ai sign-in to **every** route with provider
+  `anthropic`, even one that has its own `api_base` or key. Grant employee keys
+  only the Copilot routes and the `ccgc-anthropic/*` routes from bootstrap. The
+  employee setup refuses hybrid mode if the key can reach any other model.
+- The hook calls LiteLLM's internal `get_user_object`. After every LiteLLM
+  upgrade, repeat the real LiteLLM and real Claude Code checks described in the
+  README before you grant more employees.
+- Usage: **Logs** and **Usage** show Anthropic requests under the employee,
+  with model group `ccgc-anthropic/*`. Web search requests that the hook
+  routed also carry the tags `ccgc-route:anthropic` and `ccgc-reason:<tool>`,
+  which also appear in tag spend.
 
 ## Employee setup file
 
@@ -309,6 +411,9 @@ the users and keys appear in the LiteLLM UI as usual.
   LiteLLM user with all of their keys.
 - Keys keep the model list they were issued with. Enroll again after adding
   models.
+- With `anthropic_routing` (`--anthropic-routing` locally), the key and the
+  user also get the `ccgc-anthropic/*` routes. Enrolling without it removes
+  them from the user. See [Optional Anthropic routing](#optional-anthropic-routing).
 
 Consider adding required reviewers to the `ccgc-admin` environment.
 
@@ -369,3 +474,8 @@ from the secrets file.
 | Enrollment or inference fails with a GitHub error | Confirm the employee has a Copilot seat and that any GitHub organization IP allow list includes the egress IP. |
 | `model_not_supported` from GitHub | The model is not enabled for that Copilot account. There is no fallback. |
 | Employee setup reports a settings conflict | The script backs up Claude settings and replaces only the managed keys after explicit confirmation. |
+| `Anthropic routing is off on this gateway` when enrolling | Run the deploy with `--anthropic-routes true` first. |
+| HTTP 400 `... is not signed in to claude.ai` | The employee has hybrid mode but Claude Code has no claude.ai sign-in. They run `claude auth login`, or enroll again without `--anthropic-routing`. |
+| Web search returns `Invalid model name` | The routes were removed (`--anthropic-routes false`), but the key still has the grant. Enroll the employee again without `anthropic_routing`. |
+| HTTP 500 `could not check the employee's Anthropic routing grant` or `did not report whether a claude.ai sign-in was sent` | The hook failed closed, usually after a LiteLLM upgrade changed an internal API. Turn routing off and check the hook against the new version. |
+| Deploy fails with `must use only Anthropic's API with the employee's claude.ai sign-in` | Someone changed a `ccgc-anthropic/*` route. Delete it in the LiteLLM UI and deploy again. |

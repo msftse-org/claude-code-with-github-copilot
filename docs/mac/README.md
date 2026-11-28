@@ -21,7 +21,7 @@ closed.
 | Official Claude Code `2.1.296` or newer | Provides the unchanged coding interface and runs local Read, Edit, Bash, and permission decisions. | Install and verify the minimum supported version. |
 | Enterprise CCGC helper | Shell-based self-enrollment client and Claude `apiKeyHelper`. | Keep the installed private script at its stable path. |
 | Personal LiteLLM key in macOS Keychain | Authenticates that employee's inference requests directly for up to 90 days. | Use a newly issued key for renewal. |
-| `~/.claude/settings.json` | Routes Claude to LiteLLM and installs the Keychain credential helper. | Enrollment backs up configuration from another setup and starts clean; `configure` resets only conflicting routing. |
+| `~/.claude/settings.json` | Routes Claude to LiteLLM and installs the Keychain credential helper. With [Anthropic routing](#optional-anthropic-routing), it instead holds the personal key in a request header, in this `0600` file. | Enrollment backs up configuration from another setup and starts clean; `configure` resets only conflicting routing. |
 | Enterprise profile | Stores the gateway, verified LiteLLM/GitHub identity, credential reference, and model catalog; no secrets. | Let the helper create it; do not hand-edit it. |
 | `desktop-gateway.json` | Secret-free copy of Desktop's Gateway configuration. | The script applies it to the local Desktop profile; restart Desktop afterward. |
 
@@ -334,7 +334,8 @@ When Claude invokes the `apiKeyHelper`, the helper:
 
 The Keychain service name is derived from the gateway, verified user, and key,
 so a failed replacement cannot overwrite another employee's credential.
-The key is never written to the profile or Claude settings.
+The key is never written to the profile or Claude settings, except in
+[Anthropic routing](#optional-anthropic-routing) mode.
 
 Use `/model` inside Claude Code to select another approved model. Do not add
 provider keys or override the LiteLLM gateway URL.
@@ -378,6 +379,7 @@ workflows you need in your environment.
 |---|---|---|
 | Explicit fixed-budget thinking | Model-dependent | Use adaptive thinking for models that reject explicit thinking budgets. |
 | Advisor | Anthropic API only | Claude Code omits the Advisor server tool when configured with this custom Copilot gateway. |
+| Built-in `WebSearch` | Only with [Anthropic routing](#optional-anthropic-routing) | Denied by default; Claude uses GitHub MCP web search instead. |
 
 Auto mode is not the default. Start or select it only under the organization's
 normal Claude Code permission policy. Enrollment sets
@@ -445,6 +447,11 @@ Do not delete or edit the profile to bypass an identity conflict.
 | No models are listed | Ask enterprise IT to verify the employee's approved catalog and account binding. |
 | Claude stopped working after an update | Run the installed helper's `doctor`; do not delete credentials or repeat enrollment unless Enterprise IT confirms a lifecycle condition above. |
 | A LiteLLM replica or gateway restarts | Run `doctor` and resume only through normal Claude behavior. Never replay an uncertain in-flight inference automatically. |
+| `Anthropic routing needs Claude Code signed in to your own Claude subscription` | Run `claude auth login` with your own Anthropic account, then run the setup again. A token from `claude setup-token` or an Anthropic API key is not accepted. |
+| `this personal key has no Anthropic routes` | IT has not granted Anthropic routing to this key. Ask IT to enroll you with `anthropic_routing`, or enroll without `--anthropic-routing`. |
+| `does not go straight to Anthropic with your own sign-in` or `can also use models this setup cannot check` | The gateway's routes are not safe for your Claude sign-in. Nothing was changed. Contact IT. |
+| HTTP 400 `... is not signed in to claude.ai` | Claude Code lost its claude.ai sign-in. Run `claude auth login`, or enroll again without `--anthropic-routing`. |
+| Web search fails after IT turned Anthropic routing off | Enroll again without `--anthropic-routing`. |
 
 Useful checks:
 
@@ -468,3 +475,66 @@ bash "$HOME/.local/share/ccgc/enterprise/ccgc-enterprise-macos.sh" configure
 ## GitHub web search
 
 Every enrollment includes GitHub MCP web search. Setup reuses GitHub CLI (`gh`) or installs a verified official copy for your user automatically. A matching existing GitHub CLI login is reused; otherwise setup starts a separate GitHub CLI sign-in. If setup stops, rerun the same file: completed installation and logins are reused, and successful enrollment requires both inference and MCP verification. See [GitHub MCP setup](../GITHUB-MCP.md). Restart Claude Code and check `/mcp` after setup.
+
+## Optional Anthropic routing
+
+Use this only if Enterprise IT has turned it on for you. It keeps GitHub
+Copilot for normal requests. LiteLLM sends two kinds of request to Anthropic,
+on your own Claude subscription:
+- Claude Code's built-in web search;
+- sessions on models named `ccgc-anthropic/<model>`.
+
+These requests use your Anthropic plan's limits and Anthropic's data terms.
+
+1. Sign in to Claude Code with your own Anthropic account. The setup never signs
+   in for you:
+
+   ```bash
+   claude auth login
+   ```
+
+   Setup accepts only a claude.ai subscription sign-in. A long-lived token from
+   `claude setup-token` or an Anthropic API key is refused.
+2. Run the setup file with the option:
+
+   ```bash
+   bash "$HOME/Downloads/ccgc-enterprise-setup.command" enroll --anthropic-routing
+   ```
+
+   The setup checks your sign-in before asking for the key. It then follows the
+   normal enrollment, plus these checks:
+   - every `ccgc-anthropic/*` route goes straight to Anthropic's API with no
+     stored credential;
+   - your key can reach no model that the setup cannot check.
+
+   Every request now carries your Claude sign-in, so nothing is saved if either
+   check fails.
+3. Use it:
+
+   ```bash
+   claude                                              # GitHub Copilot; web search uses Anthropic
+   claude --model ccgc-anthropic/claude-sonnet-5.5     # the whole session uses Anthropic
+   ```
+
+   `models` and `doctor` list the Anthropic models. `doctor` also checks your
+   claude.ai sign-in and the key header.
+
+What changes on your Mac in this mode:
+
+- Claude Code sends your claude.ai sign-in in its normal authorization header.
+  The personal LiteLLM key therefore goes in an `x-litellm-api-key` header,
+  saved in `~/.claude/settings.json` (mode `0600`). There is no credential
+  helper in this mode. The key also stays in Keychain.
+- `CLAUDE_CODE_SUBPROCESS_ENV_SCRUB=1` keeps the key out of Bash and other tool
+  processes.
+- The built-in `WebSearch` tool is allowed. GitHub MCP web search stays
+  available too.
+- Claude Desktop keeps the GitHub Copilot setup.
+- `configure` and `doctor` keep this mode. To switch back to GitHub Copilot
+  only, run `enroll` again without `--anthropic-routing`. Older settings
+  backups have the key removed.
+
+Limits:
+- Do not switch between a `claude-*` model and a `ccgc-anthropic/*` model in
+  the middle of a conversation. Start a new session instead.
+- Remote Control and Advisor stay unavailable with a custom gateway.

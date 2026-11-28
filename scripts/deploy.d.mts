@@ -17,6 +17,7 @@ export interface DeployOptions {
   skipGithub: boolean;
   confirmDeploy: boolean;
   storePromptsInSpendLogs?: boolean;
+  anthropicRoutes?: boolean;
 }
 
 export interface Secrets {

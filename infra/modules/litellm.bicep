@@ -23,6 +23,7 @@ var vaultName = take('kv-${compact}-${unique}', 24)
 var litellmName = 'ca-${prefix}-litellm'
 var litellmUrl = 'https://${litellmName}.${environment.properties.defaultDomain}'
 var copilotTokenDir = '/var/run/ccgc/github-copilot'
+var litellmConfigDir = '/var/run/ccgc/litellm'
 var keyVaultSecretsUser = '4633458b-17de-408a-b874-0445c86b69e6'
 
 // LiteLLM's GitHub Copilot provider resolution reads a process-wide token file even
@@ -499,6 +500,17 @@ resource litellm 'Microsoft.App/containerApps@2025-01-01' = {
           #disable-next-line use-secure-value-for-secure-inputs
           value: copilotPlaceholderToken
         }
+        {
+          name: 'litellm-config'
+          // Public repository files, stored as secrets only so they can be mounted as files.
+          #disable-next-line use-secure-value-for-secure-inputs
+          value: loadTextContent('../litellm/config.yaml')
+        }
+        {
+          name: 'litellm-anthropic-routing'
+          #disable-next-line use-secure-value-for-secure-inputs
+          value: loadTextContent('../litellm/ccgc_anthropic_routing.py')
+        }
       ]
     }
     template: {
@@ -531,11 +543,19 @@ resource litellm 'Microsoft.App/containerApps@2025-01-01' = {
               name: 'GITHUB_COPILOT_TOKEN_DIR'
               value: copilotTokenDir
             }
+            {
+              name: 'CONFIG_FILE_PATH'
+              value: '${litellmConfigDir}/config.yaml'
+            }
           ]
           volumeMounts: [
             {
               volumeName: 'github-copilot'
               mountPath: copilotTokenDir
+            }
+            {
+              volumeName: 'litellm-config'
+              mountPath: litellmConfigDir
             }
           ]
           // Listed as Azure returns them so Terraform plans of the same deployment stay clean.
@@ -587,6 +607,21 @@ resource litellm 'Microsoft.App/containerApps@2025-01-01' = {
             {
               secretRef: 'github-copilot-placeholder'
               path: 'api-key.json'
+            }
+          ]
+        }
+        {
+          name: 'litellm-config'
+          storageType: 'Secret'
+          // LiteLLM loads callback modules from the directory of its config file.
+          secrets: [
+            {
+              secretRef: 'litellm-config'
+              path: 'config.yaml'
+            }
+            {
+              secretRef: 'litellm-anthropic-routing'
+              path: 'ccgc_anthropic_routing.py'
             }
           ]
         }

@@ -1,4 +1,5 @@
 import { ensureGitHubMcp, GITHUB_MCP_ROUTES } from './github-mcp.mjs';
+import { ANTHROPIC_ROUTE_PREFIX, parseBooleanOption } from './litellm-bootstrap.mjs';
 import { randomUUID } from 'node:crypto';
 import { resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
@@ -110,14 +111,19 @@ async function findUser(fetcher, origin, masterKey, accountId) {
   return user;
 }
 
-async function modelsForUser(fetcher, origin, masterKey) {
+async function modelsForUser(fetcher, origin, masterKey, anthropicRouting) {
   const result = await jsonRequest(fetcher, new URL('/v1/models', origin), { masterKey });
   if (!Array.isArray(result.data)) fail('LiteLLM returned an invalid model list.');
-  const models = [...new Set(result.data
-    .map(model => model?.id)
-    .filter(model => typeof model === 'string' && /^claude-[a-z0-9.-]+$/.test(model)))];
+  const available = new Set(result.data.map(model => model?.id).filter(model => typeof model === 'string'));
+  const models = [...available].filter(model => /^claude-[a-z0-9.-]+$/.test(model));
   if (!models.length) fail('LiteLLM has no approved Claude models available.');
-  return models;
+  if (!anthropicRouting) return { models, anthropicModels: [] };
+  // Only Anthropic routes for approved Copilot models: no Anthropic-only models.
+  const anthropicModels = models.map(model => `${ANTHROPIC_ROUTE_PREFIX}${model}`).filter(model => available.has(model));
+  if (!anthropicModels.length) {
+    fail('Anthropic routing is off on this gateway. Run deploy with --anthropic-routes true first.');
+  }
+  return { models, anthropicModels };
 }
 
 async function ensureUser(fetcher, origin, masterKey, account, models, existing) {
@@ -182,9 +188,11 @@ export async function manageEmployeeAccess({
   githubLogin,
   litellmUrl,
   masterKey,
+  anthropicRouting = false,
   fetcher = fetch,
 }) {
   if (action !== 'enroll' && action !== 'revoke') fail('Unsupported action.');
+  if (typeof anthropicRouting !== 'boolean') fail('Anthropic routing must be true or false.');
   const requestedLogin = validateLogin(githubLogin);
   const origin = validateOrigin(litellmUrl);
   const adminKey = validateMasterKey(masterKey);
@@ -197,8 +205,10 @@ export async function manageEmployeeAccess({
   }
 
   const mcp = await ensureGitHubMcp({ litellmUrl: origin, masterKey: adminKey, fetcher });
-  const models = await modelsForUser(fetcher, origin, adminKey);
-  const userId = await ensureUser(fetcher, origin, adminKey, account, models, existing);
+  const { models, anthropicModels } = await modelsForUser(fetcher, origin, adminKey, anthropicRouting);
+  // Enrolling without Anthropic routing removes the grant from the user, which also stops older keys.
+  const granted = [...models, ...anthropicModels];
+  const userId = await ensureUser(fetcher, origin, adminKey, account, granted, existing);
   const keyAlias = `ccgc-claude-${randomUUID()}`;
   const generated = await jsonRequest(fetcher, new URL('/key/generate', origin), {
     masterKey: adminKey,
@@ -206,7 +216,7 @@ export async function manageEmployeeAccess({
     body: {
       user_id: userId,
       key_alias: keyAlias,
-      models,
+      models: granted,
       duration: '90d',
       allowed_routes: [...EMPLOYEE_KEY_ROUTES, ...GITHUB_MCP_ROUTES],
       object_permission: { mcp_servers: [mcp.serverId], mcp_tool_permissions: { [mcp.serverId]: ['web_search'] } },
@@ -229,6 +239,7 @@ export async function manageEmployeeAccess({
     key: generated.key,
     expiresAt: new Date(expiresAt).toISOString(),
     models,
+    anthropicModels,
     reusedUser: Boolean(existing),
     gateway: origin,
   };
@@ -240,6 +251,17 @@ function requiredEnvironment(name) {
   return value;
 }
 
+export function anthropicRoutingSummary(anthropicModels) {
+  if (!anthropicModels.length) return [];
+  return [
+    '',
+    `Anthropic routing is granted: ${anthropicModels.join(', ')}.`,
+    'Claude Code web search, and sessions on these models, use the employee\'s own claude.ai subscription; everything else stays on GitHub Copilot.',
+    'The employee first runs `claude auth login` with their Anthropic account, then runs the setup file with `enroll --anthropic-routing`.',
+    'Enroll again without Anthropic routing to remove the grant.',
+  ];
+}
+
 async function main() {
   const action = requiredEnvironment('ACTION');
   const result = await manageEmployeeAccess({
@@ -247,6 +269,7 @@ async function main() {
     githubLogin: requiredEnvironment('GITHUB_USERNAME'),
     litellmUrl: requiredEnvironment('LITELLM_URL'),
     masterKey: requiredEnvironment('LITELLM_MASTER_KEY'),
+    anthropicRouting: parseBooleanOption(process.env.ANTHROPIC_ROUTING || undefined, 'ANTHROPIC_ROUTING') ?? false,
   });
   if (action === 'revoke') {
     process.stdout.write(`Revoked LiteLLM access for ${result.githubLogin}; deleted user: ${result.deleted}.\n`);
@@ -281,6 +304,7 @@ async function main() {
     `Approved models: ${result.models.join(', ')}`,
     '',
     'GitHub MCP web search is included. Setup installs GitHub CLI (gh) if missing, reuses a matching login, or starts GitHub CLI authorization. Rerun the same setup file if interrupted.',
+    ...anthropicRoutingSummary(result.anthropicModels),
   ].join('\n');
   process.stdout.write(`Created a 90-day LiteLLM key for ${result.githubLogin}. The key is in the protected run summary.\n`);
   process.stdout.write(`${summary}\n`);

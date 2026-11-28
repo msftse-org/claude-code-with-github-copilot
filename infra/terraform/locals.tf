@@ -21,6 +21,7 @@ locals {
   litellm_name  = "ca-${var.prefix}-litellm"
 
   copilot_token_dir      = "/var/run/ccgc/github-copilot"
+  litellm_config_dir     = "/var/run/ccgc/litellm"
   key_vault_secrets_user = "4633458b-17de-408a-b874-0445c86b69e6"
 
   # Namespace that makes uuidv5 equal to the ARM guid() template function.

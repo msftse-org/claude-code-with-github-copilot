@@ -13,6 +13,7 @@ export interface EmployeeAccessOptions {
   gateway?: string;
   githubRepo?: string;
   installerFile: string;
+  anthropicRouting?: boolean;
 }
 
 export interface AccessOutcome {

@@ -4,7 +4,7 @@
 
 - The product must use the actual, unmodified Claude Code app or CLI with Anthropic/Claude models made available through the user's GitHub Copilot seat.
 - GitHub Copilot supplies model access and entitlement; Claude Code owns the coding workflow, repository tools, and permission controls.
-- Do not replace Claude Code with another coding client or a second agent, describe the goal as billing redirection, or introduce a separate Anthropic/BYOK inference credential.
+- Do not replace Claude Code with another coding client or a second agent, describe the goal as billing redirection, or introduce a separate Anthropic/BYOK inference credential. The only exception is optional Anthropic routing (see Architecture), which uses each employee's own claude.ai sign-in and never a shared Anthropic credential.
 - A model label, successful text prompt, SDK call, or billing record does not prove the invariant. Success requires the real client, a Copilot-entitled Claude model, the effective Copilot route, and a functioning Claude Code tool workflow.
 
 ## Architecture
@@ -17,6 +17,14 @@
 - Every employee key includes restricted GitHub MCP web search. The gateway forwards the employee's GitHub CLI token; there is no shared GitHub MCP credential. Setup installs a digest-verified official GitHub CLI for the user if missing and reuses completed logins on rerun. MCP is not optional.
 - `scripts/ccgc-enterprise-macos.sh` is the standalone employee setup. It stores the key in macOS Keychain, starts the GitHub device flow through LiteLLM, verifies the connection and model routes, and configures Claude Code. Its tracked `DEFAULT_GATEWAY` stays empty; never commit a deployment URL into it.
 - `scripts/build-installer.mjs` (`npm run installer`) writes the employee setup file `dist/ccgc-enterprise-setup.command`, the macOS script with one deployment's LiteLLM URL stamped into `DEFAULT_GATEWAY`. `deploy.mjs` writes it after a confirmed deploy, and the enroll workflow attaches it to the run.
+- Optional Anthropic routing is a documented exception to the invariant and to the secrets rule below. It is off by default.
+  - The hook `infra/litellm/ccgc_anthropic_routing.py` and `infra/litellm/config.yaml` are mounted from Container Apps secrets and loaded through `CONFIG_FILE_PATH`. The hook does nothing until both of these exist:
+    - `deploy.mjs --anthropic-routes true`, which creates credential-free `ccgc-anthropic/<model>` routes with no `api_base`;
+    - a per-employee grant (`anthropic_routing`), which puts those routes in both the key's and the user's model lists.
+  - With both in place, Claude Code web search and explicitly chosen `ccgc-anthropic/<model>` models go to Anthropic on the employee's own claude.ai sign-in. Everything else stays on Copilot, and a Copilot failure never falls back to Anthropic.
+  - In this mode the client's Authorization header carries the claude.ai sign-in. The personal key therefore travels in `ANTHROPIC_CUSTOM_HEADERS` from the `0600` `settings.json`, with `CLAUDE_CODE_SUBPROCESS_ENV_SCRUB=1`.
+  - LiteLLM forwards that sign-in to every route with provider `anthropic`, even one with its own `api_base` or key. Employee keys must reach only routes the setup script verifies.
+  - The hook calls LiteLLM's internal `get_user_object`. Re-run the real LiteLLM and real-client checks on every LiteLLM upgrade.
 - Prompt/response content storage is an explicit administrator feature flag (`--store-prompts-in-spend-logs true|false`). Omitting it preserves existing DB/UI policy; new gateways default to off. Use the shared LiteLLM config API helper for deployment and runtime changes, keep DB model storage on, and never print stored content or credentials in verification.
 
 ## Commands
@@ -47,6 +55,6 @@ Live commands can consume Copilot allowance, create billable Azure resources, or
 
 - Scripts are dependency-free Node.js ESM (`.mjs`) with `.d.mts` declarations; tests are strict TypeScript run directly by `node --test`. Keep compatibility with `NodeNext`, `noUncheckedIndexedAccess`, `noUnusedLocals`, `noUnusedParameters`, and `erasableSyntaxOnly`.
 - Fail closed with clear errors. Do not add broad catches, implicit retries, redirects, provider or model fallback, or success-shaped fallbacks.
-- Keep secrets (master key, salt key, database password, employee keys, GitHub tokens) out of command arguments, logs, repository files, Claude Code's environment, and client-facing headers. Pass them through stdin, private 0600 files, Key Vault, or GitHub environment secrets.
+- Keep secrets (master key, salt key, database password, employee keys, GitHub tokens) out of command arguments, logs, repository files, Claude Code's environment, and client-facing headers. The only exception is the employee's own key in the Anthropic routing header described above. Pass them through stdin, private 0600 files, Key Vault, or GitHub environment secrets.
 - The LiteLLM salt key encrypts stored GitHub connections; it must never change for an existing database.
 - Keep tests synthetic by default. Any live test must state that it may consume allowance and report live access as unverified until the actual client route succeeds.

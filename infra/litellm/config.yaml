@@ -1,0 +1,6 @@
+# Mounted read-only into the LiteLLM container and loaded through CONFIG_FILE_PATH.
+# Models, credentials, keys, and settings stay in PostgreSQL (STORE_MODEL_IN_DB).
+# The hook is inert until an administrator creates ccgc-anthropic/* routes and
+# grants them to an employee key.
+litellm_settings:
+  callbacks: ccgc_anthropic_routing.handler

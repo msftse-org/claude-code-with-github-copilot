@@ -1,4 +1,5 @@
 export const CREDENTIAL_NAME = 'github-copilot-user';
+export const ANTHROPIC_ROUTE_PREFIX = 'ccgc-anthropic/';
 export const DEFAULT_MODELS = Object.freeze([
   'claude-sonnet-5.5',
   'claude-sonnet-5',
@@ -135,23 +136,78 @@ async function ensureModels(call, models) {
 }
 
 // Models are stored in PostgreSQL; other replicas load them on their next database sync.
-async function waitForModels(call, models, { attempts, delayMs, sleep }) {
+async function waitForModels(call, models, { attempts, delayMs, sleep, absentPrefix }) {
   let missing = models;
+  let stale = [];
   for (let attempt = 1; attempt <= attempts; attempt += 1) {
     const listed = await call('/v1/models');
     const available = new Set(Array.isArray(listed.data) ? listed.data.map(model => model?.id) : []);
     missing = models.filter(model => !available.has(model));
-    if (!missing.length) return;
+    stale = absentPrefix ? [...available].filter(model => typeof model === 'string' && model.startsWith(absentPrefix)) : [];
+    if (!missing.length && !stale.length) return;
     if (attempt < attempts) await sleep(delayMs);
   }
-  fail(`LiteLLM did not advertise these models: ${missing.join(', ')}.`);
+  if (missing.length) fail(`LiteLLM did not advertise these models: ${missing.join(', ')}.`);
+  fail(`LiteLLM still advertises these removed models: ${stale.join(', ')}.`);
 }
 
-export function parsePromptStorage(value) {
+// LiteLLM's Anthropic model IDs use hyphens where GitHub Copilot uses dots.
+export function anthropicModel(model) {
+  return model.replaceAll('.', '-');
+}
+
+// An Anthropic route must hold no credential and keep Anthropic's own API host, so
+// LiteLLM can only forward the employee's claude.ai sign-in, and only to Anthropic.
+function isSubscriptionAnthropicRoute(deployment) {
+  const params = deployment?.litellm_params ?? {};
+  const model = deployment?.model_name?.slice(ANTHROPIC_ROUTE_PREFIX.length) ?? '';
+  return MODEL_PATTERN.test(model)
+    && params.model === `anthropic/${anthropicModel(model)}`
+    && params.custom_llm_provider === 'anthropic'
+    && ['api_key', 'api_base', 'litellm_credential_name'].every(field => params[field] === undefined || params[field] === null);
+}
+
+async function configureAnthropicRoutes(call, models, enabled) {
+  const info = await call('/model/info');
+  const routes = (Array.isArray(info.data) ? info.data : [])
+    .filter(deployment => deployment?.model_name?.startsWith(ANTHROPIC_ROUTE_PREFIX));
+  if (!enabled) {
+    for (const route of routes) {
+      const id = route?.model_info?.id;
+      if (typeof id !== 'string' || !id) fail(`LiteLLM model ${route.model_name} has no ID to remove.`);
+      await call('/model/delete', { method: 'POST', body: { id } });
+    }
+    return { created: [], removed: [...new Set(routes.map(route => route.model_name))] };
+  }
+  const unsafe = routes.find(route => !isSubscriptionAnthropicRoute(route));
+  if (unsafe) {
+    fail(`LiteLLM model ${unsafe.model_name} must use only Anthropic's API with the employee's claude.ai sign-in.`);
+  }
+  const created = [];
+  for (const model of models) {
+    const name = `${ANTHROPIC_ROUTE_PREFIX}${model}`;
+    if (routes.some(route => route.model_name === name)) continue;
+    await call('/model/new', {
+      method: 'POST',
+      body: {
+        model_name: name,
+        litellm_params: { model: `anthropic/${anthropicModel(model)}`, custom_llm_provider: 'anthropic' },
+      },
+    });
+    created.push(name);
+  }
+  return { created, removed: [] };
+}
+
+export function parseBooleanOption(value, flag) {
   if (value === undefined) return undefined;
   if (value === 'true') return true;
   if (value === 'false') return false;
-  fail('--store-prompts-in-spend-logs must be true or false.');
+  fail(`${flag} must be true or false.`);
+}
+
+export function parsePromptStorage(value) {
+  return parseBooleanOption(value, '--store-prompts-in-spend-logs');
 }
 
 function validateMasterKey(masterKey) {
@@ -205,19 +261,37 @@ export async function bootstrapLiteLLM({
   attempts = 24,
   delayMs = 5_000,
   storePromptsInSpendLogs,
+  anthropicRoutes,
 }) {
   const origin = litellmOrigin(litellmUrl);
   validateMasterKey(masterKey);
   const approved = validateModels([...models]);
+  if (anthropicRoutes !== undefined && typeof anthropicRoutes !== 'boolean') {
+    fail('Anthropic routes must be an explicit boolean.');
+  }
   const call = (path, options) => request(fetcher, origin, masterKey, path, options);
   const createdCredential = await ensureCredential(call);
   const createdModels = await ensureModels(call, approved);
-  await waitForModels(call, approved, { attempts, delayMs, sleep });
+  // Omission preserves existing Anthropic routes; a fresh gateway has none.
+  const anthropic = anthropicRoutes === undefined ? undefined
+    : await configureAnthropicRoutes(call, approved, anthropicRoutes);
+  const expected = anthropicRoutes ? approved.map(model => `${ANTHROPIC_ROUTE_PREFIX}${model}`) : [];
+  await waitForModels(call, [...approved, ...expected], {
+    attempts, delayMs, sleep, absentPrefix: anthropicRoutes === false ? ANTHROPIC_ROUTE_PREFIX : undefined,
+  });
   // Omission preserves existing UI/DB policy; a fresh gateway defaults to off.
   if (storePromptsInSpendLogs !== undefined) {
     await configurePromptStorage({
       litellmUrl: origin, masterKey, enabled: storePromptsInSpendLogs, fetcher, sleep, attempts, delayMs,
     });
   }
-  return { createdCredential, createdModels, models: approved };
+  return {
+    createdCredential,
+    createdModels,
+    models: approved,
+    ...(anthropic === undefined ? {} : {
+      createdAnthropicRoutes: anthropic.created,
+      removedAnthropicRoutes: anthropic.removed,
+    }),
+  };
 }
