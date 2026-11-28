@@ -123,6 +123,15 @@ resource "azapi_resource" "litellm" {
             name  = "github-copilot-placeholder"
             value = local.settings.litellm.copilotPlaceholderToken
           },
+          {
+            # Public repository files, stored as secrets only so they can be mounted as files.
+            name  = "litellm-config"
+            value = file("${path.module}/../litellm/config.yaml")
+          },
+          {
+            name  = "litellm-anthropic-routing"
+            value = file("${path.module}/../litellm/ccgc_anthropic_routing.py")
+          },
         ]
       }
       template = {
@@ -155,11 +164,19 @@ resource "azapi_resource" "litellm" {
                 name  = "GITHUB_COPILOT_TOKEN_DIR"
                 value = local.copilot_token_dir
               },
+              {
+                name  = "CONFIG_FILE_PATH"
+                value = "${local.litellm_config_dir}/config.yaml"
+              },
             ]
             volumeMounts = [
               {
                 volumeName = "github-copilot"
                 mountPath  = local.copilot_token_dir
+              },
+              {
+                volumeName = "litellm-config"
+                mountPath  = local.litellm_config_dir
               },
             ]
             # Azure returns probes in this order; any other order shows as drift in every plan.
@@ -211,6 +228,21 @@ resource "azapi_resource" "litellm" {
               {
                 secretRef = "github-copilot-placeholder"
                 path      = "api-key.json"
+              },
+            ]
+          },
+          {
+            name        = "litellm-config"
+            storageType = "Secret"
+            # LiteLLM loads callback modules from the directory of its config file.
+            secrets = [
+              {
+                secretRef = "litellm-config"
+                path      = "config.yaml"
+              },
+              {
+                secretRef = "litellm-anthropic-routing"
+                path      = "ccgc_anthropic_routing.py"
               },
             ]
           },

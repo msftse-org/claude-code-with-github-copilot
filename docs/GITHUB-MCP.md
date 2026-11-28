@@ -71,7 +71,9 @@ credential; LiteLLM still checks the personal key and GitHub validates its token
 Do not run `mcp-headers` manually: its output contains credentials for the client.
 
 The installer allows `mcp__github__github-web_search` and denies native
-`WebSearch` in Claude's permissions. Models that support tool use can select
+`WebSearch` in Claude's permissions, except in
+[Anthropic routing](mac/README.md#optional-anthropic-routing) mode, where
+LiteLLM sends native web search to Anthropic. Models that support tool use can select
 this tool when appropriate; configuration does not force a search on every
 request. Other permission rules and consent settings are preserved.
 

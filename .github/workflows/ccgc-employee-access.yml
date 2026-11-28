@@ -17,6 +17,13 @@ on:
         description: Employee GitHub username (the account must have a GitHub Copilot seat)
         type: string
         required: true
+      anthropic_routing:
+        description: >-
+          Enroll only. Also send Claude Code web search and ccgc-anthropic/* models to the employee's
+          own claude.ai subscription. Needs deploy --anthropic-routes true. Enrolling without it removes the grant.
+        type: boolean
+        default: false
+        required: false
 
 permissions:
   contents: read
@@ -34,6 +41,7 @@ jobs:
     env:
       ACTION: ${{ inputs.action }}
       GITHUB_USERNAME: ${{ inputs.github_username }}
+      ANTHROPIC_ROUTING: ${{ inputs.anthropic_routing }}
       LITELLM_URL: ${{ vars.LITELLM_URL }}
     steps:
       - name: Validate request
@@ -41,6 +49,10 @@ jobs:
           set -euo pipefail
           fail() { echo "::error::$1"; exit 1; }
           [[ "$ACTION" == enroll || "$ACTION" == revoke ]] || fail 'Unsupported action.'
+          [[ "$ANTHROPIC_ROUTING" == true || "$ANTHROPIC_ROUTING" == false ]] \
+            || fail 'anthropic_routing must be true or false.'
+          [[ "$ACTION" == enroll || "$ANTHROPIC_ROUTING" == false ]] \
+            || fail 'anthropic_routing applies only to enroll.'
           [[ "$GITHUB_USERNAME" =~ ^[A-Za-z0-9]([A-Za-z0-9-]{0,37}[A-Za-z0-9])?$ ]] \
             || fail 'github_username is not a valid GitHub username.'
           [[ "$LITELLM_URL" =~ ^https://[A-Za-z0-9.-]+(:[0-9]+)?/?$ ]] \

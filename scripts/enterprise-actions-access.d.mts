@@ -2,6 +2,7 @@ export interface AccessOptions {
   githubLogin: string;
   litellmUrl: string;
   masterKey: string;
+  anthropicRouting?: boolean;
   fetcher?: typeof fetch;
 }
 
@@ -12,6 +13,7 @@ export interface EnrolledAccess {
   key: string;
   expiresAt: string;
   models: string[];
+  anthropicModels: string[];
   reusedUser: boolean;
   gateway: string;
 }
@@ -24,3 +26,4 @@ export interface RevokedAccess {
 
 export function manageEmployeeAccess(options: AccessOptions & { action: 'enroll' }): Promise<EnrolledAccess>;
 export function manageEmployeeAccess(options: AccessOptions & { action: 'revoke' }): Promise<RevokedAccess>;
+export function anthropicRoutingSummary(anthropicModels: string[]): string[];

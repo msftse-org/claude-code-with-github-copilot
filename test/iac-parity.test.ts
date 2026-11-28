@@ -60,3 +60,18 @@ test('Bicep, Terraform, and deploy.mjs share defaults, outputs, and solution set
   assert.match(settings.litellm.image, /^ghcr\.io\/berriai\/litellm:v[\d.]+@sha256:[0-9a-f]{64}$/);
   for (const source of [await bicepSource(), await terraformSource()]) assert.equal(source.includes('ghcr.io/'), false);
 });
+
+test('Bicep and Terraform mount every LiteLLM config file at the same path', async () => {
+  const files = (await readdir(join(infra, 'litellm'))).sort();
+  assert.deepEqual(files, ['ccgc_anthropic_routing.py', 'config.yaml']);
+  const bicep = await bicepSource();
+  const terraform = await terraformSource();
+  for (const file of files) {
+    assert.ok(bicep.includes(`loadTextContent('../litellm/${file}')`), `Bicep does not load ${file}`);
+    assert.ok(terraform.includes(`file("\${path.module}/../litellm/${file}")`), `Terraform does not load ${file}`);
+    assert.ok(bicep.includes(`path: '${file}'`), `Bicep does not mount ${file}`);
+    assert.ok(terraform.includes(`path      = "${file}"`), `Terraform does not mount ${file}`);
+  }
+  assert.match(bicep, /^var litellmConfigDir = '\/var\/run\/ccgc\/litellm'$/m);
+  assert.match(terraform, /^\s+litellm_config_dir\s+= "\/var\/run\/ccgc\/litellm"$/m);
+});

@@ -74,9 +74,13 @@ test('local access takes an action and one valid GitHub username', () => {
   assert.equal(parsed.action, 'enroll');
   assert.equal(parsed.prefix, 'ccgc-pilot');
   assert.equal(parsed.subscription, firstSubscription);
+  assert.equal(parsed.anthropicRouting, false);
+  const routed = parseOptions(['enroll', 'Example-User', '--anthropic-routing']);
+  assert.ok(!('help' in routed) && routed.anthropicRouting === true);
   for (const argv of [
     ['delete', 'Example-User'], ['enroll'], ['revoke', 'a', 'b'], ['enroll', 'bad_login'],
     ['enroll', 'a', '--subscription', firstSubscription, '--secrets-file', 'secrets.json'],
+    ['revoke', 'Example-User', '--anthropic-routing'],
   ]) {
     assert.throws(() => parseOptions(argv), Error, argv.join(' '));
   }

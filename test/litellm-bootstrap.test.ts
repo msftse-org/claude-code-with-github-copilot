@@ -8,6 +8,7 @@ const litellmUrl = 'https://litellm.example';
 interface Deployment {
   model_name: string;
   litellm_params: Record<string, string>;
+  model_info?: { id: string };
 }
 
 function json(value: unknown, status = 200) {
@@ -49,13 +50,20 @@ function fakeLiteLLM({ credential, deployments = [], advertiseFrom = 1 }: {
         : json({ detail: { error: 'LLM Model List not loaded in.' } }, 500);
     }
     if (url.pathname === '/model/new' && method === 'POST') {
-      models.push(body as unknown as Deployment);
+      models.push({ ...(body as unknown as Deployment), model_info: { id: `id-${models.length}` } });
       return json({ model_id: 'generated' });
+    }
+    if (url.pathname === '/model/delete' && method === 'POST') {
+      const index = models.findIndex(model => model.model_info?.id === body?.id);
+      if (index === -1) return json({ detail: 'not found' }, 404);
+      models.splice(index, 1);
+      return json({ message: 'deleted' });
     }
     if (url.pathname === '/v1/models') {
       // Existing models are listed at once; new ones reach every replica after a few listings.
       listings += 1;
-      return json({ data: (listings >= advertiseFrom ? models : deployments).map(model => ({ id: model.model_name })) });
+      const advertised = listings >= advertiseFrom ? models : deployments.filter(model => models.includes(model));
+      return json({ data: advertised.map(model => ({ id: model.model_name })) });
     }
     return json({ error: { message: 'unexpected request' } }, 500);
   };
@@ -174,4 +182,57 @@ test('bootstrap reports models that LiteLLM never advertises', async () => {
     }),
     /did not advertise these models: claude-haiku-4\.5/,
   );
+});
+
+const perUserCredential = {
+  credential_values: { github_copilot_auth_type: 'per_user_oauth' },
+  credential_info: { custom_llm_provider: 'github_copilot' },
+};
+
+function anthropicRoute(model: string, extra: Record<string, string> = {}): Deployment {
+  return {
+    model_name: `ccgc-anthropic/${model}`,
+    litellm_params: { model: `anthropic/${model.replaceAll('.', '-')}`, custom_llm_provider: 'anthropic', ...extra },
+  };
+}
+
+test('bootstrap creates credential-free Anthropic routes on request and removes them on false', async () => {
+  const litellm = fakeLiteLLM({ credential: perUserCredential, deployments: [copilotRoute('claude-sonnet-5.5')] });
+  const models = ['claude-sonnet-5.5', 'claude-haiku-4.5'];
+  const created = await bootstrapLiteLLM({ litellmUrl, masterKey, models, fetcher: litellm.fetcher, sleep: noWait,
+    anthropicRoutes: true });
+  assert.deepEqual(created.createdAnthropicRoutes, ['ccgc-anthropic/claude-sonnet-5.5', 'ccgc-anthropic/claude-haiku-4.5']);
+  assert.deepEqual(
+    litellm.calls.filter(call => call.url.pathname === '/model/new').map(call => call.body).slice(1),
+    [anthropicRoute('claude-sonnet-5.5'), anthropicRoute('claude-haiku-4.5')],
+  );
+
+  const again = await bootstrapLiteLLM({ litellmUrl, masterKey, models, fetcher: litellm.fetcher, sleep: noWait,
+    anthropicRoutes: true });
+  assert.deepEqual(again.createdAnthropicRoutes, []);
+
+  const removed = await bootstrapLiteLLM({ litellmUrl, masterKey, models, fetcher: litellm.fetcher, sleep: noWait,
+    anthropicRoutes: false });
+  assert.deepEqual(removed.removedAnthropicRoutes, ['ccgc-anthropic/claude-sonnet-5.5', 'ccgc-anthropic/claude-haiku-4.5']);
+  const listed = await (await litellm.fetcher(`${litellmUrl}/v1/models`)).json() as { data: Array<{ id: string }> };
+  assert.deepEqual(listed.data.map(model => model.id), ['claude-sonnet-5.5', 'claude-haiku-4.5']);
+});
+
+test('bootstrap refuses Anthropic routes that hold a credential or use another API host', async () => {
+  const unsafe: Array<Record<string, string>> = [
+    { api_key: 'sk-ant-api03-***' }, { api_base: 'https://proxy.example' }, { litellm_credential_name: 'shared' },
+  ];
+  for (const extra of unsafe) {
+    const litellm = fakeLiteLLM({
+      credential: perUserCredential,
+      deployments: [copilotRoute('claude-sonnet-5.5'), anthropicRoute('claude-sonnet-5.5', extra)],
+    });
+    await assert.rejects(
+      bootstrapLiteLLM({ litellmUrl, masterKey, models: ['claude-sonnet-5.5'], fetcher: litellm.fetcher, sleep: noWait,
+        anthropicRoutes: true }),
+      /ccgc-anthropic\/claude-sonnet-5\.5 must use only Anthropic's API/,
+      JSON.stringify(extra),
+    );
+    assert.equal(litellm.calls.some(call => call.method === 'POST'), false);
+  }
 });

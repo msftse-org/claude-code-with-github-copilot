@@ -13,7 +13,7 @@ function response(value: unknown, status = 200) {
   return new Response(JSON.stringify(value), { status, headers: { 'content-type': 'application/json' } });
 }
 
-function mockFetch(existingUsers: object[] = []) {
+function mockFetch(existingUsers: object[] = [], modelIds = ['claude-sonnet-5.5', 'claude-haiku-4.5', 'gpt-4o']) {
   const calls: Array<{
     url: URL;
     method: string;
@@ -36,7 +36,7 @@ function mockFetch(existingUsers: object[] = []) {
       return response({ users: existingUsers, total_pages: 1 });
     }
     if (url.pathname === '/v1/models') {
-      return response({ data: [{ id: 'claude-sonnet-5.5' }, { id: 'claude-haiku-4.5' }, { id: 'gpt-4o' }] });
+      return response({ data: modelIds.map(id => ({ id })) });
     }
     if (url.pathname === '/user/new' || url.pathname === '/user/update' || url.pathname === '/user/delete'
       || url.pathname.includes('/user_connection')) {
@@ -141,4 +141,34 @@ test('every enrollment grants only the configured web-search MCP server and tool
   assert.deepEqual(key?.object_permission, { mcp_servers: ['ccgc-github-web-search'], mcp_tool_permissions: { 'ccgc-github-web-search': ['web_search'] } });
   assert.equal((key?.allowed_routes as string[]).includes('/v1/mcp/server'), false);
   assert.equal(key?.duration, '90d');
+});
+
+test('Anthropic routing is granted to user and key only on request, and only for approved Copilot models', async () => {
+  const existing = { user_id: userId, user_role: 'internal_user', metadata: { github_account_id: githubAccountId } };
+  const gateway = ['claude-sonnet-5.5', 'claude-haiku-4.5', 'ccgc-anthropic/claude-sonnet-5.5', 'ccgc-anthropic/claude-opus-9'];
+  const granted = mockFetch([existing], gateway);
+  const result = await manageEmployeeAccess({
+    action: 'enroll', githubLogin, litellmUrl: 'https://litellm.example', masterKey, anthropicRouting: true, fetcher: granted.fetcher,
+  });
+  const expected = ['claude-sonnet-5.5', 'claude-haiku-4.5', 'ccgc-anthropic/claude-sonnet-5.5'];
+  assert.deepEqual(result.anthropicModels, ['ccgc-anthropic/claude-sonnet-5.5']);
+  assert.deepEqual(granted.calls.find(call => call.url.pathname === '/user/update')?.body?.models, expected);
+  assert.deepEqual(granted.calls.find(call => call.url.pathname === '/key/generate')?.body?.models, expected);
+
+  // Enrolling again without the option removes the grant from the user, which LiteLLM also applies to older keys.
+  const renewed = mockFetch([existing], gateway);
+  const plain = await manageEmployeeAccess({
+    action: 'enroll', githubLogin, litellmUrl: 'https://litellm.example', masterKey, fetcher: renewed.fetcher,
+  });
+  assert.deepEqual(plain.anthropicModels, []);
+  assert.deepEqual(renewed.calls.find(call => call.url.pathname === '/user/update')?.body?.models, ['claude-sonnet-5.5', 'claude-haiku-4.5']);
+  assert.deepEqual(renewed.calls.find(call => call.url.pathname === '/key/generate')?.body?.models, ['claude-sonnet-5.5', 'claude-haiku-4.5']);
+});
+
+test('Anthropic routing enrollment fails before changing LiteLLM when the gateway has no Anthropic routes', async () => {
+  const { calls, fetcher } = mockFetch();
+  await assert.rejects(manageEmployeeAccess({
+    action: 'enroll', githubLogin, litellmUrl: 'https://litellm.example', masterKey, anthropicRouting: true, fetcher,
+  }), /Anthropic routing is off on this gateway\. Run deploy with --anthropic-routes true first\./);
+  assert.equal(calls.some(call => ['/user/new', '/user/update', '/key/generate'].includes(call.url.pathname)), false);
 });

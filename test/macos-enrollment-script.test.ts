@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { execFile } from 'node:child_process';
-import { chmod, mkdir, mkdtemp, readFile, readdir, rename, rm, symlink, writeFile } from 'node:fs/promises';
+import { chmod, mkdir, mkdtemp, readFile, readdir, rename, rm, stat, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
@@ -393,13 +393,30 @@ async function standaloneFixture(mode: string): Promise<string> {
   const connection = { connections: [{
     credential_name: standaloneCredential, provider: 'github_copilot', connected: true, github_login: 'Example-User',
   }] };
-  const routes = { data: [{
+  const routes: { data: Array<{ model_name: string; litellm_params: Record<string, unknown> }> } = { data: [{
     model_name: 'claude-sonnet-5.5',
     litellm_params: { model: 'github_copilot/claude-sonnet-5.5', litellm_credential_name: standaloneCredential },
   }, {
     model_name: 'claude-haiku-4.5',
     litellm_params: { model: 'github_copilot/claude-haiku-4.5', litellm_credential_name: standaloneCredential },
   }] };
+  const models = { data: [{ id: 'claude-sonnet-5.5' }, { id: 'claude-haiku-4.5' }] };
+  if (mode.startsWith('hybrid') && mode !== 'hybrid-no-routes') {
+    // Shape of LiteLLM 1.111.0 /v1/model/info for an employee key: secrets are masked as null.
+    for (const id of ['claude-sonnet-5.5', 'claude-haiku-4.5']) {
+      models.data.push({ id: `ccgc-anthropic/${id}` });
+      routes.data.push({ model_name: `ccgc-anthropic/${id}`, litellm_params: {
+        model: `anthropic/${id.replaceAll('.', '-')}`, custom_llm_provider: 'anthropic',
+        api_base: mode === 'hybrid-unsafe-route' ? 'https://relay.example' : null, api_key: null, litellm_credential_name: null,
+      } });
+    }
+  }
+  if (mode === 'hybrid-extra-model') {
+    models.data.push({ id: 'relay-model' });
+    routes.data.push({ model_name: 'relay-model', litellm_params: {
+      model: 'anthropic/claude-sonnet-5-5', custom_llm_provider: 'anthropic', api_base: 'https://relay.example',
+    } });
+  }
   if (mode === 'wrong-account') poll.github_login = 'another-user';
   if (mode === 'wrong-owner') key.info.user_id = '99999999-2222-4333-8444-555555555555';
   if (mode === 'wrong-connection') connection.connections[0]!.github_login = 'another-user';
@@ -435,7 +452,7 @@ async function standaloneFixture(mode: string): Promise<string> {
       user_id: standaloneUser, user_role: 'internal_user', user_alias: 'example-user',
       metadata: { github_login: 'example-user' },
     } },
-    models: { data: [{ id: 'claude-sonnet-5.5' }, { id: 'claude-haiku-4.5' }] },
+    models,
     probe: { model: 'claude-sonnet-5.5', content: [{ type: 'text', text: 'CCGC_CLIENT_READY' }] },
   };
   for (const [name, value] of Object.entries(fixtures)) {
@@ -630,6 +647,152 @@ test('configure keeps later personal settings but resets configuration from anot
     await runStandalone(home, 'success', { CCGC_TEST_COMMAND: 'doctor' }, configureHarness);
     assert.deepEqual(await readdir(join(home, 'temp')), []);
   } finally { await rm(home, { recursive: true, force: true }); }
+});
+
+const signedIn = '{"loggedIn":true,"authMethod":"claude.ai","apiProvider":"firstParty"}';
+// Only the sign-in check hides the credential helper; every other call reports the version.
+const hybridStubs = `${standaloneStubs}
+claude() {
+  printf '%s\\n' "$*" >> "$HOME/claude-calls"
+  if [ "$#" -eq 5 ] && [ "$1 $2 $3 $4 $5" = '--settings {"apiKeyHelper":""} auth status --json' ]; then
+    printf '%s\\n' "$CCGC_TEST_AUTH"
+    return 0
+  fi
+  printf '2.1.319 (Claude Code)\\n'
+}
+`;
+const hybridEnrollHarness = `${hybridStubs}
+main enroll --anthropic-routing <<< "\${CCGC_TEST_CHOICE-1}"
+cleanup_temp
+`;
+const hybridHarness = `${hybridEnrollHarness}
+models
+cleanup_temp
+configure < /dev/null
+cleanup_temp
+doctor
+`;
+const gatewayReenrollHarness = `${hybridStubs}
+main enroll < /dev/null
+cleanup_temp
+doctor
+`;
+const hybridDoctorHarness = `${hybridStubs}
+doctor
+cleanup_temp
+`;
+
+test('Anthropic routing enrollment keeps Copilot for normal requests and uses the employee Claude sign-in for Anthropic routes', {
+  skip: process.platform !== 'darwin',
+}, async () => {
+  const home = await standaloneFixture('hybrid');
+  const settingsPath = join(home, '.claude/settings.json');
+  const profilePath = join(home, '.local/share/ccgc/enterprise/profile.json');
+  const backups = async () => (await readdir(join(home, '.claude'))).filter(name => name.includes('.ccgc-backup.'));
+  try {
+    const result = await runStandalone(home, 'hybrid', { CCGC_TEST_AUTH: signedIn }, hybridHarness);
+    const profile = JSON.parse(await readFile(profilePath, 'utf8'));
+    const settings = JSON.parse(await readFile(settingsPath, 'utf8'));
+    const desktop = JSON.parse(await readFile(join(home, '.local/share/ccgc/enterprise/desktop-gateway.json'), 'utf8'));
+    assert.equal(profile.anthropicRouting, true);
+    assert.deepEqual(profile.models, ['claude-sonnet-5.5', 'claude-haiku-4.5']);
+    assert.deepEqual(profile.anthropicModels, ['ccgc-anthropic/claude-sonnet-5.5', 'ccgc-anthropic/claude-haiku-4.5']);
+    assert.equal(settings.apiKeyHelper, undefined);
+    assert.equal(settings.env.ANTHROPIC_CUSTOM_HEADERS, `x-litellm-api-key: Bearer ${standaloneKey}`);
+    assert.equal(settings.env.CLAUDE_CODE_SUBPROCESS_ENV_SCRUB, '1');
+    assert.equal(settings.env.CLAUDE_CODE_API_KEY_HELPER_TTL_MS, undefined);
+    assert.equal(settings.env.ANTHROPIC_BASE_URL, 'https://gateway.example');
+    assert.equal(settings.model, 'claude-sonnet-5.5');
+    assert.equal(settings.permissions.deny?.includes('WebSearch') ?? false, false);
+    assert.ok(settings.permissions.allow.includes('mcp__github__github-web_search'));
+    assert.equal((await stat(settingsPath)).mode & 0o777, 0o600);
+    assert.equal(desktop.inferenceCredentialHelper, '/bin/bash', 'Claude Desktop keeps the Copilot credential helper');
+    assert.match(result.stdout, /Anthropic routing is on: web search and these models use your own Claude subscription: ccgc-anthropic\/claude-sonnet-5\.5, ccgc-anthropic\/claude-haiku-4\.5\n/);
+    assert.match(result.stdout, /claude --model ccgc-anthropic\/claude-sonnet-5\.5/);
+    assert.match(result.stdout, /Anthropic models \(your own Claude subscription\): ccgc-anthropic\/claude-sonnet-5\.5, ccgc-anthropic\/claude-haiku-4\.5\n/);
+    assert.match(result.stdout, /CCGC doctor passed/);
+    assert.match(result.stdout, /Anthropic routing: on \(Claude subscription sign-in verified/);
+    const calls = await readFile(join(home, 'claude-calls'), 'utf8');
+    assert.equal(calls.split('\n').filter(line => line.includes('auth status')).length, 3, 'enroll, configure and doctor check the sign-in');
+    assert.doesNotMatch(calls, /auth login/);
+    for (const output of [result.stdout, result.stderr, calls, JSON.stringify(profile), JSON.stringify(desktop)]) {
+      assert.equal(output.includes(standaloneKey), false);
+    }
+    const otherKey = `sk-${'o'.repeat(32)}`;
+    await writeFile(settingsPath, JSON.stringify({
+      ...settings, env: { ...settings.env, ANTHROPIC_CUSTOM_HEADERS: `x-litellm-api-key: Bearer ${otherKey}` },
+    }));
+    await assert.rejects(runStandalone(home, 'hybrid', { CCGC_TEST_AUTH: signedIn }, hybridDoctorHarness),
+      /Claude settings do not send the personal key from Keychain; run configure/);
+    await writeFile(settingsPath, JSON.stringify(settings));
+    await assert.rejects(runStandalone(home, 'hybrid', { CCGC_TEST_AUTH: '{"loggedIn":false,"authMethod":"none"}' }, hybridDoctorHarness),
+      /needs Claude Code signed in to your own Claude subscription/);
+    await runStandalone(home, 'hybrid', { CCGC_TEST_AUTH: signedIn }, hybridDoctorHarness);
+
+    const switched = await runStandalone(home, 'hybrid', { CCGC_TEST_AUTH: signedIn }, gatewayReenrollHarness);
+    assert.doesNotMatch(switched.stderr, /Enter 1 or 2/);
+    assert.doesNotMatch(switched.stdout, /Anthropic routing/);
+    const gatewayProfile = JSON.parse(await readFile(profilePath, 'utf8'));
+    const gatewaySettings = JSON.parse(await readFile(settingsPath, 'utf8'));
+    assert.equal(gatewayProfile.anthropicRouting, undefined);
+    assert.equal(gatewayProfile.anthropicModels, undefined);
+    assert.equal(gatewaySettings.env.ANTHROPIC_CUSTOM_HEADERS, undefined);
+    assert.equal(gatewaySettings.env.CLAUDE_CODE_API_KEY_HELPER_TTL_MS, '60000');
+    assert.equal(typeof gatewaySettings.apiKeyHelper, 'string');
+    assert.ok(gatewaySettings.permissions.deny.includes('WebSearch'));
+    const backupContents = await Promise.all((await backups()).map(name => readFile(join(home, '.claude', name), 'utf8')));
+    assert.ok(backupContents.some(content => content.includes('CLAUDE_CODE_SUBPROCESS_ENV_SCRUB')), 'hybrid settings were backed up');
+    for (const content of backupContents) assert.equal(content.includes(standaloneKey), false);
+    // Once the profile is back in gateway mode, the same header is foreign and needs the reset prompt.
+    await writeFile(settingsPath, JSON.stringify({
+      ...gatewaySettings, env: { ...gatewaySettings.env, ANTHROPIC_CUSTOM_HEADERS: `x-litellm-api-key: Bearer ${standaloneKey}` },
+    }));
+    await assert.rejects(runStandalone(home, 'hybrid', { CCGC_TEST_CHOICE: '2' }, configureHarness), /setup cancelled/);
+    assert.deepEqual(await readdir(join(home, 'temp')), []);
+  } finally { await rm(home, { recursive: true, force: true }); }
+});
+
+test('Anthropic routing enrollment requires the employee Claude sign-in and safe Anthropic routes before changing anything', {
+  skip: process.platform !== 'darwin',
+}, async () => {
+  const notSignedIn = /needs Claude Code signed in to your own Claude subscription; run 'claude auth login'/;
+  const cases = [
+    { mode: 'hybrid', auth: '{"loggedIn":false,"authMethod":"none"}', error: notSignedIn, network: false },
+    { mode: 'hybrid', auth: '{"loggedIn":true,"authMethod":"oauth_token"}', error: notSignedIn, network: false },
+    { mode: 'hybrid', auth: '{"loggedIn":true,"authMethod":"api_key"}', error: notSignedIn, network: false },
+    { mode: 'hybrid', auth: 'Unknown command', error: /could not check the Claude Code sign-in/, network: false },
+    {
+      mode: 'hybrid', auth: signedIn, env: { ANTHROPIC_CUSTOM_HEADERS: 'x-team: blue' },
+      error: /shell environment setting ANTHROPIC_CUSTOM_HEADERS conflicts/, network: false,
+    },
+    { mode: 'hybrid-no-routes', auth: signedIn, error: /no Anthropic routes; ask IT to enroll you with anthropic_routing/, network: true },
+    { mode: 'hybrid-unsafe-route', auth: signedIn, error: /does not go straight to Anthropic with your own sign-in/, network: true },
+    { mode: 'hybrid-extra-model', auth: signedIn, error: /can also use models this setup cannot check/, network: true },
+  ];
+  for (const item of cases) {
+    const home = await standaloneFixture(item.mode);
+    try {
+      await assert.rejects(
+        runStandalone(home, item.mode, { CCGC_TEST_AUTH: item.auth, ...item.env }, hybridEnrollHarness),
+        error => {
+          const stderr = String((error as { stderr?: string }).stderr);
+          assert.match(stderr, item.error, `${item.mode} ${item.auth}`);
+          if (!item.network) assert.doesNotMatch(stderr, /Enter 1 or 2/);
+          return true;
+        },
+      );
+      if (item.network) {
+        const events = await readFile(join(home, 'events'), 'utf8');
+        assert.equal(events.includes('/user_connection/start'), item.mode !== 'hybrid-no-routes');
+      } else {
+        await assert.rejects(readFile(join(home, 'events')), { code: 'ENOENT' });
+      }
+      assert.equal(await readFile(join(home, '.claude/settings.json'), 'utf8'), '{"unrelatedSetting":true,"permissions":{"defaultMode":"manual"}}');
+      assert.equal(await readFile(join(home, '.local/share/ccgc/enterprise/profile.json'), 'utf8'), '{"previousProfile":true}');
+      assert.deepEqual(await readdir(join(home, 'keychain')), ['previous-key']);
+      assert.deepEqual(await readdir(join(home, 'temp')), []);
+    } finally { await rm(home, { recursive: true, force: true }); }
+  }
 });
 
 test('standalone enrollment rejects health, identity, routing and authorization failures without replacing local credentials', {

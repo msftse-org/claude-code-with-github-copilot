@@ -4,7 +4,7 @@ import { join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { parseArgs } from 'node:util';
 import { DEFAULT_INSTALLER, describeInstaller, installerGateway, readDeployedGateway, writeInstaller } from './build-installer.mjs';
-import { manageEmployeeAccess } from './enterprise-actions-access.mjs';
+import { anthropicRoutingSummary, manageEmployeeAccess } from './enterprise-actions-access.mjs';
 
 const SUBSCRIPTION = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -27,6 +27,9 @@ Options:
   --gateway <url>        LiteLLM HTTPS origin (default: the ccgc-admin LITELLM_URL variable)
   --github-repo <o/r>    Repository with the ccgc-admin environment (default: this checkout's repository)
   --installer <path>     Employee setup file to write on enroll (default: dist/ccgc-enterprise-setup.command)
+  --anthropic-routing    Enroll only: also let the employee's claude.ai subscription serve Claude Code
+                         web search and ccgc-anthropic/* models (needs deploy --anthropic-routes true).
+                         Enrolling without it removes the grant.
 `;
 
 function fail(message) {
@@ -45,6 +48,7 @@ export function parseOptions(argv) {
       gateway: { type: 'string' },
       'github-repo': { type: 'string' },
       installer: { type: 'string' },
+      'anthropic-routing': { type: 'boolean', default: false },
       help: { type: 'boolean', default: false },
     },
   });
@@ -52,6 +56,7 @@ export function parseOptions(argv) {
   const [action, githubLogin, ...extra] = positionals;
   if (action !== 'enroll' && action !== 'revoke') fail(`Choose enroll or revoke.\n\n${USAGE}`);
   if (githubLogin === undefined || extra.length > 0) fail(`Pass exactly one GitHub username.\n\n${USAGE}`);
+  if (action === 'revoke' && values['anthropic-routing']) fail('--anthropic-routing applies only to enroll.');
   if (!/^[A-Za-z0-9](?:[A-Za-z0-9-]{0,37}[A-Za-z0-9])?$/.test(githubLogin)) {
     fail(`${githubLogin} is not a valid GitHub username.`);
   }
@@ -76,6 +81,7 @@ export function parseOptions(argv) {
     gateway: values.gateway === undefined ? undefined : installerGateway(values.gateway),
     githubRepo,
     installerFile: resolve(values.installer ?? DEFAULT_INSTALLER),
+    anthropicRouting: values['anthropic-routing'],
   };
 }
 
@@ -148,6 +154,7 @@ export async function runAccess(options, { fetcher = fetch, run, configRoot } = 
     githubLogin: options.githubLogin,
     litellmUrl: gateway,
     masterKey,
+    anthropicRouting: options.anthropicRouting ?? false,
     fetcher,
   });
   return { secretsFile, installer, result };
@@ -173,6 +180,7 @@ export function describeAccess({ installer, result }) {
     'The employee pastes the key when prompted and approves GitHub with their Copilot account.',
     'Send the key privately and clear this terminal: anyone with the key can use it until it',
     'expires or is revoked. Enroll again to renew it.',
+    ...anthropicRoutingSummary(result.anthropicModels),
   ].join('\n');
 }
 

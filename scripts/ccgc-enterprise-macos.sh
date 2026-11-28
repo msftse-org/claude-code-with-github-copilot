@@ -17,7 +17,12 @@ DESKTOP_DATA_PATH="$HOME/Library/Application Support/Claude-3p"
 DESKTOP_ACTIVE_PATH=''
 # Credentials, provider switches, and model overrides that bypass or break enterprise routing.
 CONFLICTING_ENV_KEYS='ANTHROPIC_API_KEY ANTHROPIC_AUTH_TOKEN CLAUDE_CODE_OAUTH_TOKEN ANTHROPIC_CUSTOM_HEADERS ANTHROPIC_MODEL ANTHROPIC_SMALL_FAST_MODEL ANTHROPIC_DEFAULT_OPUS_MODEL ANTHROPIC_DEFAULT_SONNET_MODEL ANTHROPIC_DEFAULT_HAIKU_MODEL CLAUDE_CODE_USE_BEDROCK CLAUDE_CODE_USE_VERTEX CLAUDE_CODE_USE_FOUNDRY'
-MANAGED_ENV_KEYS='ANTHROPIC_BASE_URL ANTHROPIC_DEFAULT_MODEL CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY CLAUDE_CODE_API_KEY_HELPER_TTL_MS CLAUDE_CODE_AUTO_MODE_SERVER'
+MANAGED_ENV_KEYS='ANTHROPIC_BASE_URL ANTHROPIC_DEFAULT_MODEL CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY CLAUDE_CODE_API_KEY_HELPER_TTL_MS CLAUDE_CODE_AUTO_MODE_SERVER ANTHROPIC_CUSTOM_HEADERS CLAUDE_CODE_SUBPROCESS_ENV_SCRUB'
+# Anthropic routing (hybrid mode): Authorization carries the employee's own claude.ai
+# sign-in, so the personal LiteLLM key travels in this header instead of apiKeyHelper.
+ANTHROPIC_ROUTE_PREFIX='ccgc-anthropic/'
+HYBRID_HEADER_PATTERN='^x-litellm-api-key: Bearer sk-[A-Za-z0-9._-]{16,}$'
+ANTHROPIC_ROUTING=0
 TEMP_DIR=''
 FRESH_START_APPROVED=0
 SETTINGS_RESET=0
@@ -75,7 +80,7 @@ CCGC enterprise macOS enrollment
 
 Usage:
   bash ccgc-enterprise-macos.sh
-  bash ccgc-enterprise-macos.sh enroll [--gateway HTTPS_URL] [--no-browser]
+  bash ccgc-enterprise-macos.sh enroll [--gateway HTTPS_URL] [--no-browser] [--anthropic-routing]
   bash ccgc-enterprise-macos.sh mcp-headers
   bash ccgc-enterprise-macos.sh token
   bash ccgc-enterprise-macos.sh models
@@ -111,6 +116,16 @@ rerun the same setup file: installed tools and completed logins are reused.
 Setup finishes only after both inference and MCP verification pass. No GitHub
 token is saved in Claude JSON files. Existing keys need IT to grant MCP access
 before setup can finish; configure includes MCP without a separate option.
+
+Anthropic routing is off unless Enterprise IT turns it on for you. With it,
+enroll --anthropic-routing keeps GitHub Copilot for normal requests and lets
+LiteLLM send web search, and models named ccgc-anthropic/<model>, to Anthropic
+on your own Claude subscription. Sign in first with 'claude auth login'; this
+script never signs in for you. In this mode the personal LiteLLM key is also
+saved in the private (0600) Claude Code settings file as a request header,
+because Claude Code sends your Claude sign-in instead of the credential helper.
+Claude Desktop keeps the GitHub Copilot setup. Run enroll again without the
+option to switch back; configure and doctor keep the mode you enrolled with.
 EOF
 }
 
@@ -351,6 +366,57 @@ json_is_empty_object() {
   [ "$(/usr/bin/plutil -convert json -o - "$1" 2>/dev/null)" = '{}' ]
 }
 
+json_absent_or_null() {
+  local type
+  type="$(/usr/bin/plutil -type "$2" "$1" 2>/dev/null)" || return 0
+  [ "$type" = '(any)' ]
+}
+
+profile_anthropic_routing() {
+  [ -f "$PROFILE_PATH" ] && [ ! -L "$PROFILE_PATH" ] &&
+    [ "$(json_raw "$PROFILE_PATH" anthropicRouting 2>/dev/null || true)" = true ]
+}
+
+# Hybrid mode relies on Claude Code's own claude.ai sign-in. The override hides this
+# setup's credential helper so the check sees the real sign-in. It never signs in.
+require_claude_ai_login() {
+  local status
+  local logged_in
+  local method
+  status="$(claude --settings '{"apiKeyHelper":""}' auth status --json 2>/dev/null || true)"
+  logged_in="$(printf '%s' "$status" | /usr/bin/plutil -extract loggedIn raw -o - - 2>/dev/null)" &&
+    method="$(printf '%s' "$status" | /usr/bin/plutil -extract authMethod raw -o - - 2>/dev/null)" ||
+    fail 'could not check the Claude Code sign-in; update Claude Code and retry'
+  [ "$logged_in" = true ] && [ "$method" = 'claude.ai' ] ||
+    fail "Anthropic routing needs Claude Code signed in to your own Claude subscription; run 'claude auth login', then rerun setup with --anthropic-routing"
+}
+
+# Backups keep personal settings, not this setup's copy of the personal key. Runs
+# before the new profile is installed, so the profile still shows who wrote the header.
+remove_hybrid_header() {
+  local value
+  profile_anthropic_routing || return 0
+  value="$(json_raw "$1" env.ANTHROPIC_CUSTOM_HEADERS)" || return 0
+  [[ "$value" =~ $HYBRID_HEADER_PATTERN ]] || return 0
+  /usr/bin/plutil -remove env.ANTHROPIC_CUSTOM_HEADERS "$1" >/dev/null 2>&1
+}
+
+# Writes the key with shell built-ins so it never appears in a process argument list.
+set_hybrid_header() {
+  local output="$1"
+  local api_key="$2"
+  local placeholder='ccgc-personal-key-placeholder'
+  local content
+  validate_litellm_key "$api_key"
+  plist_set_string "$output" env.ANTHROPIC_CUSTOM_HEADERS "x-litellm-api-key: Bearer $placeholder"
+  /usr/bin/plutil -convert json "$output"
+  content="$(<"$output")"
+  [ "${content//"$placeholder"/}" = "${content/"$placeholder"/}" ] &&
+    [ "${content/"$placeholder"/}" != "$content" ] ||
+    fail 'could not prepare the Claude Code request header'
+  printf '%s\n' "${content/"$placeholder"/$api_key}" >"$output"
+}
+
 # Succeeds when Claude Code settings must be backed up and recreated. Both modes
 # reset another gateway, credential helper, or any environment variable this
 # script did not write. Enrollment (full) also resets every other leftover;
@@ -375,6 +441,11 @@ settings_need_reset() {
   done
   existing="$(json_raw "$SETTINGS_PATH" apiKeyHelper || true)"
   [ -z "$existing" ] || [ "$existing" = "$(installed_helper)" ] || return 0
+  # Only this setup's own hybrid header is managed; any other value came from another setup.
+  existing="$(json_raw "$SETTINGS_PATH" env.ANTHROPIC_CUSTOM_HEADERS || true)"
+  if [ -n "$existing" ]; then
+    [[ "$existing" =~ $HYBRID_HEADER_PATTERN ]] && profile_anthropic_routing || return 0
+  fi
   while IFS='=' read -r key desired; do
     existing="$(json_raw "$SETTINGS_PATH" "env.$key" || true)"
     [ -z "$existing" ] || [ "$existing" = "$desired" ] || return 0
@@ -383,6 +454,7 @@ ANTHROPIC_BASE_URL=$gateway
 CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY=1
 CLAUDE_CODE_API_KEY_HELPER_TTL_MS=60000
 CLAUDE_CODE_AUTO_MODE_SERVER=0
+CLAUDE_CODE_SUBPROCESS_ENV_SCRUB=1
 EOF
   probe="$(/usr/bin/mktemp "${TMPDIR:-/tmp}/ccgc-settings.XXXXXX")" || return 0
   if /usr/bin/plutil -convert json -o "$probe" "$SETTINGS_PATH" >/dev/null 2>&1; then
@@ -614,6 +686,7 @@ prepare_litellm_profile() {
   /usr/bin/plutil -insert copilotCredentialName -string "$credential" "$output"
   /usr/bin/plutil -insert keychainId -string "$(litellm_key_id "$gateway" "$user_id" "$api_key")" "$output"
   /usr/bin/plutil -insert models -json "$(json_array "$enrollment" models)" "$output"
+  [ "$ANTHROPIC_ROUTING" -eq 0 ] || /usr/bin/plutil -insert anthropicRouting -bool true "$output"
   /usr/bin/plutil -convert json "$output"
 }
 
@@ -689,8 +762,65 @@ verify_litellm_profile() {
     count=$(( count + 1 ))
   done
   [ "$count" -gt 0 ] || fail 'this personal key has no approved Claude models'
+  /usr/bin/plutil -remove anthropicModels "$output" >/dev/null 2>&1 || true
+  if [ "$(json_raw "$expected" anthropicRouting 2>/dev/null || true)" = true ]; then
+    verify_anthropic_routes "$tmp_dir" "$output"
+  fi
   /usr/bin/plutil -convert json "$output"
   /bin/chmod 0600 "$output"
+}
+
+# The client can only see what LiteLLM reports: each ccgc-anthropic/ route must go to
+# Anthropic's own API with no stored credential, so only the employee's sign-in is used.
+verify_anthropic_routes() {
+  local tmp_dir="$1"
+  local output="$2"
+  local index=0
+  local route_index
+  local model
+  local model_id
+  local params
+  local matches
+  local count=0
+  local seen='|'
+  /usr/bin/plutil -insert anthropicModels -json '[]' "$output"
+  while json_array "$tmp_dir/models.json" "data.$index" >/dev/null 2>&1; do
+    model="$(json_value "$tmp_dir/models.json" "data.$index.id")"
+    index=$(( index + 1 ))
+    if ! [[ "$model" =~ ^ccgc-anthropic/claude-[a-z0-9.-]+$ ]]; then
+      # Every request carries the claude.ai sign-in, and LiteLLM sends it to any route with
+      # provider anthropic, so the key may reach only routes this script has checked.
+      [[ "$model" =~ ^claude-[a-z0-9.-]+$ ]] ||
+        fail 'this personal key can also use models this setup cannot check, which would receive your Claude sign-in; ask IT to check CCGC employee access'
+      continue
+    fi
+    case "$seen" in *"|$model|"*) continue ;; esac
+    route_index=0
+    matches=0
+    while json_array "$tmp_dir/routes.json" "data.$route_index" >/dev/null 2>&1; do
+      if [ "$(json_value "$tmp_dir/routes.json" "data.$route_index.model_name")" = "$model" ]; then
+        params="data.$route_index.litellm_params"
+        model_id="${model#"$ANTHROPIC_ROUTE_PREFIX"}"
+        [ "$(json_raw "$tmp_dir/routes.json" "$params.model" || true)" = "anthropic/${model_id//./-}" ] &&
+          [ "$(json_raw "$tmp_dir/routes.json" "$params.custom_llm_provider" || true)" = anthropic ] &&
+          json_absent_or_null "$tmp_dir/routes.json" "$params.api_base" &&
+          json_absent_or_null "$tmp_dir/routes.json" "$params.api_key" &&
+          json_absent_or_null "$tmp_dir/routes.json" "$params.litellm_credential_name" ||
+          fail 'an Anthropic route does not go straight to Anthropic with your own sign-in; ask IT to check the gateway'
+        matches=$(( matches + 1 ))
+      fi
+      route_index=$(( route_index + 1 ))
+    done
+    [ "$matches" -gt 0 ] || fail 'an Anthropic model has no route; ask IT to check the gateway'
+    /usr/bin/plutil -insert "anthropicModels.$count" -string "$model" "$output"
+    seen="${seen}${model}|"
+    count=$(( count + 1 ))
+  done
+  [ "$count" -gt 0 ] || fail_no_anthropic_routes
+}
+
+fail_no_anthropic_routes() {
+  fail 'this personal key has no Anthropic routes; ask IT to enroll you with anthropic_routing, or enroll again without --anthropic-routing'
 }
 
 prepare_desktop_config() {
@@ -923,6 +1053,7 @@ install_enrollment_files() {
           "$SETTINGS_PATH.ccgc-backup.$(/bin/date -u '+%Y%m%dT%H%M%SZ').XXXXXX")" || return 1
         /bin/cp "${targets[$index]}" "$SETTINGS_BACKUP_PATH" &&
           /bin/chmod 0600 "$SETTINGS_BACKUP_PATH" || return 1
+        remove_hybrid_header "$SETTINGS_BACKUP_PATH" || return 1
       elif { [ "${targets[$index]}" = "$CLAUDE_STATE_PATH" ] || [ "$index" -ge 3 ]; } && { [ "$DESKTOP_RESET" -eq 0 ] || [ "$index" -eq 5 ] || [ "${targets[$index]}" = "$CLAUDE_STATE_PATH" ]; } &&
         ! json_is_empty_object "${targets[$index]}" &&
         ! configuration_files_equal "${sources[$index]}" "${targets[$index]}"; then
@@ -1080,10 +1211,12 @@ prepare_settings() {
   local default_model="$2"
   local output="$3"
   local mode="$4"
+  local api_key="${5-}"
   local key
   local desired
   local existing
   local permission_mode=''
+  local scrub=''
 
   require_no_conflicting_shell_env "$gateway"
   while IFS='=' read -r key desired; do
@@ -1109,6 +1242,7 @@ EOF
       /usr/bin/plutil -type "$key" "$output" >/dev/null 2>&1 ||
         /usr/bin/plutil -insert "$key" -dictionary "$output"
     done
+    scrub="$(json_raw "$output" env.CLAUDE_CODE_SUBPROCESS_ENV_SCRUB || true)"
     for key in model apiKeyHelper $(printf 'env.%s ' $MANAGED_ENV_KEYS); do
       /usr/bin/plutil -remove "$key" "$output" >/dev/null 2>&1 || true
     done
@@ -1125,7 +1259,6 @@ EOF
 ANTHROPIC_BASE_URL=$gateway
 ANTHROPIC_DEFAULT_MODEL=$(client_model "$default_model")
 CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY=1
-CLAUDE_CODE_API_KEY_HELPER_TTL_MS=60000
 CLAUDE_CODE_AUTO_MODE_SERVER=0
 EOF
   permission_mode="$(json_raw "$output" permissions.defaultMode || true)"
@@ -1133,6 +1266,14 @@ EOF
     plist_set_string "$output" permissions.defaultMode manual
   fi
   plist_set_string "$output" model "$(client_model "$default_model")"
+  if [ "$ANTHROPIC_ROUTING" -eq 1 ]; then
+    # Subprocesses such as the Bash tool must not inherit the header holding the key.
+    plist_set_string "$output" env.CLAUDE_CODE_SUBPROCESS_ENV_SCRUB 1
+    set_hybrid_header "$output" "$api_key"
+    return
+  fi
+  plist_set_string "$output" env.CLAUDE_CODE_API_KEY_HELPER_TTL_MS 60000
+  [ "$scrub" != 1 ] || plist_set_string "$output" env.CLAUDE_CODE_SUBPROCESS_ENV_SCRUB 1
   plist_set_string "$output" apiKeyHelper "$(installed_helper)"
   /usr/bin/plutil -convert json "$output"
 }
@@ -1201,6 +1342,7 @@ enroll() {
   local index=0
   local connected_login=''
   local flow_handle=''
+  local anthropic_count=0
 
   while [ "$#" -gt 0 ]; do
     case "$1" in
@@ -1210,6 +1352,7 @@ enroll() {
         shift 2
         ;;
       --no-browser) no_browser=1; shift ;;
+      --anthropic-routing) ANTHROPIC_ROUTING=1; shift ;;
       *) fail "unknown enrollment option: $1" ;;
     esac
   done
@@ -1219,6 +1362,10 @@ enroll() {
   validate_gateway "$gateway"
   require_macos_tools
   require_claude_version
+  if [ "$ANTHROPIC_ROUTING" -eq 1 ]; then
+    require_no_conflicting_shell_env "$gateway"
+    require_claude_ai_login
+  fi
   reset_fresh_start_state
   # A completed enrollment for this gateway may be rerun without resetting
   # personal preferences. Credential and identity checks still run below.
@@ -1260,6 +1407,10 @@ enroll() {
   request_json GET "$gateway/v1/models" "$api_key" '' "$tmp_dir/models.json"
   while model="$(json_raw "$tmp_dir/models.json" "data.$index.id" 2>/dev/null)"; do
     index=$(( index + 1 ))
+    if [[ "$model" =~ ^ccgc-anthropic/claude-[a-z0-9.-]+$ ]]; then
+      anthropic_count=$(( anthropic_count + 1 ))
+      continue
+    fi
     [[ "$model" =~ ^claude-[a-z0-9.-]+$ ]] || continue
     case "$seen" in *"|$model|"*) continue ;; esac
     seen="${seen}${model}|"
@@ -1268,6 +1419,8 @@ enroll() {
   done
   [ "$models_json" != '[' ] || fail 'LiteLLM has no approved Claude models available to this key'
   models_json="${models_json}]"
+  # Checked again with the routes after GitHub sign-in; failing here avoids a needless device flow.
+  [ "$ANTHROPIC_ROUTING" -eq 0 ] || [ "$anthropic_count" -gt 0 ] || fail_no_anthropic_routes
 
   ensure_github_cli_login "$expected_login"
   install_self
@@ -1355,7 +1508,7 @@ enroll() {
   verify_litellm_profile "$gateway" "$api_key" "$tmp_dir/profile.json" "$tmp_dir" "$tmp_dir/verified-profile.json"
   default_model="$(json_value "$tmp_dir/verified-profile.json" models.0)"
   verify_gateway_access "$gateway" "$api_key" "$default_model" "$tmp_dir"
-  prepare_settings "$gateway" "$default_model" "$tmp_dir/settings.json" "$enrollment_mode"
+  prepare_settings "$gateway" "$default_model" "$tmp_dir/settings.json" "$enrollment_mode" "$api_key"
   prepare_desktop_config "$gateway" "$tmp_dir/desktop.json"
   prepare_desktop_install "$tmp_dir" "$enrollment_mode"
   verify_github_mcp "$gateway" "$api_key" "$tmp_dir"
@@ -1378,7 +1531,28 @@ enroll() {
   if [ -d '/Applications/Claude.app' ]; then
     printf 'Claude Desktop gateway configuration updated automatically. Quit and reopen Desktop to apply it.\n'
   fi
+  if [ "$ANTHROPIC_ROUTING" -eq 1 ]; then
+    report_anthropic_routing
+  fi
   printf 'Restart existing Claude sessions, then run: claude\n'
+}
+
+report_anthropic_routing() {
+  printf 'Anthropic routing is on: web search and these models use your own Claude subscription: %s\n' \
+    "$(anthropic_model_list)"
+  printf 'Other requests stay on GitHub Copilot. Example: claude --model %s\n' \
+    "$(json_raw "$PROFILE_PATH" anthropicModels.0)"
+}
+
+anthropic_model_list() {
+  local index=0
+  local model
+  local list=''
+  while model="$(json_raw "$PROFILE_PATH" "anthropicModels.$index" 2>/dev/null)"; do
+    list="${list:+$list, }$model"
+    index=$(( index + 1 ))
+  done
+  printf '%s' "$list"
 }
 
 # LiteLLM emits ISO 8601 as ...Z (/key/list) or ...+00:00 with microseconds (/key/info).
@@ -1435,30 +1609,39 @@ models() {
   printf 'GitHub account: %s\n' "$(json_value "$PROFILE_PATH" githubLogin)"
   printf 'Default: %s\n' "$(json_value "$PROFILE_PATH" models.0)"
   printf 'Approved models: %s\n' "$(json_array "$PROFILE_PATH" models)"
+  if profile_anthropic_routing; then
+    printf 'Anthropic models (your own Claude subscription): %s\n' "$(anthropic_model_list)"
+  fi
 }
 
 configure() {
   local gateway
   local default_model
   local tmp_dir
+  local api_key
   require_macos_tools
   require_claude_version
   install_self
   [ -f "$PROFILE_PATH" ] || fail 'enterprise profile is unavailable; run enrollment first'
+  if profile_anthropic_routing; then
+    ANTHROPIC_ROUTING=1
+    require_claude_ai_login
+  fi
   tmp_dir="$(/usr/bin/mktemp -d "${TMPDIR:-/tmp}/ccgc-configure.XXXXXX")"
   TEMP_DIR="$tmp_dir"
   trap cleanup_temp EXIT
   refresh_profile "$tmp_dir"
   gateway="$(json_value "$PROFILE_PATH" gateway)"
   default_model="$(json_value "$PROFILE_PATH" models.0)"
+  api_key="$(direct_profile_key)"
   reset_fresh_start_state
   preflight_fresh_start "$gateway" routing configure
-  prepare_settings "$gateway" "$default_model" "$tmp_dir/settings.json" routing
+  prepare_settings "$gateway" "$default_model" "$tmp_dir/settings.json" routing "$api_key"
   prepare_desktop_config "$gateway" "$tmp_dir/desktop.json"
   prepare_desktop_install "$tmp_dir" routing
   /bin/cp "$PROFILE_PATH" "$tmp_dir/verified-profile.json"
   ensure_github_cli_login "$(json_value "$PROFILE_PATH" githubLogin)"
-  verify_github_mcp "$gateway" "$(direct_profile_key)" "$tmp_dir"
+  verify_github_mcp "$gateway" "$api_key" "$tmp_dir"
   /usr/bin/plutil -remove githubMcpEnabled "$tmp_dir/verified-profile.json" >/dev/null 2>&1 || true
   /usr/bin/plutil -insert githubMcpEnabled -bool true "$tmp_dir/verified-profile.json"
   prepare_github_mcp "$gateway" "$tmp_dir"
@@ -1496,10 +1679,13 @@ doctor() {
     fail 'enterprise profile contains an invalid default model'
   expected_model="$(client_model "$default_model")"
   helper="$(installed_helper)"
+  if profile_anthropic_routing; then ANTHROPIC_ROUTING=1; fi
 
   for existing in $CONFLICTING_ENV_KEYS; do
     [ -z "$(printenv "$existing" 2>/dev/null || true)" ] ||
       fail "shell environment setting $existing conflicts with the enterprise gateway; run 'unset $existing'"
+    # In hybrid mode this setup writes its own request header; it is compared with the Keychain key below.
+    [ "$ANTHROPIC_ROUTING" -eq 1 ] && [ "$existing" = ANTHROPIC_CUSTOM_HEADERS ] && continue
     if json_raw "$SETTINGS_PATH" "env.$existing" >/dev/null 2>&1; then
       fail "Claude settings contain $existing from another setup; run configure to back them up and start from scratch"
     fi
@@ -1522,12 +1708,20 @@ doctor() {
     fail 'Claude settings retain a conflicting default model'
   [ "$(json_value "$SETTINGS_PATH" env.CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY)" = '1' ] ||
     fail 'Claude gateway model discovery is not enabled'
-  [ "$(json_value "$SETTINGS_PATH" env.CLAUDE_CODE_API_KEY_HELPER_TTL_MS)" = '60000' ] ||
-    fail 'Claude credential-helper caching is not configured safely'
+  if [ "$ANTHROPIC_ROUTING" -eq 1 ]; then
+    ! json_raw "$SETTINGS_PATH" apiKeyHelper >/dev/null 2>&1 &&
+      ! json_raw "$SETTINGS_PATH" env.CLAUDE_CODE_API_KEY_HELPER_TTL_MS >/dev/null 2>&1 ||
+      fail 'Claude settings mix the credential helper with Anthropic routing; run configure'
+    [ "$(json_raw "$SETTINGS_PATH" env.CLAUDE_CODE_SUBPROCESS_ENV_SCRUB || true)" = '1' ] ||
+      fail 'Claude subprocess credential scrubbing is not enabled; run configure'
+  else
+    [ "$(json_value "$SETTINGS_PATH" env.CLAUDE_CODE_API_KEY_HELPER_TTL_MS)" = '60000' ] ||
+      fail 'Claude credential-helper caching is not configured safely'
+    [ "$(json_value "$SETTINGS_PATH" apiKeyHelper)" = "$helper" ] ||
+      fail 'Claude settings do not use the installed enterprise credential helper'
+  fi
   [ "$(json_value "$SETTINGS_PATH" env.CLAUDE_CODE_AUTO_MODE_SERVER)" = '0' ] ||
     fail 'Claude local auto-mode routing is not configured'
-  [ "$(json_value "$SETTINGS_PATH" apiKeyHelper)" = "$helper" ] ||
-    fail 'Claude settings do not use the installed enterprise credential helper'
   json_raw "$SETTINGS_PATH" permissions.defaultMode >/dev/null 2>&1 ||
     fail 'Claude permission default is missing'
   if json_raw "$PROFILE_PATH" apiKey >/dev/null 2>&1 ||
@@ -1540,9 +1734,17 @@ doctor() {
   trap cleanup_temp EXIT
   verify_gateway_health "$gateway" "$tmp_dir/health.json"
   api_key="$(direct_profile_key)"
+  if [ "$ANTHROPIC_ROUTING" -eq 1 ]; then
+    [ "$(json_raw "$SETTINGS_PATH" env.ANTHROPIC_CUSTOM_HEADERS || true)" = "x-litellm-api-key: Bearer $api_key" ] ||
+      fail 'Claude settings do not send the personal key from Keychain; run configure'
+    require_claude_ai_login
+  fi
   verify_litellm_profile "$gateway" "$api_key" "$PROFILE_PATH" "$tmp_dir" "$tmp_dir/verified-profile.json"
   [ "$(json_array "$PROFILE_PATH" models)" = "$(json_array "$tmp_dir/verified-profile.json" models)" ] ||
     fail 'enterprise profile models changed; run configure to refresh them'
+  [ "$(json_array "$PROFILE_PATH" anthropicModels 2>/dev/null || true)" = \
+    "$(json_array "$tmp_dir/verified-profile.json" anthropicModels 2>/dev/null || true)" ] ||
+    fail 'enterprise profile Anthropic models changed; run configure to refresh them'
   verify_gateway_access "$gateway" "$api_key" "$default_model" "$tmp_dir"
   verify_desktop_config "$gateway"
   [ "$(json_raw "$PROFILE_PATH" githubMcpEnabled 2>/dev/null || true)" = true ] ||
@@ -1561,6 +1763,10 @@ doctor() {
   fi
   printf 'GitHub account: %s\n' "$(json_value "$PROFILE_PATH" githubLogin)"
   printf 'Default model: %s (%s)\n' "$default_model" "$(model_display_name "$default_model")"
+  if [ "$ANTHROPIC_ROUTING" -eq 1 ]; then
+    printf 'Anthropic routing: on (Claude subscription sign-in verified; web search and %s use Anthropic)\n' \
+      "$(anthropic_model_list)"
+  fi
   printf 'Local settings, Keychain, binding, model discovery, output limit, and inference are healthy.\n'
 }
 
@@ -1700,6 +1906,19 @@ append_permission() {
   /usr/bin/plutil -insert "$path.$index" -string "$rule" "$file"
 }
 
+remove_permission() {
+  local file="$1" path="$2" rule="$3" index=0 existing
+  /usr/bin/plutil -type "$path" "$file" >/dev/null 2>&1 || return 0
+  [ "$(/usr/bin/plutil -type "$path" "$file")" = array ] || fail "$path must be an array"
+  while existing="$(json_raw "$file" "$path.$index" 2>/dev/null)"; do
+    if [ "$existing" = "$rule" ]; then
+      /usr/bin/plutil -remove "$path.$index" "$file"
+    else
+      index=$(( index + 1 ))
+    fi
+  done
+}
+
 prepare_github_mcp() {
   local gateway="$1" tmp_dir="$2"
   local output="$tmp_dir/mcp-state.json"
@@ -1726,7 +1945,12 @@ prepare_github_mcp() {
   helper="$(shell_quote /bin/bash) $(shell_quote "$INSTALL_PATH") mcp-headers"
   /usr/bin/plutil -insert mcpServers.github.headersHelper -string "$helper" "$output"
   append_permission "$tmp_dir/settings.json" permissions.allow 'mcp__github__github-web_search'
-  append_permission "$tmp_dir/settings.json" permissions.deny WebSearch
+  # Without Anthropic routing, Claude's built-in web search cannot run on GitHub Copilot.
+  if [ "$ANTHROPIC_ROUTING" -eq 1 ]; then
+    remove_permission "$tmp_dir/settings.json" permissions.deny WebSearch
+  else
+    append_permission "$tmp_dir/settings.json" permissions.deny WebSearch
+  fi
   /bin/chmod 0600 "$output"
 }
 
